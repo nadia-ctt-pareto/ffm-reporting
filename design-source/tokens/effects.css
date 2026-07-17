@@ -1,0 +1,11 @@
+:root{
+--radius-none:0px; /* the brand is square-cornered everywhere */
+--radius-pill:999px; /* only for circular icon chips */
+--shadow-card:0 2px 12px rgba(10,10,10,0.08);
+--shadow-dialog:0 12px 40px rgba(10,10,10,0.22);
+--diagonal-clip:polygon(0 0,100% 8%,100% 100%,0 92%); /* signature angled band */
+--diagonal-clip-reverse:polygon(0 8%,100% 0,100% 92%,0 100%);
+--ease-brand:cubic-bezier(.4,0,.2,1);
+--speed-fast:120ms;
+--speed-med:220ms;
+}

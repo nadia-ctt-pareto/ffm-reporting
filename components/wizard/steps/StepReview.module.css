@@ -1,0 +1,84 @@
+.title {
+  font-family: var(--font-heading);
+  font-weight: 300;
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ff-gray-1);
+  margin-bottom: 28px;
+}
+
+.narrative {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ff-gray-2);
+  margin: 0 0 28px;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.kicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 10px;
+}
+
+.riskList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.riskCard {
+  border: 1px solid var(--border-subtle);
+  padding: 14px 16px;
+}
+
+.riskHeading {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.riskDescription {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ff-gray-2);
+}
+
+.mutedNote {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ff-gray-1);
+}
+
+.priorityRow {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ff-black);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.publishRow {
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: flex-end;
+}

@@ -1,0 +1,26 @@
+.kicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.sourceSelect {
+  width: 320px;
+  margin-bottom: 14px;
+}
+
+.candidateList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.emptyMessage {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ff-gray-1);
+}

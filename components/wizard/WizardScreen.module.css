@@ -1,0 +1,81 @@
+/* Line 73/723: header stays white regardless of dark mode. */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 48px;
+  background: var(--ff-white);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.wordmark {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--ff-black);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.headerButtons {
+  display: flex;
+  gap: 10px;
+}
+
+/* Line 116 */
+.body {
+  padding: 36px 48px 24px;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+/* Line 325 */
+.error {
+  margin-top: 20px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--negative);
+}
+
+/* Line 329 */
+.nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Line 311 */
+.publishedWrap {
+  text-align: center;
+  padding: 40px 0;
+}
+
+.publishedTitle {
+  font-family: var(--font-heading);
+  font-weight: 300;
+  font-size: 32px;
+  margin-bottom: 12px;
+}
+
+.publishedCopy {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ff-gray-2);
+  max-width: 480px;
+  margin: 0 auto 32px;
+}
+
+.publishedButtons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 16px;
+}

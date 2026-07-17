@@ -1,0 +1,19 @@
+.copyRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.disclaimer {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--ff-gray-1);
+  line-height: 1.6;
+  margin: 18px 0 0;
+}
+
+.closeRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 22px;
+}

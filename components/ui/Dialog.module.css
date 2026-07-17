@@ -1,0 +1,30 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.panel {
+  background: var(--ff-white);
+  box-shadow: var(--shadow-dialog);
+  padding: 32px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  /* Programmatically focused on open for a11y; the panel itself needs no ring. */
+  outline: none;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-weight: 300;
+  font-size: 22px;
+  color: var(--ff-black);
+  margin-bottom: 20px;
+}

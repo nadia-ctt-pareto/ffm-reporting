@@ -1,0 +1,38 @@
+.field {
+  display: block;
+  width: 100%;
+}
+
+.label {
+  display: block;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ff-black);
+  margin-bottom: 6px;
+}
+
+.input {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--ff-gray-2);
+  background: var(--ff-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-none);
+  padding: 10px 12px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  height: 42px;
+}
+
+.input:focus {
+  border-color: var(--ff-green);
+}
+
+.input[readonly] {
+  background: var(--ff-off-white);
+  color: var(--ff-gray-1);
+}

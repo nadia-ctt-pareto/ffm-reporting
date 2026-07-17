@@ -1,0 +1,37 @@
+// Ported verbatim from design-source/original-dashboard.dc.html script block:
+// ffCsvEscape (444), exportAllTasksCSV (635-643).
+
+import type { Report } from './types';
+import { fmtWeekLabel } from './format';
+
+/** Line 444 */
+export function csvEscape(v: unknown): string {
+  const s = String(v === null || v === undefined ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+/** Lines 636-638 */
+export function buildAllTasksCsv(reports: Report[]): string {
+  const rows: (string | number)[][] = [
+    ['Report ID', 'Week', 'Prepared For', 'Prepared By', 'Report Status', 'Client', 'Task', 'Task Status', 'Deadline'],
+  ];
+  reports.forEach((r) => {
+    r.tasks.forEach((t) => {
+      rows.push([r.id, fmtWeekLabel(r.weekStart, r.weekEnd), r.preparedFor, r.preparedBy, r.status, t.client, t.task, t.status, t.deadline]);
+    });
+  });
+  return rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+}
+
+/** Lines 639-642 */
+export function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

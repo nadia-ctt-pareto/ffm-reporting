@@ -1,0 +1,49 @@
+/* Line 84 */
+.row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  padding: 28px 48px 8px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 150px;
+  cursor: pointer;
+}
+
+/* Line 714. Circles are the brand's only --radius-pill exception. */
+.circle {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Line 716 */
+.label {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+/* Line 717 */
+.divider {
+  flex-grow: 1;
+  height: 2px;
+  margin-top: 15px;
+}

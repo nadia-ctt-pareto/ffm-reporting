@@ -1,0 +1,27 @@
+:root{
+--font-display-serif:"Regonia","Didot","Bodoni MT",serif; /* elegant high-contrast serif — hero words, big statements */
+--font-heading:"Poppins",sans-serif; /* geometric sans — headings, UI, callouts */
+--font-body:"Open Sans",sans-serif; /* body copy */
+/* Scale */
+--text-hero:clamp(48px,6vw,84px);
+--text-h1:56px;
+--text-h2:40px;
+--text-h3:24px;
+--text-h4:18px;
+--text-body-lg:16px;
+--text-body-md:14px;
+--text-body-sm:12.5px;
+--text-caption:11px;
+/* Weights */
+--weight-light:300;
+--weight-regular:400;
+--weight-medium:500;
+--weight-semibold:600;
+--weight-bold:700;
+/* Tracking */
+--tracking-wide:0.32em; /* MARKETING-style letterspaced caps */
+--tracking-caps:0.08em;
+--leading-tight:1.08;
+--leading-heading:1.2;
+--leading-body:1.65;
+}

@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+<link rel="stylesheet" href="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/tokens/colors.css">
+<link rel="stylesheet" href="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/tokens/typography.css">
+<link rel="stylesheet" href="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/tokens/effects.css">
+<link rel="stylesheet" href="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/styles.css">
+<script src="_ds/foundation-first-design-system-a26af810-66e3-4fc2-bdb6-7fcff54b54b3/_ds_bundle.js"></script>
+<style>
+body{margin:0}
+a{color:var(--ff-green)}
+a:hover{color:var(--ff-black)}
+.ffr-field{display:block}
+.ffr-label{display:block;font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#0A0A0A;margin-bottom:6px}
+.ffr-textarea{font-family:'Open Sans',sans-serif;font-size:14px;color:#3A3A36;background:#fff;border:1px solid #E4E4DE;border-radius:0;padding:10px 12px;outline:none;width:100%;box-sizing:border-box;resize:vertical;min-height:80px}
+.ffr-textarea:focus{border-color:#283625}
+</style>
+</helmet>
+
+<div style="{{ rootStyle }}">
+
+<sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+<div>
+  <div style="{{ headerStyle }}">
+    <div style="display:flex;align-items:center;gap:16px">
+      <img src="assets/logo-horizontal.svg" alt="Foundation First Marketing" style="{{ logoStyle }}">
+      <span style="{{ wordmarkStyle }}">Weekly Reports</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:20px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Switch" label="Dark Mode" checked="{{ darkMode }}" onChange="{{ toggleDarkMode }}" hint-size="auto,24px"></x-import>
+      <div style="display:flex;gap:12px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="md" onClick="{{ exportAllTasksCSV }}" hint-size="auto,42px">Export All Tasks (CSV)</x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="primary" size="md" onClick="{{ openNewReport }}" hint-size="auto,42px">New Report</x-import>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:36px 48px 72px;max-width:1440px;margin:0 auto">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:36px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Total Reports" value="{{ statTotalReports }}" dark="{{ darkMode }}" hint-size="100%,110px"></x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Avg. Tasks On Schedule" value="{{ statAvgOnSchedule }}" dark="{{ darkMode }}" hint-size="100%,110px"></x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Open Blockers (Latest)" value="{{ statOpenBlockers }}" dark="{{ darkMode }}" hint-size="100%,110px"></x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Active Clients" value="{{ statActiveClients }}" dark="{{ darkMode }}" hint-size="100%,110px"></x-import>
+    </div>
+
+    <div style="{{ filterBarStyle }}">
+      <div style="width:170px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Status" options="{{ statusFilterOptions }}" value="{{ filterStatus }}" onChange="{{ onFilterStatusChange }}" hint-size="100%,58px"></x-import></div>
+      <div style="width:280px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Client" options="{{ clientFilterOptions }}" value="{{ filterClient }}" onChange="{{ onFilterClientChange }}" hint-size="100%,58px"></x-import></div>
+      <div style="width:260px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Search" placeholder="Week or contact" value="{{ search }}" onChange="{{ onSearchChange }}" hint-size="100%,58px"></x-import></div>
+      <div style="width:260px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Sort By" options="{{ sortOptions }}" value="{{ sortBy }}" onChange="{{ onSortChange }}" hint-size="100%,58px"></x-import></div>
+    </div>
+
+    <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Table" columns="{{ tableColumns }}" rows="{{ tableRows }}" hint-size="100%,420px"></x-import>
+    <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:64px 0;text-align:center;color:#6B6B66;font-size:14px">No reports match these filters.</div>
+    </sc-if>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isWizard }}" hint-placeholder-val="{{ false }}">
+<div>
+  <div style="{{ headerStyle }}">
+    <span style="{{ wordmarkStyle }}">{{ wizardTitle }}</span>
+    <div style="display:flex;align-items:center;gap:20px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Switch" label="Dark Mode" checked="{{ darkMode }}" onChange="{{ toggleDarkMode }}" hint-size="auto,24px"></x-import>
+      <div style="display:flex;gap:10px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ saveDraft }}" hint-size="auto,36px">Save Draft</x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ exitWizard }}" hint-size="auto,36px">Exit</x-import>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:flex-start;justify-content:center;gap:0;padding:28px 48px 8px;max-width:980px;margin:0 auto">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:150px;cursor:pointer" onClick="{{ goToStep1 }}">
+      <div style="{{ stepCircleStyle1 }}">1</div>
+      <span style="{{ stepLabelStyle1 }}">Basics</span>
+    </div>
+    <div style="{{ stepDividerStyle1 }}"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:150px;cursor:pointer" onClick="{{ goToStep2 }}">
+      <div style="{{ stepCircleStyle2 }}">2</div>
+      <span style="{{ stepLabelStyle2 }}">Task Status</span>
+    </div>
+    <div style="{{ stepDividerStyle2 }}"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:150px;cursor:pointer" onClick="{{ goToStep3 }}">
+      <div style="{{ stepCircleStyle3 }}">3</div>
+      <span style="{{ stepLabelStyle3 }}">Touchpoints &amp; Win</span>
+    </div>
+    <div style="{{ stepDividerStyle3 }}"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:150px;cursor:pointer" onClick="{{ goToStep4 }}">
+      <div style="{{ stepCircleStyle4 }}">4</div>
+      <span style="{{ stepLabelStyle4 }}">Risks &amp; Blockers</span>
+    </div>
+    <div style="{{ stepDividerStyle4 }}"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:150px;cursor:pointer" onClick="{{ goToStep5 }}">
+      <div style="{{ stepCircleStyle5 }}">5</div>
+      <span style="{{ stepLabelStyle5 }}">Priorities</span>
+    </div>
+    <div style="{{ stepDividerStyle5 }}"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:150px;cursor:pointer" onClick="{{ goToStep6 }}">
+      <div style="{{ stepCircleStyle6 }}">6</div>
+      <span style="{{ stepLabelStyle6 }}">Review &amp; Export</span>
+    </div>
+  </div>
+
+  <div style="padding:36px 48px 24px;max-width:880px;margin:0 auto">
+  <div style="{{ lightPanelStyle }}">
+
+    <sc-if value="{{ isStep1 }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:26px;margin-bottom:24px">Basics</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="date" label="Week Start" value="{{ draftWeekStart }}" onChange="{{ onDraftWeekStartChange }}" hint-size="100%,58px"></x-import>
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="date" label="Week End" value="{{ draftWeekEnd }}" onChange="{{ onDraftWeekEndChange }}" hint-size="100%,58px"></x-import>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Prepared For" placeholder="Christene, Founder" value="{{ draftPreparedFor }}" onChange="{{ onDraftPreparedForChange }}" hint-size="100%,58px"></x-import>
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Prepared By" placeholder="Jordan Reyes, Project Manager" value="{{ draftPreparedBy }}" onChange="{{ onDraftPreparedByChange }}" hint-size="100%,58px"></x-import>
+        </div>
+        <label class="ffr-field">
+          <span class="ffr-label">Executive Summary</span>
+          <textarea class="ffr-textarea" placeholder="How did the week go, overall?" value="{{ draftSummaryNarrative }}" onChange="{{ onDraftSummaryNarrativeChange }}"></textarea>
+        </label>
+        <div style="margin-top:14px;font-family:'Open Sans',sans-serif;font-size:13px;color:#6B6B66">{{ weekLabelPreview }}</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep2 }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:26px;margin-bottom:24px">Task Status</div>
+
+        <div style="{{ importPanelStyle }}">
+          <div style="{{ kickerStyle }}">Import Pending Tasks From a Prior Report</div>
+          <div style="width:320px;margin-bottom:14px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Source Report" options="{{ priorReportOptions }}" value="{{ importTaskSource }}" onChange="{{ onImportTaskSourceChange }}" hint-size="100%,58px"></x-import></div>
+          <sc-if value="{{ hasImportTaskCandidates }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+              <sc-for list="{{ importTaskCandidates }}" as="item" hint-placeholder-count="2">
+                <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Checkbox" label="{{ item.label }}" checked="{{ item.checked }}" onChange="{{ item.onToggle }}" hint-size="auto,24px"></x-import>
+              </sc-for>
+            </div>
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" disabled="{{ importTaskDisabled }}" onClick="{{ importSelectedTasks }}" hint-size="auto,36px">Import Selected</x-import>
+          </sc-if>
+          <sc-if value="{{ noImportTaskCandidates }}" hint-placeholder-val="{{ true }}">
+            <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#6B6B66">No pending tasks from that report to import.</div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px">
+          <sc-for list="{{ draftTasksList }}" as="item" hint-placeholder-count="2">
+            <div style="display:grid;grid-template-columns:1.6fr 2fr 1fr 1fr auto;gap:12px;align-items:end;border-bottom:1px solid #E4E4DE;padding-bottom:14px">
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Client" value="{{ item.client }}" onChange="{{ item.onClientChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Task" value="{{ item.task }}" onChange="{{ item.onTaskChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Status" options="{{ taskStatusOptions }}" value="{{ item.status }}" onChange="{{ item.onStatusChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="date" label="Deadline" value="{{ item.deadline }}" onChange="{{ item.onDeadlineChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ item.onRemove }}" hint-size="auto,36px">Remove</x-import>
+            </div>
+          </sc-for>
+        </div>
+        <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" onClick="{{ addTask }}" hint-size="auto,36px">Add Task</x-import>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep3 }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:26px;margin-bottom:24px">This Week's Touchpoints &amp; Win</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-bottom:20px">
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="number" label="Client Calls" value="{{ draftCalls }}" onChange="{{ onDraftCallsChange }}" hint-size="100%,58px"></x-import>
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="number" label="Email Threads" value="{{ draftEmails }}" onChange="{{ onDraftEmailsChange }}" hint-size="100%,58px"></x-import>
+          <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="number" label="Escalations" value="{{ draftEscalations }}" onChange="{{ onDraftEscalationsChange }}" hint-size="100%,58px"></x-import>
+        </div>
+        <label class="ffr-field" style="margin-bottom:28px">
+          <span class="ffr-label">Touchpoints Notes</span>
+          <textarea class="ffr-textarea" placeholder="Anything noteworthy about client communication this week?" value="{{ draftTouchpointsNarrative }}" onChange="{{ onDraftTouchpointsNarrativeChange }}"></textarea>
+        </label>
+        <div style="border-top:1px solid #E4E4DE;padding-top:24px">
+          <div style="{{ kickerStyle }}">This Week's Win</div>
+          <div style="display:grid;grid-template-columns:1fr 2fr;gap:20px;margin-bottom:20px">
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Stat (e.g. 18%)" value="{{ draftWinStat }}" onChange="{{ onDraftWinStatChange }}" hint-size="100%,58px"></x-import>
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="What It Means" value="{{ draftWinLabel }}" onChange="{{ onDraftWinLabelChange }}" hint-size="100%,58px"></x-import>
+          </div>
+          <label class="ffr-field">
+            <span class="ffr-label">Win Narrative</span>
+            <textarea class="ffr-textarea" placeholder="Tell the story behind the number." value="{{ draftWinNarrative }}" onChange="{{ onDraftWinNarrativeChange }}"></textarea>
+          </label>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep4 }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:26px;margin-bottom:24px">Risks &amp; Blockers</div>
+
+        <div style="{{ importPanelStyle }}">
+          <div style="{{ kickerStyle }}">Import Open Risks From a Prior Report</div>
+          <div style="width:320px;margin-bottom:14px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Source Report" options="{{ priorReportOptions }}" value="{{ importRiskSource }}" onChange="{{ onImportRiskSourceChange }}" hint-size="100%,58px"></x-import></div>
+          <sc-if value="{{ hasImportRiskCandidates }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+              <sc-for list="{{ importRiskCandidates }}" as="item" hint-placeholder-count="1">
+                <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Checkbox" label="{{ item.label }}" checked="{{ item.checked }}" onChange="{{ item.onToggle }}" hint-size="auto,24px"></x-import>
+              </sc-for>
+            </div>
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" disabled="{{ importRiskDisabled }}" onClick="{{ importSelectedRisks }}" hint-size="auto,36px">Import Selected</x-import>
+          </sc-if>
+          <sc-if value="{{ noImportRiskCandidates }}" hint-placeholder-val="{{ true }}">
+            <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#6B6B66">No open risks from that report to import.</div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px">
+          <sc-for list="{{ draftRisksList }}" as="item" hint-placeholder-count="1">
+            <div style="display:grid;grid-template-columns:1.2fr 0.9fr 2fr 2fr auto;gap:12px;align-items:end;border-bottom:1px solid #E4E4DE;padding-bottom:14px">
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Client" value="{{ item.client }}" onChange="{{ item.onClientChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Severity" options="{{ riskSeverityOptions }}" value="{{ item.severity }}" onChange="{{ item.onSeverityChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Description" value="{{ item.description }}" onChange="{{ item.onDescriptionChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Next Step" value="{{ item.nextStep }}" onChange="{{ item.onNextStepChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ item.onRemove }}" hint-size="auto,36px">Remove</x-import>
+            </div>
+          </sc-for>
+        </div>
+        <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" onClick="{{ addRisk }}" hint-size="auto,36px">Add Risk</x-import>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep5 }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:26px;margin-bottom:24px">Next Week's Priorities</div>
+
+        <div style="{{ importPanelStyle }}">
+          <div style="{{ kickerStyle }}">Import Unfinished Priorities From a Prior Report</div>
+          <div style="width:320px;margin-bottom:14px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Source Report" options="{{ priorReportOptions }}" value="{{ importPrioritySource }}" onChange="{{ onImportPrioritySourceChange }}" hint-size="100%,58px"></x-import></div>
+          <sc-if value="{{ hasImportPriorityCandidates }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+              <sc-for list="{{ importPriorityCandidates }}" as="item" hint-placeholder-count="1">
+                <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Checkbox" label="{{ item.label }}" checked="{{ item.checked }}" onChange="{{ item.onToggle }}" hint-size="auto,24px"></x-import>
+              </sc-for>
+            </div>
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" disabled="{{ importPriorityDisabled }}" onClick="{{ importSelectedPriorities }}" hint-size="auto,36px">Import Selected</x-import>
+          </sc-if>
+          <sc-if value="{{ noImportPriorityCandidates }}" hint-placeholder-val="{{ true }}">
+            <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#6B6B66">No unfinished priorities from that report to import.</div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px">
+          <sc-for list="{{ draftPrioritiesList }}" as="item" hint-placeholder-count="2">
+            <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;border-bottom:1px solid #E4E4DE;padding-bottom:14px">
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="{{ item.numberLabel }}" value="{{ item.text }}" onChange="{{ item.onTextChange }}" hint-size="100%,58px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ item.onRemove }}" hint-size="auto,36px">Remove</x-import>
+            </div>
+          </sc-for>
+        </div>
+        <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" onClick="{{ addPriority }}" hint-size="auto,36px">Add Priority</x-import>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isStep6 }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <sc-if value="{{ wizardNotPublished }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:26px;margin-bottom:8px">Review &amp; Export</div>
+            <div style="font-family:'Open Sans',sans-serif;font-size:14px;color:#6B6B66;margin-bottom:28px">{{ weekLabelPreview }} — for {{ draftPreparedFor }}</div>
+
+            <p style="font-family:'Open Sans',sans-serif;font-size:14px;line-height:1.65;color:#3A3A36;margin:0 0 28px">{{ draftSummaryNarrative }}</p>
+
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px">
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Tasks On Schedule" value="{{ reviewTasksOnSchedule }}" hint-size="100%,100px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Client Calls" value="{{ reviewCalls }}" hint-size="100%,100px"></x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Open Blockers" value="{{ reviewBlockers }}" hint-size="100%,100px"></x-import>
+            </div>
+
+            <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#283625;margin-bottom:10px">Task Status</div>
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Table" columns="{{ reviewTaskColumns }}" rows="{{ reviewTaskRows }}" dense="{{ true }}" hint-size="100%,160px"></x-import>
+
+            <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#283625;margin:28px 0 10px">Risks &amp; Blockers</div>
+            <sc-if value="{{ reviewHasRisks }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <sc-for list="{{ draftRisksList }}" as="item" hint-placeholder-count="1">
+                  <div style="border:1px solid #E4E4DE;padding:14px 16px">
+                    <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:13px;margin-bottom:4px">{{ item.client }} — {{ item.severity }}</div>
+                    <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#3A3A36">{{ item.description }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ reviewNoRisks }}" hint-placeholder-val="{{ true }}">
+              <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#6B6B66">No open risks this week.</div>
+            </sc-if>
+
+            <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#283625;margin:28px 0 10px">Next Week's Priorities</div>
+            <sc-for list="{{ draftPrioritiesList }}" as="item" hint-placeholder-count="2">
+              <div style="font-family:'Open Sans',sans-serif;font-size:14px;color:#0A0A0A;padding:8px 0;border-bottom:1px solid #E4E4DE">{{ item.text }}</div>
+            </sc-for>
+
+            <div style="margin-top:36px;padding-top:24px;border-top:1px solid #E4E4DE;display:flex;justify-content:flex-end">
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="primary" size="lg" onClick="{{ publishReport }}" hint-size="auto,50px">Publish Report</x-import>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ wizardIsPublished }}" hint-placeholder-val="{{ false }}">
+          <div style="text-align:center;padding:40px 0">
+            <div style="font-family:'Poppins',sans-serif;font-weight:300;font-size:32px;margin-bottom:12px">Report Published</div>
+            <p style="font-family:'Open Sans',sans-serif;font-size:14px;color:#3A3A36;max-width:480px;margin:0 auto 32px">{{ weekLabelPreview }} is now in the historical record. Export it below, or head back to the dashboard.</p>
+            <div style="display:flex;gap:12px;justify-content:center;margin-bottom:16px">
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="md" onClick="{{ openShareForPublished }}" hint-size="auto,42px">Copy Share Link</x-import>
+              <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="md" onClick="{{ openPdfForPublished }}" hint-size="auto,42px">Download PDF</x-import>
+            </div>
+            <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="dark" size="md" onClick="{{ exitWizard }}" hint-size="auto,42px">Back to Dashboard</x-import>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ wizardError }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:20px;font-family:'Open Sans',sans-serif;font-size:13px;color:#8C2F22">{{ wizardError }}</div>
+    </sc-if>
+
+    <sc-if value="{{ showWizardNav }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;justify-content:space-between;margin-top:32px;padding-top:24px;border-top:1px solid #E4E4DE">
+        <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="md" disabled="{{ isFirstStep }}" onClick="{{ wizardBack }}" hint-size="auto,42px">Back</x-import>
+        <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="dark" size="md" onClick="{{ wizardNext }}" hint-size="auto,42px">Next</x-import>
+      </div>
+    </sc-if>
+
+  </div>
+  </div>
+</div>
+</sc-if>
+
+<x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Dialog" open="{{ detailOpen }}" onClose="{{ closeDetail }}" title="{{ detailDialogTitle }}" width="{{ 960 }}" hint-size="0,0">
+  <div style="max-height:68vh;overflow-y:auto;padding-right:8px">
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px">
+      <div style="width:150px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Select" label="Status" options="{{ statusEditOptions }}" value="{{ detailStatus }}" onChange="{{ onDetailStatusChange }}" hint-size="100%,58px"></x-import></div>
+      <div style="width:220px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Prepared For" value="{{ detailPreparedFor }}" onChange="{{ onDetailPreparedForChange }}" hint-size="100%,58px"></x-import></div>
+      <div style="width:150px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="date" label="Week Start" value="{{ detailWeekStart }}" onChange="{{ onDetailWeekStartChange }}" hint-size="100%,58px"></x-import></div>
+      <div style="width:150px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" type="date" label="Week End" value="{{ detailWeekEnd }}" onChange="{{ onDetailWeekEndChange }}" hint-size="100%,58px"></x-import></div>
+    </div>
+    <div style="font-family:'Open Sans',sans-serif;font-size:11.5px;color:#6B6B66;margin-bottom:20px">Changes save automatically.</div>
+    <p style="font-family:'Open Sans',sans-serif;font-size:14px;line-height:1.65;color:#3A3A36;margin:0 0 24px">{{ detailNarrative }}</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Tasks On Schedule" value="{{ detailTasksOnSchedule }}" hint-size="100%,90px"></x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Client Calls" value="{{ detailCalls }}" hint-size="100%,90px"></x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.StatCard" label="Open Blockers" value="{{ detailBlockers }}" hint-size="100%,90px"></x-import>
+    </div>
+    <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#283625;margin-bottom:10px">Task Status</div>
+    <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Table" columns="{{ detailTaskColumns }}" rows="{{ detailTaskRows }}" dense="{{ true }}" hint-size="100%,140px"></x-import>
+
+    <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#283625;margin:26px 0 10px">Risks &amp; Blockers</div>
+    <sc-if value="{{ detailHasRisks }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ detailRisksList }}" as="item" hint-placeholder-count="1">
+          <div style="border:1px solid #E4E4DE;padding:12px 14px">
+            <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:13px;margin-bottom:4px">{{ item.client }} — {{ item.severity }}</div>
+            <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#3A3A36;margin-bottom:4px">{{ item.description }}</div>
+            <div style="font-family:'Open Sans',sans-serif;font-size:12px;color:#6B6B66">Next step: {{ item.nextStep }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{ detailNoRisks }}" hint-placeholder-val="{{ true }}">
+      <div style="font-family:'Open Sans',sans-serif;font-size:13px;color:#6B6B66">No open risks that week.</div>
+    </sc-if>
+
+    <div style="font-family:'Poppins',sans-serif;font-weight:600;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#283625;margin:26px 0 10px">Next Week's Priorities</div>
+    <sc-for list="{{ detailPrioritiesList }}" as="item" hint-placeholder-count="2">
+      <div style="font-family:'Open Sans',sans-serif;font-size:13.5px;color:#0A0A0A;padding:6px 0;border-bottom:1px solid #E4E4DE">{{ item.text }}</div>
+    </sc-for>
+
+    <div style="display:flex;gap:12px;margin-top:28px;padding-top:20px;border-top:1px solid #E4E4DE;justify-content:flex-end">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" onClick="{{ openShareFromDetail }}" hint-size="auto,36px">Copy Share Link</x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="outline" size="sm" onClick="{{ openPdfFromDetail }}" hint-size="auto,36px">Download PDF</x-import>
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ closeDetail }}" hint-size="auto,36px">Close</x-import>
+    </div>
+  </div>
+</x-import>
+
+<x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Dialog" open="{{ shareOpen }}" onClose="{{ closeShare }}" title="Share This Report" width="{{ 480 }}" hint-size="0,0">
+  <div>
+    <div style="width:150px"><x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Input" label="Viewer Link" readonly="{{ true }}" value="{{ shareLink }}" hint-size="100%,58px"></x-import></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="primary" size="sm" onClick="{{ copyShareLink }}" hint-size="auto,36px">{{ shareCopyLabel }}</x-import>
+    </div>
+    <p style="font-family:'Open Sans',sans-serif;font-size:12.5px;color:#6B6B66;line-height:1.6;margin:18px 0 0">Anyone with this link sees a read-only view of this report. Prototype — the link isn't live yet; it will be wired up in the full build.</p>
+    <div style="display:flex;justify-content:flex-end;margin-top:22px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="ghost" size="sm" onClick="{{ closeShare }}" hint-size="auto,36px">Close</x-import>
+    </div>
+  </div>
+</x-import>
+
+<x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Dialog" open="{{ pdfOpen }}" onClose="{{ closePdf }}" title="Export PDF" width="{{ 440 }}" hint-size="0,0">
+  <div>
+    <p style="font-family:'Open Sans',sans-serif;font-size:14px;line-height:1.6;color:#3A3A36;margin:0 0 8px">Preparing a PDF export of {{ pdfReportLabel }}.</p>
+    <p style="font-family:'Open Sans',sans-serif;font-size:12.5px;color:#6B6B66;line-height:1.6;margin:0">Prototype — PDF rendering isn't wired up yet; it will be built out in the full version.</p>
+    <div style="display:flex;justify-content:flex-end;margin-top:22px">
+      <x-import component-from-global-scope="FoundationFirstDesignSystem_a26af8.Button" variant="dark" size="sm" onClick="{{ closePdf }}" hint-size="auto,36px">Close</x-import>
+    </div>
+  </div>
+</x-import>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+
+const FF_CLIENTS = ['Helitech Foundation & Waterproofing', 'DryRoot Waterproofing', 'Summit Basement Solutions', 'TerraFirm Foundation Repair'];
+const FF_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let ffUidCounter = 0;
+function ffUid(prefix) { ffUidCounter += 1; return prefix + '_' + Date.now().toString(36) + '_' + ffUidCounter; }
+function ffParseISO(s) { const p = s.split('-').map(Number); return { y: p[0], m: p[1], d: p[2] }; }
+function ffFmtDateShort(s) { if (!s) return '—'; const p = ffParseISO(s); return FF_MONTHS[p.m - 1] + ' ' + p.d + ', ' + p.y; }
+function ffFmtWeekLabel(startS, endS) {
+  if (!startS || !endS) return 'Week of —';
+  const s = ffParseISO(startS), e = ffParseISO(endS);
+  if (s.m === e.m) return 'Week of ' + FF_MONTHS[s.m - 1] + ' ' + s.d + '\u2013' + e.d + ', ' + e.y;
+  return 'Week of ' + FF_MONTHS[s.m - 1] + ' ' + s.d + ' \u2013 ' + FF_MONTHS[e.m - 1] + ' ' + e.d + ', ' + e.y;
+}
+function ffNowDate() { return new Date().toISOString().slice(0, 10); }
+function ffOnSchedule(report) { const total = report.tasks.length; const onSched = report.tasks.filter(t => t.status !== 'Blocked').length; return { onSched, total }; }
+function ffOpenBlockers(report) { return report.tasks.filter(t => t.status === 'Blocked').length; }
+function ffBadgeStyle(tone) {
+  const tones = {
+    positive: { background: 'transparent', color: 'var(--positive)', border: '1px solid var(--positive)' },
+    negative: { background: 'transparent', color: 'var(--negative)', border: '1px solid var(--negative)' },
+    warning: { background: 'transparent', color: 'var(--warning)', border: '1px solid var(--warning)' },
+    sage: { background: 'var(--ff-sage)', color: 'var(--ff-black)', border: '1px solid var(--ff-sage)' },
+    dark: { background: 'var(--ff-black)', color: 'var(--ff-white)', border: '1px solid var(--ff-black)' },
+    neutral: { background: 'var(--ff-off-white)', color: 'var(--ff-gray-2)', border: '1px solid var(--border-subtle)' },
+  };
+  return Object.assign({ display: 'inline-block', fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase', padding: '4px 10px' }, tones[tone] || tones.neutral);
+}
+function ffStatusTone(status) { return status === 'Sent' ? 'dark' : status === 'Final' ? 'green' : 'sage'; }
+function ffTaskTone(status) { return status === 'Complete' ? 'positive' : status === 'Blocked' ? 'negative' : 'sage'; }
+function ffRiskTone(severity) { return severity === 'Blocked' ? 'negative' : 'warning'; }
+function ffCsvEscape(v) { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function ffBlankDraft() {
+  return { id: null, weekStart: '', weekEnd: '', preparedFor: 'Christene, Founder', preparedBy: 'Jordan Reyes, Project Manager', summaryNarrative: '', status: 'Draft',
+    tasks: [], touchpoints: { calls: 0, emails: 0, escalations: 0, narrative: '' }, win: { stat: '', label: '', narrative: '' }, risks: [], priorities: [] };
+}
+function ffSeedReports() {
+  const mk = (id, ws, we, status, tasks, risks, win, touchpoints, priorities, summaryNarrative) => ({
+    id, weekStart: ws, weekEnd: we, status, preparedFor: 'Christene, Founder', preparedBy: 'Jordan Reyes, Project Manager',
+    createdAt: we, updatedAt: we, summaryNarrative, tasks, risks, win, touchpoints, priorities,
+  });
+  const T = (client, task, status, deadline) => ({ id: ffUid('t'), client, task, status, deadline });
+  const R = (client, severity, description, nextStep) => ({ id: ffUid('rk'), client, severity, description, nextStep });
+  const P = (text) => ({ id: ffUid('p'), text });
+  return [
+    mk('r1', '2026-06-01', '2026-06-05', 'Sent',
+      [T(FF_CLIENTS[0], 'Paid social campaign launch', 'Complete', '2026-06-05'), T(FF_CLIENTS[1], 'Search campaign audit', 'Complete', '2026-06-05'), T(FF_CLIENTS[2], 'Onboarding kickoff call', 'In Progress', '2026-06-12'), T(FF_CLIENTS[3], 'Website conversion audit', 'Complete', '2026-06-05')],
+      [], { stat: '22%', label: "Lift in DryRoot's ad click-through rate", narrative: 'New ad copy testing drove a 22% CTR improvement in DryRoot Waterproofing\u2019s search campaigns in the first week live.' },
+      { calls: 3, emails: 6, escalations: 0, narrative: "All four accounts had a kickoff or check-in call this week; Summit's onboarding is now fully underway." },
+      [P('Finalize Summit automation scope'), P('Launch DryRoot refreshed search campaign'), P('Deliver TerraFirm audit findings to client')],
+      'Strong opening week across all four accounts. Summit\u2019s onboarding is underway, and TerraFirm\u2019s audit is already surfacing quick wins.'),
+    mk('r2', '2026-06-08', '2026-06-12', 'Sent',
+      [T(FF_CLIENTS[1], 'Search campaign live', 'Complete', '2026-06-12'), T(FF_CLIENTS[2], 'CRM discovery & data mapping', 'In Progress', '2026-06-19'), T(FF_CLIENTS[3], 'Audit findings delivered', 'Complete', '2026-06-12'), T(FF_CLIENTS[0], 'Q3 planning draft', 'In Progress', '2026-06-19')],
+      [R(FF_CLIENTS[2], 'At Risk', "CRM export from Summit's previous platform is incomplete, delaying data mapping.", 'Requested a full re-export; following up with their previous vendor directly.')],
+      { stat: '3', label: 'Quick-win fixes shipped from the TerraFirm audit', narrative: "TerraFirm's conversion audit uncovered three fast fixes to their contact form \u2014 all three shipped this week, ahead of the full redesign." },
+      { calls: 4, emails: 7, escalations: 0, narrative: "Regular check-ins with all accounts; Summit's data gap was flagged early rather than surfacing later in the automation build." },
+      [P('Complete Summit CRM migration prep'), P('Begin TerraFirm landing page redesign'), P("Finish Helitech's Q3 planning document")],
+      "Momentum continues. TerraFirm's audit is already paying off, and we caught a data gap at Summit early enough to manage around it."),
+    mk('r3', '2026-06-15', '2026-06-19', 'Sent',
+      [T(FF_CLIENTS[3], 'Landing page wireframes', 'In Progress', '2026-06-26'), T(FF_CLIENTS[2], 'Automation build kickoff', 'In Progress', '2026-06-26'), T(FF_CLIENTS[0], 'Q3 plan approved', 'Complete', '2026-06-19'), T(FF_CLIENTS[1], 'Ad copy A/B testing', 'In Progress', '2026-06-26')],
+      [R(FF_CLIENTS[2], 'At Risk', 'CRM data gap from the previous platform is still being resolved.', 'Automation build continues on available data while the export is finalized.')],
+      { stat: 'Approved', label: "Helitech's Q3 plan, with an expanded ad budget", narrative: "Helitech signed off on the Q3 plan this week, including a 15% budget increase for paid social \u2014 the strongest vote of confidence yet." },
+      { calls: 4, emails: 8, escalations: 0, narrative: "No escalations this week. Helitech's planning call ran long in the best way \u2014 lots of good questions." },
+      [P('Ship TerraFirm wireframes for client review'), P("Continue Summit's automation build"), P('Launch DryRoot ad copy test')],
+      'A quieter week operationally but a big strategic win: Helitech approved an expanded Q3 plan.'),
+    mk('r4', '2026-06-22', '2026-06-26', 'Final',
+      [T(FF_CLIENTS[3], 'Landing page wireframes approved', 'Complete', '2026-06-26'), T(FF_CLIENTS[2], 'Automation testing', 'In Progress', '2026-07-03'), T(FF_CLIENTS[1], 'Ad copy test results reviewed', 'Complete', '2026-06-26'), T(FF_CLIENTS[0], 'Ad refresh planning', 'In Progress', '2026-07-03')],
+      [], { stat: '15%', label: "Reduction in DryRoot's cost-per-click", narrative: "The winning ad variant from this month's copy testing cut DryRoot's cost-per-click by 15% \u2014 now rolling out account-wide." },
+      { calls: 3, emails: 6, escalations: 0, narrative: "TerraFirm's wireframes were approved without revision \u2014 a fast, clean sign-off." },
+      [P('Build TerraFirm landing page from approved wireframes'), P("Finish Summit's automation testing"), P("Launch Helitech's ad refresh")],
+      "Clean week \u2014 no open risks, one clear win on DryRoot's cost-per-click, and TerraFirm's design phase wrapped."),
+    mk('r5', '2026-06-29', '2026-07-03', 'Draft',
+      [T(FF_CLIENTS[3], 'Landing page build', 'In Progress', '2026-07-10'), T(FF_CLIENTS[2], 'Automation QA', 'In Progress', '2026-07-10')],
+      [R(FF_CLIENTS[3], 'Blocked', 'Landing page build is paused. Waiting on updated project photos and testimonials, requested June 30.', 'Follow-up sent; no response yet.')],
+      { stat: '', label: '', narrative: '' },
+      { calls: 2, emails: 4, escalations: 0, narrative: 'Short week ahead of the holiday.' },
+      [P('Follow up with TerraFirm on outstanding assets')],
+      'Short week ahead of the holiday \u2014 this report is still in draft and needs the full round-up before sending.'),
+    mk('r6', '2026-07-06', '2026-07-10', 'Final',
+      [T(FF_CLIENTS[0], 'Ad refresh live', 'Complete', '2026-07-10'), T(FF_CLIENTS[1], 'Copy testing wrapped', 'Complete', '2026-07-10'), T(FF_CLIENTS[2], 'Automation QA continuing', 'In Progress', '2026-07-17'), T(FF_CLIENTS[3], 'Landing page build', 'Blocked', '2026-07-10')],
+      [R(FF_CLIENTS[3], 'Blocked', 'Landing page work is paused. Still waiting on updated project photos and testimonials, requested June 30.', 'Escalating directly with the client this week.'), R(FF_CLIENTS[2], 'At Risk', 'CRM data gaps are delaying the full GoHighLevel migration.', 'Automation build continues on test data.')],
+      { stat: '9%', label: "Early dip in Helitech's cost-per-lead", narrative: "Helitech's refreshed ad creative went live Monday and cost-per-lead is already down 9% in the first week." },
+      { calls: 4, emails: 8, escalations: 1, narrative: "One escalation this week: TerraFirm's asset delay was raised directly on our call." },
+      [P("Launch DryRoot's refreshed search campaign"), P("Complete Summit's automation QA"), P('Finalize TerraFirm pending assets'), P('Prep Helitech Q3 review')],
+      "Helitech's ad refresh is already showing results. TerraFirm remains blocked on client assets \u2014 escalating this week."),
+    mk('r7', '2026-07-13', '2026-07-17', 'Sent',
+      [T(FF_CLIENTS[0], 'Paid social creative refresh', 'Complete', '2026-07-17'), T(FF_CLIENTS[1], 'Search campaign copy testing', 'In Progress', '2026-07-24'), T(FF_CLIENTS[2], 'GoHighLevel pipeline automation', 'In Progress', '2026-07-24'), T(FF_CLIENTS[3], 'Landing page conversion audit', 'Blocked', '2026-07-17'), T(FF_CLIENTS[0], 'Monthly performance dashboard', 'Complete', '2026-07-17')],
+      [R(FF_CLIENTS[3], 'Blocked', "Landing page work is paused. We're waiting on updated project photos and testimonials, requested since June 30.", 'Follow-up sent Thursday; will escalate if no response by Monday.'), R(FF_CLIENTS[2], 'At Risk', "The CRM export from Summit's previous platform is incomplete, delaying the full GoHighLevel data migration.", 'Automation build continues on test data; full migration expected early next week.')],
+      { stat: '18%', label: "Drop in Helitech's cost-per-lead", narrative: "Following Monday's paid social creative refresh, Helitech Foundation & Waterproofing's cost-per-lead fell 18% week over week \u2014 the strongest result of any account this quarter." },
+      { calls: 4, emails: 9, escalations: 1, narrative: "Every active account had a live touchpoint this week. TerraFirm's asset delay was raised directly on Wednesday's call and followed up by email Thursday \u2014 no response yet." },
+      [P("Launch DryRoot Waterproofing's refreshed search campaign"), P('Complete GoHighLevel automation QA for Summit Basement Solutions'), P("Finalize TerraFirm's landing page, pending client asset delivery"), P('Kick off Q3 planning call with Helitech Foundation & Waterproofing')],
+      'All four active accounts stayed on schedule this week. Paid social and search work moved forward on pace, GoHighLevel automation build-out for Summit is midstream, and TerraFirm\u2019s landing page is paused pending client assets.'),
+  ];
+}
+
+class Component extends DCLogic {
+  state = {
+    view: 'dashboard',
+    reports: ffSeedReports(),
+    filterStatus: 'All', filterClient: 'All', search: '', sortBy: 'week_desc',
+    detailReportId: null, shareOpen: false, shareReportId: null, shareCopied: false, pdfOpen: false, pdfReportId: null,
+    wizardStep: 1, draft: ffBlankDraft(), wizardError: '', wizardPublished: false,
+    importSel: { taskSource: '', taskChecked: {}, riskSource: '', riskChecked: {}, prioritySource: '', priorityChecked: {} },
+    darkMode: false,
+  };
+
+  toggleDarkMode = () => this.setState(s => ({ darkMode: !s.darkMode }));
+
+  // ---- navigation ----
+  openNewReport = () => { this.setState({ draft: ffBlankDraft(), wizardStep: 1, wizardError: '', wizardPublished: false, view: 'wizard', importSel: { taskSource: '', taskChecked: {}, riskSource: '', riskChecked: {}, prioritySource: '', priorityChecked: {} } }); };
+  resumeDraft = (id) => {
+    const r = this.state.reports.find(x => x.id === id);
+    if (!r) return;
+    this.setState({ draft: JSON.parse(JSON.stringify(r)), wizardStep: 1, wizardError: '', wizardPublished: false, view: 'wizard', importSel: { taskSource: '', taskChecked: {}, riskSource: '', riskChecked: {}, prioritySource: '', priorityChecked: {} } });
+  };
+  exitWizard = () => { this.setState({ view: 'dashboard' }); };
+  goToStep = (n) => { if (n <= this.state.wizardStep && !this.state.wizardPublished) this.setState({ wizardStep: n, wizardError: '' }); };
+  validateStep = (n) => {
+    const d = this.state.draft;
+    if (n === 1) { if (!d.weekStart || !d.weekEnd) return 'Enter the week start and end dates.'; if (!d.preparedFor.trim()) return 'Enter who this report is prepared for.'; }
+    if (n === 2) { if (d.tasks.length === 0) return 'Add at least one task before continuing.'; }
+    if (n === 5) { if (d.priorities.length === 0) return "Add at least one priority for next week."; }
+    return '';
+  };
+  wizardNext = () => { const err = this.validateStep(this.state.wizardStep); if (err) { this.setState({ wizardError: err }); return; } this.setState(s => ({ wizardStep: Math.min(6, s.wizardStep + 1), wizardError: '' })); };
+  wizardBack = () => { this.setState(s => ({ wizardStep: Math.max(1, s.wizardStep - 1), wizardError: '' })); };
+
+  // ---- draft persistence ----
+  upsertReport = (report) => { this.setState(s => { const exists = s.reports.some(r => r.id === report.id); const reports = exists ? s.reports.map(r => r.id === report.id ? report : r) : [...s.reports, report]; return { reports }; }); };
+  saveDraft = () => {
+    const d = this.state.draft; const id = d.id || ffUid('r');
+    this.upsertReport({ ...d, id, status: 'Draft', updatedAt: ffNowDate(), createdAt: d.createdAt || ffNowDate() });
+    this.setState({ view: 'dashboard' });
+  };
+  publishReport = () => {
+    const err = this.validateStep(1) || this.validateStep(2) || this.validateStep(5);
+    if (err) { this.setState({ wizardError: err, wizardStep: err === this.validateStep(1) ? 1 : err === this.validateStep(2) ? 2 : 5 }); return; }
+    const d = this.state.draft; const id = d.id || ffUid('r');
+    this.upsertReport({ ...d, id, status: 'Final', updatedAt: ffNowDate(), createdAt: d.createdAt || ffNowDate() });
+    this.setState(s => ({ draft: { ...s.draft, id }, wizardPublished: true }));
+  };
+  openShareForPublished = () => { this.setState(s => ({ shareOpen: true, shareReportId: s.draft.id, shareCopied: false })); };
+  openPdfForPublished = () => { this.setState(s => ({ pdfOpen: true, pdfReportId: s.draft.id })); };
+
+  // ---- generic draft list ops ----
+  addDraftItem = (list, factory) => { this.setState(s => ({ draft: { ...s.draft, [list]: [...s.draft[list], factory()] } })); };
+  removeDraftItem = (list, id) => { this.setState(s => ({ draft: { ...s.draft, [list]: s.draft[list].filter(it => it.id !== id) } })); };
+  updateDraftItem = (list, id, field, value) => { this.setState(s => ({ draft: { ...s.draft, [list]: s.draft[list].map(it => it.id === id ? { ...it, [field]: value } : it) } })); };
+  addTask = () => this.addDraftItem('tasks', () => ({ id: ffUid('t'), client: '', task: '', status: 'In Progress', deadline: '' }));
+  removeTask = (id) => this.removeDraftItem('tasks', id);
+  updateTask = (id, field, value) => this.updateDraftItem('tasks', id, field, value);
+  addRisk = () => this.addDraftItem('risks', () => ({ id: ffUid('rk'), client: '', severity: 'At Risk', description: '', nextStep: '' }));
+  removeRisk = (id) => this.removeDraftItem('risks', id);
+  updateRisk = (id, field, value) => this.updateDraftItem('risks', id, field, value);
+  addPriority = () => this.addDraftItem('priorities', () => ({ id: ffUid('p'), text: '' }));
+  removePriority = (id) => this.removeDraftItem('priorities', id);
+  updatePriority = (id, field, value) => this.updateDraftItem('priorities', id, field, value);
+
+  setDraftField = (field, value) => { this.setState(s => ({ draft: { ...s.draft, [field]: value } })); };
+  setTouchpointsField = (field, value) => { this.setState(s => ({ draft: { ...s.draft, touchpoints: { ...s.draft.touchpoints, [field]: value } } })); };
+  setWinField = (field, value) => { this.setState(s => ({ draft: { ...s.draft, win: { ...s.draft.win, [field]: value } } })); };
+
+  // ---- import pending ----
+  setImportSource = (key, value) => { const checkedKey = key === 'taskSource' ? 'taskChecked' : key === 'riskSource' ? 'riskChecked' : 'priorityChecked'; this.setState(s => ({ importSel: { ...s.importSel, [key]: value, [checkedKey]: {} } })); };
+  toggleImportChecked = (mapKey, id) => { this.setState(s => ({ importSel: { ...s.importSel, [mapKey]: { ...s.importSel[mapKey], [id]: !s.importSel[mapKey][id] } } })); };
+  importSelectedTasks = () => {
+    const s = this.state; const src = s.reports.find(r => r.id === (s.importSel.taskSource || (s.reports.filter(r => r.id !== s.draft.id).sort((a, b) => b.weekEnd.localeCompare(a.weekEnd))[0] || {}).id));
+    if (!src) return;
+    const candidates = src.tasks.filter(t => t.status !== 'Complete' && !s.draft.tasks.some(dt => dt.client === t.client && dt.task === t.task));
+    const chosen = candidates.filter(t => s.importSel.taskChecked[t.id]);
+    if (!chosen.length) return;
+    const newTasks = chosen.map(t => ({ id: ffUid('t'), client: t.client, task: t.task, status: t.status, deadline: t.deadline }));
+    this.setState(s2 => ({ draft: { ...s2.draft, tasks: [...s2.draft.tasks, ...newTasks] }, importSel: { ...s2.importSel, taskChecked: {} } }));
+  };
+  importSelectedRisks = () => {
+    const s = this.state; const src = s.reports.find(r => r.id === (s.importSel.riskSource || (s.reports.filter(r => r.id !== s.draft.id).sort((a, b) => b.weekEnd.localeCompare(a.weekEnd))[0] || {}).id));
+    if (!src) return;
+    const candidates = src.risks.filter(rk => !s.draft.risks.some(dr => dr.client === rk.client && dr.description === rk.description));
+    const chosen = candidates.filter(rk => s.importSel.riskChecked[rk.id]);
+    if (!chosen.length) return;
+    const newRisks = chosen.map(rk => ({ id: ffUid('rk'), client: rk.client, severity: rk.severity, description: rk.description, nextStep: rk.nextStep }));
+    this.setState(s2 => ({ draft: { ...s2.draft, risks: [...s2.draft.risks, ...newRisks] }, importSel: { ...s2.importSel, riskChecked: {} } }));
+  };
+  importSelectedPriorities = () => {
+    const s = this.state; const src = s.reports.find(r => r.id === (s.importSel.prioritySource || (s.reports.filter(r => r.id !== s.draft.id).sort((a, b) => b.weekEnd.localeCompare(a.weekEnd))[0] || {}).id));
+    if (!src) return;
+    const candidates = src.priorities.filter(p => !s.draft.priorities.some(dp => dp.text === p.text));
+    const chosen = candidates.filter(p => s.importSel.priorityChecked[p.id]);
+    if (!chosen.length) return;
+    const newP = chosen.map(p => ({ id: ffUid('p'), text: p.text }));
+    this.setState(s2 => ({ draft: { ...s2.draft, priorities: [...s2.draft.priorities, ...newP] }, importSel: { ...s2.importSel, priorityChecked: {} } }));
+  };
+
+  // ---- dashboard filters ----
+  setFilterStatus = (e) => this.setState({ filterStatus: e.target.value });
+  setFilterClient = (e) => this.setState({ filterClient: e.target.value });
+  setSearch = (e) => this.setState({ search: e.target.value });
+  setSortBy = (e) => this.setState({ sortBy: e.target.value });
+
+  // ---- detail dialog ----
+  openDetail = (id) => this.setState({ detailReportId: id });
+  closeDetail = () => this.setState({ detailReportId: null });
+  updateReportField = (field, value) => { this.setState(s => ({ reports: s.reports.map(r => r.id === s.detailReportId ? { ...r, [field]: value, updatedAt: ffNowDate() } : r) })); };
+  onDetailStatusChange = (e) => this.updateReportField('status', e.target.value);
+  onDetailPreparedForChange = (e) => this.updateReportField('preparedFor', e.target.value);
+  onDetailWeekStartChange = (e) => this.updateReportField('weekStart', e.target.value);
+  onDetailWeekEndChange = (e) => this.updateReportField('weekEnd', e.target.value);
+
+  // ---- share / pdf ----
+  openShare = (id) => this.setState({ shareOpen: true, shareReportId: id, shareCopied: false });
+  openShareFromDetail = () => this.setState(s => ({ shareOpen: true, shareReportId: s.detailReportId, shareCopied: false }));
+  closeShare = () => this.setState({ shareOpen: false });
+  copyShareLink = () => {
+    const link = 'https://reports.foundationfirstmarketing.com/r/' + (this.state.shareReportId || '');
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(link).catch(() => {}); }
+    this.setState({ shareCopied: true }); setTimeout(() => this.setState({ shareCopied: false }), 1800);
+  };
+  openPdf = (id) => this.setState({ pdfOpen: true, pdfReportId: id });
+  openPdfFromDetail = () => this.setState(s => ({ pdfOpen: true, pdfReportId: s.detailReportId }));
+  closePdf = () => this.setState({ pdfOpen: false });
+
+  // ---- CSV export ----
+  exportAllTasksCSV = () => {
+    const rows = [['Report ID', 'Week', 'Prepared For', 'Prepared By', 'Report Status', 'Client', 'Task', 'Task Status', 'Deadline']];
+    this.state.reports.forEach(r => { r.tasks.forEach(t => { rows.push([r.id, ffFmtWeekLabel(r.weekStart, r.weekEnd), r.preparedFor, r.preparedBy, r.status, t.client, t.task, t.status, t.deadline]); }); });
+    const csv = rows.map(row => row.map(ffCsvEscape).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'weekly-reports-tasks.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  renderVals() {
+    const s = this.state;
+    const draft = s.draft;
+
+    // ----- dashboard data -----
+    let filtered = s.reports.filter(r =>
+      (s.filterStatus === 'All' || r.status === s.filterStatus) &&
+      (s.filterClient === 'All' || r.tasks.some(t => t.client === s.filterClient)) &&
+      (s.search.trim() === '' || (r.preparedFor + ' ' + ffFmtWeekLabel(r.weekStart, r.weekEnd)).toLowerCase().includes(s.search.toLowerCase()))
+    );
+    filtered.sort((a, b) => {
+      if (s.sortBy === 'week_asc') return a.weekEnd.localeCompare(b.weekEnd);
+      if (s.sortBy === 'status') return a.status.localeCompare(b.status);
+      if (s.sortBy === 'blockers_desc') return ffOpenBlockers(b) - ffOpenBlockers(a);
+      return b.weekEnd.localeCompare(a.weekEnd);
+    });
+    const tableRows = filtered.map(r => {
+      const { onSched, total } = ffOnSchedule(r); const blockers = ffOpenBlockers(r);
+      const isDraft = r.status === 'Draft';
+      return {
+        week: ffFmtWeekLabel(r.weekStart, r.weekEnd),
+        preparedFor: r.preparedFor,
+        status: React.createElement('span', { style: ffBadgeStyle(ffStatusTone(r.status)) }, r.status),
+        tasks: onSched + ' / ' + total,
+        blockers: String(blockers),
+        updated: ffFmtDateShort(r.updatedAt),
+        actions: React.createElement('button', {
+          onClick: () => isDraft ? this.resumeDraft(r.id) : this.openDetail(r.id),
+          style: { fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: '11px', letterSpacing: '0.06em', textTransform: 'uppercase', background: 'transparent', border: '1px solid #0A0A0A', padding: '7px 16px', cursor: 'pointer', color: '#0A0A0A' },
+        }, isDraft ? 'Continue' : 'View'),
+      };
+    });
+    const latest = [...s.reports].sort((a, b) => b.weekEnd.localeCompare(a.weekEnd))[0];
+    const avgPct = s.reports.length ? Math.round(s.reports.reduce((acc, r) => { const { onSched, total } = ffOnSchedule(r); return acc + (total ? onSched / total : 0); }, 0) / s.reports.length * 100) : 0;
+
+    // ----- detail dialog data -----
+    const detailReport = s.reports.find(r => r.id === s.detailReportId) || null;
+    const dSafe = detailReport || { preparedFor: '', weekStart: '', weekEnd: '', status: 'Draft', summaryNarrative: '', tasks: [], risks: [], priorities: [], touchpoints: { calls: 0 } };
+    const dOnSched = ffOnSchedule(dSafe);
+    const detailTaskRows = dSafe.tasks.map(t => ({ client: t.client, task: t.task, status: React.createElement('span', { style: ffBadgeStyle(ffTaskTone(t.status)) }, t.status), deadline: ffFmtDateShort(t.deadline) }));
+    const detailRisksList = dSafe.risks.map(rk => ({ ...rk }));
+
+    // ----- import candidates helper -----
+    const priorReports = [...s.reports].filter(r => r.id !== draft.id).sort((a, b) => b.weekEnd.localeCompare(a.weekEnd));
+    const priorReportOptions = priorReports.map(r => ({ value: r.id, label: ffFmtWeekLabel(r.weekStart, r.weekEnd) + ' \u2014 ' + r.status }));
+    const defaultSourceId = priorReports[0] ? priorReports[0].id : '';
+    const importTaskSourceId = s.importSel.taskSource || defaultSourceId;
+    const importRiskSourceId = s.importSel.riskSource || defaultSourceId;
+    const importPrioritySourceId = s.importSel.prioritySource || defaultSourceId;
+    const taskSrc = s.reports.find(r => r.id === importTaskSourceId);
+    const riskSrc = s.reports.find(r => r.id === importRiskSourceId);
+    const prioritySrc = s.reports.find(r => r.id === importPrioritySourceId);
+    const importTaskCandidates = taskSrc ? taskSrc.tasks.filter(t => t.status !== 'Complete' && !draft.tasks.some(dt => dt.client === t.client && dt.task === t.task)).map(t => ({ id: t.id, label: t.client + ' \u2014 ' + t.task + ' (' + t.status + ')', checked: !!s.importSel.taskChecked[t.id], onToggle: () => this.toggleImportChecked('taskChecked', t.id) })) : [];
+    const importRiskCandidates = riskSrc ? riskSrc.risks.filter(rk => !draft.risks.some(dr => dr.client === rk.client && dr.description === rk.description)).map(rk => ({ id: rk.id, label: rk.client + ' \u2014 ' + rk.severity + ': ' + rk.description, checked: !!s.importSel.riskChecked[rk.id], onToggle: () => this.toggleImportChecked('riskChecked', rk.id) })) : [];
+    const importPriorityCandidates = prioritySrc ? prioritySrc.priorities.filter(p => !draft.priorities.some(dp => dp.text === p.text)).map(p => ({ id: p.id, label: p.text, checked: !!s.importSel.priorityChecked[p.id], onToggle: () => this.toggleImportChecked('priorityChecked', p.id) })) : [];
+
+    // ----- draft editable lists -----
+    const draftTasksList = draft.tasks.map(t => ({ ...t,
+      onClientChange: (e) => this.updateTask(t.id, 'client', e.target.value), onTaskChange: (e) => this.updateTask(t.id, 'task', e.target.value),
+      onStatusChange: (e) => this.updateTask(t.id, 'status', e.target.value), onDeadlineChange: (e) => this.updateTask(t.id, 'deadline', e.target.value), onRemove: () => this.removeTask(t.id) }));
+    const draftRisksList = draft.risks.map(rk => ({ ...rk,
+      onClientChange: (e) => this.updateRisk(rk.id, 'client', e.target.value), onSeverityChange: (e) => this.updateRisk(rk.id, 'severity', e.target.value),
+      onDescriptionChange: (e) => this.updateRisk(rk.id, 'description', e.target.value), onNextStepChange: (e) => this.updateRisk(rk.id, 'nextStep', e.target.value), onRemove: () => this.removeRisk(rk.id) }));
+    const draftPrioritiesList = draft.priorities.map((p, i) => ({ ...p, numberLabel: 'Priority ' + (i + 1), onTextChange: (e) => this.updatePriority(p.id, 'text', e.target.value), onRemove: () => this.removePriority(p.id) }));
+
+    const reviewOnSched = ffOnSchedule(draft);
+    const reviewTaskRows = draft.tasks.map(t => ({ client: t.client, task: t.task, status: React.createElement('span', { style: ffBadgeStyle(ffTaskTone(t.status)) }, t.status), deadline: ffFmtDateShort(t.deadline) }));
+
+    const stepReached = (n) => s.wizardStep >= n;
+    const circleStyle = (n) => ({ width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: '13px',
+      background: stepReached(n) ? '#283625' : '#FFFFFF', color: stepReached(n) ? '#FFFFFF' : '#6B6B66', border: stepReached(n) ? '2px solid #283625' : '2px solid #E4E4DE' });
+    const labelStyle = (n) => ({ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: '10.5px', letterSpacing: '0.06em', textTransform: 'uppercase', textAlign: 'center', color: s.wizardStep === n ? '#0A0A0A' : '#6B6B66' });
+    const dividerStyle = (n) => ({ flexGrow: 1, height: '2px', marginTop: '15px', background: stepReached(n + 1) ? '#283625' : '#E4E4DE' });
+
+    const pdfTargetId = s.pdfReportId; const pdfTargetReport = s.reports.find(r => r.id === pdfTargetId) || (draft.id === pdfTargetId ? draft : null);
+
+    const dm = s.darkMode;
+    const rootStyle = { minHeight: '100vh', background: dm ? '#0A0A0A' : '#FFFFFF', color: dm ? '#FFFFFF' : '#0A0A0A', fontFamily: "'Open Sans',sans-serif", transition: 'background var(--speed-med) var(--ease-brand), color var(--speed-med) var(--ease-brand)' };
+    const headerStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 48px', background: '#FFFFFF', borderBottom: '1px solid #E4E4DE', flexWrap: 'wrap', gap: '16px' };
+    const wordmarkStyle = { fontFamily: "'Poppins',sans-serif", fontWeight: 500, fontSize: '19px', color: '#0A0A0A', borderLeft: '1px solid #E4E4DE', paddingLeft: '16px' };
+    const logoStyle = { height: '28px', filter: 'none' };
+    const kickerStyle = { fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: dm ? '#9BA394' : '#283625', marginBottom: '14px' };
+    const importPanelStyle = { background: dm ? '#141414' : '#F7F7F5', border: dm ? 'none' : '1px solid #E4E4DE', padding: '20px 22px', marginBottom: '28px', color: dm ? '#CFCFC9' : '#3A3A36' };
+    const dividerBorderStyle = { borderTop: dm ? '1px solid #2E2E2A' : '1px solid #E4E4DE' };
+    const mutedTextStyle = { fontFamily: "'Open Sans',sans-serif", fontSize: '13px', color: dm ? '#9B9B95' : '#6B6B66' };
+    const lightPanelStyle = dm ? { background: '#FFFFFF', padding: '28px', border: '1px solid #2E2E2A' } : { padding: '0' };
+    const filterBarStyle = Object.assign({}, lightPanelStyle, { display: 'flex', gap: '16px', alignItems: 'flex-end', marginBottom: '22px', flexWrap: 'wrap' });
+
+    return {
+      darkMode: dm, toggleDarkMode: this.toggleDarkMode, rootStyle, headerStyle, wordmarkStyle, logoStyle, kickerStyle, importPanelStyle, dividerBorderStyle, mutedTextStyle, lightPanelStyle, filterBarStyle,
+      isDashboard: s.view === 'dashboard', isWizard: s.view === 'wizard',
+      exportAllTasksCSV: this.exportAllTasksCSV, openNewReport: this.openNewReport,
+      statTotalReports: String(s.reports.length), statAvgOnSchedule: avgPct + '%', statOpenBlockers: latest ? String(ffOpenBlockers(latest)) : '0', statActiveClients: String(FF_CLIENTS.length),
+      statusFilterOptions: ['All', 'Draft', 'Final', 'Sent'], clientFilterOptions: ['All', ...FF_CLIENTS], sortOptions: [{ value: 'week_desc', label: 'Week (Newest First)' }, { value: 'week_asc', label: 'Week (Oldest First)' }, { value: 'status', label: 'Status' }, { value: 'blockers_desc', label: 'Open Blockers' }],
+      filterStatus: s.filterStatus, filterClient: s.filterClient, search: s.search, sortBy: s.sortBy,
+      onFilterStatusChange: this.setFilterStatus, onFilterClientChange: this.setFilterClient, onSearchChange: this.setSearch, onSortChange: this.setSortBy,
+      tableColumns: [{ key: 'week', label: 'Week' }, { key: 'preparedFor', label: 'Prepared For' }, { key: 'status', label: 'Status' }, { key: 'tasks', label: 'Tasks On Sched.', align: 'center' }, { key: 'blockers', label: 'Blockers', align: 'center' }, { key: 'updated', label: 'Updated' }, { key: 'actions', label: '', align: 'right' }],
+      tableRows, noResults: tableRows.length === 0,
+
+      wizardTitle: draft.id ? 'Editing Draft' : 'New Weekly Report', saveDraft: this.saveDraft, exitWizard: this.exitWizard,
+      goToStep1: () => this.goToStep(1), goToStep2: () => this.goToStep(2), goToStep3: () => this.goToStep(3), goToStep4: () => this.goToStep(4), goToStep5: () => this.goToStep(5), goToStep6: () => this.goToStep(6),
+      stepCircleStyle1: circleStyle(1), stepCircleStyle2: circleStyle(2), stepCircleStyle3: circleStyle(3), stepCircleStyle4: circleStyle(4), stepCircleStyle5: circleStyle(5), stepCircleStyle6: circleStyle(6),
+      stepLabelStyle1: labelStyle(1), stepLabelStyle2: labelStyle(2), stepLabelStyle3: labelStyle(3), stepLabelStyle4: labelStyle(4), stepLabelStyle5: labelStyle(5), stepLabelStyle6: labelStyle(6),
+      stepDividerStyle1: dividerStyle(1), stepDividerStyle2: dividerStyle(2), stepDividerStyle3: dividerStyle(3), stepDividerStyle4: dividerStyle(4), stepDividerStyle5: dividerStyle(5),
+      isStep1: s.wizardStep === 1, isStep2: s.wizardStep === 2, isStep3: s.wizardStep === 3, isStep4: s.wizardStep === 4, isStep5: s.wizardStep === 5, isStep6: s.wizardStep === 6,
+      isFirstStep: s.wizardStep === 1, showWizardNav: s.wizardStep < 6, wizardError: s.wizardError,
+
+      draftWeekStart: draft.weekStart, draftWeekEnd: draft.weekEnd, draftPreparedFor: draft.preparedFor, draftPreparedBy: draft.preparedBy, draftSummaryNarrative: draft.summaryNarrative,
+      onDraftWeekStartChange: (e) => this.setDraftField('weekStart', e.target.value), onDraftWeekEndChange: (e) => this.setDraftField('weekEnd', e.target.value),
+      onDraftPreparedForChange: (e) => this.setDraftField('preparedFor', e.target.value), onDraftPreparedByChange: (e) => this.setDraftField('preparedBy', e.target.value),
+      onDraftSummaryNarrativeChange: (e) => this.setDraftField('summaryNarrative', e.target.value), weekLabelPreview: ffFmtWeekLabel(draft.weekStart, draft.weekEnd),
+
+      priorReportOptions,
+      importTaskSource: importTaskSourceId, onImportTaskSourceChange: (e) => this.setImportSource('taskSource', e.target.value), importTaskCandidates, hasImportTaskCandidates: importTaskCandidates.length > 0, noImportTaskCandidates: importTaskCandidates.length === 0, importTaskDisabled: !importTaskCandidates.some(c => c.checked), importSelectedTasks: this.importSelectedTasks,
+      importRiskSource: importRiskSourceId, onImportRiskSourceChange: (e) => this.setImportSource('riskSource', e.target.value), importRiskCandidates, hasImportRiskCandidates: importRiskCandidates.length > 0, noImportRiskCandidates: importRiskCandidates.length === 0, importRiskDisabled: !importRiskCandidates.some(c => c.checked), importSelectedRisks: this.importSelectedRisks,
+      importPrioritySource: importPrioritySourceId, onImportPrioritySourceChange: (e) => this.setImportSource('prioritySource', e.target.value), importPriorityCandidates, hasImportPriorityCandidates: importPriorityCandidates.length > 0, noImportPriorityCandidates: importPriorityCandidates.length === 0, importPriorityDisabled: !importPriorityCandidates.some(c => c.checked), importSelectedPriorities: this.importSelectedPriorities,
+
+      draftTasksList, addTask: this.addTask, taskStatusOptions: ['Complete', 'In Progress', 'Blocked'],
+      draftRisksList, addRisk: this.addRisk, riskSeverityOptions: ['Blocked', 'At Risk'],
+      draftPrioritiesList, addPriority: this.addPriority,
+
+      draftCalls: draft.touchpoints.calls, draftEmails: draft.touchpoints.emails, draftEscalations: draft.touchpoints.escalations, draftTouchpointsNarrative: draft.touchpoints.narrative,
+      onDraftCallsChange: (e) => this.setTouchpointsField('calls', Number(e.target.value) || 0), onDraftEmailsChange: (e) => this.setTouchpointsField('emails', Number(e.target.value) || 0),
+      onDraftEscalationsChange: (e) => this.setTouchpointsField('escalations', Number(e.target.value) || 0), onDraftTouchpointsNarrativeChange: (e) => this.setTouchpointsField('narrative', e.target.value),
+      draftWinStat: draft.win.stat, draftWinLabel: draft.win.label, draftWinNarrative: draft.win.narrative,
+      onDraftWinStatChange: (e) => this.setWinField('stat', e.target.value), onDraftWinLabelChange: (e) => this.setWinField('label', e.target.value), onDraftWinNarrativeChange: (e) => this.setWinField('narrative', e.target.value),
+
+      wizardNotPublished: !s.wizardPublished, wizardIsPublished: s.wizardPublished,
+      reviewTasksOnSchedule: reviewOnSched.onSched + ' / ' + reviewOnSched.total, reviewCalls: String(draft.touchpoints.calls || 0), reviewBlockers: String(ffOpenBlockers(draft)),
+      reviewTaskColumns: [{ key: 'client', label: 'Client' }, { key: 'task', label: 'Task' }, { key: 'status', label: 'Status' }, { key: 'deadline', label: 'Deadline' }],
+      reviewTaskRows, reviewHasRisks: draft.risks.length > 0, reviewNoRisks: draft.risks.length === 0,
+      publishReport: this.publishReport, openShareForPublished: this.openShareForPublished, openPdfForPublished: this.openPdfForPublished,
+      wizardNext: this.wizardNext, wizardBack: this.wizardBack,
+
+      detailOpen: !!s.detailReportId, closeDetail: this.closeDetail,
+      detailDialogTitle: detailReport ? ffFmtWeekLabel(detailReport.weekStart, detailReport.weekEnd) : '',
+      statusEditOptions: ['Draft', 'Final', 'Sent'], detailStatus: dSafe.status, detailPreparedFor: dSafe.preparedFor, detailWeekStart: dSafe.weekStart, detailWeekEnd: dSafe.weekEnd,
+      onDetailStatusChange: this.onDetailStatusChange, onDetailPreparedForChange: this.onDetailPreparedForChange, onDetailWeekStartChange: this.onDetailWeekStartChange, onDetailWeekEndChange: this.onDetailWeekEndChange,
+      detailNarrative: dSafe.summaryNarrative, detailTasksOnSchedule: dOnSched.onSched + ' / ' + dOnSched.total, detailCalls: String((dSafe.touchpoints || {}).calls || 0), detailBlockers: String(ffOpenBlockers(dSafe)),
+      detailTaskColumns: [{ key: 'client', label: 'Client' }, { key: 'task', label: 'Task' }, { key: 'status', label: 'Status' }, { key: 'deadline', label: 'Deadline' }], detailTaskRows,
+      detailRisksList, detailHasRisks: detailRisksList.length > 0, detailNoRisks: detailRisksList.length === 0, detailPrioritiesList: dSafe.priorities,
+      openShareFromDetail: this.openShareFromDetail, openPdfFromDetail: this.openPdfFromDetail,
+
+      shareOpen: s.shareOpen, closeShare: this.closeShare, shareLink: 'https://reports.foundationfirstmarketing.com/r/' + (s.shareReportId || ''), copyShareLink: this.copyShareLink, shareCopyLabel: s.shareCopied ? 'Copied' : 'Copy Link',
+      pdfOpen: s.pdfOpen, closePdf: this.closePdf, pdfReportLabel: pdfTargetReport ? ffFmtWeekLabel(pdfTargetReport.weekStart, pdfTargetReport.weekEnd) : 'this report',
+    };
+  }
+}
+
+</script>
+</body>
+</html>

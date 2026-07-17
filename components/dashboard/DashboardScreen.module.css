@@ -1,0 +1,79 @@
+/* Line 34/723: header stays white regardless of dark mode (intentional). */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 48px;
+  background: var(--ff-white);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo {
+  height: 28px;
+}
+
+.wordmark {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--ff-black);
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 16px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.headerButtons {
+  display: flex;
+  gap: 12px;
+}
+
+.content {
+  padding: 36px 48px 72px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 36px;
+}
+
+.rowAction {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--ff-black);
+  padding: 7px 16px;
+  cursor: pointer;
+  color: var(--ff-black);
+}
+
+.rowAction:hover {
+  background: var(--ff-black);
+  color: var(--ff-white);
+}
+
+.emptyState {
+  padding: 64px 0;
+  text-align: center;
+  color: var(--ff-gray-1);
+  font-size: 14px;
+}

@@ -1,0 +1,31 @@
+:root{
+/* Base palette */
+--ff-green:#283625; /* deep forest green — brand accent, icon fill */
+--ff-green-soft:#3D4B37; /* muted green — large decorative shapes on dark */
+--ff-sage:#E0E2D4; /* pale sage — buttons, decorative fills, light accents */
+--ff-black:#0A0A0A; /* ink black — dark section bands, bricks */
+--ff-white:#FFFFFF;
+--ff-off-white:#F7F7F5;
+--ff-gray-1:#6B6B66; /* muted body text on light */
+--ff-gray-2:#3A3A36;
+/* Semantic aliases */
+--surface-page:var(--ff-white);
+--surface-band-dark:var(--ff-black);
+--surface-card:var(--ff-white);
+--surface-card-dark:#141414;
+--surface-accent:var(--ff-sage);
+--text-heading:var(--ff-black);
+--text-heading-accent:var(--ff-green);
+--text-body:var(--ff-gray-2);
+--text-muted:var(--ff-gray-1);
+--text-on-dark:var(--ff-white);
+--text-on-accent:var(--ff-black);
+--border-subtle:#E4E4DE;
+--border-strong:var(--ff-black);
+--link:var(--ff-green);
+--link-hover:var(--ff-black);
+/* Feedback (derived, minimal) */
+--positive:#3E6B34;
+--negative:#8C2F22;
+--warning:#8A6D1F;
+}
