@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { DashboardScreen } from '@/components/dashboard/DashboardScreen';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
+import { useProjects } from '@/lib/hooks/useProjects';
 import { useReports } from '@/lib/hooks/useReports';
 import type { SortKey } from '@/lib/types';
 
@@ -18,6 +19,7 @@ import type { SortKey } from '@/lib/types';
 export function DashboardPage() {
   const router = useRouter();
   const { reports } = useReports();
+  const { projects } = useProjects();
 
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterClient, setFilterClient] = useState('All');
@@ -36,9 +38,22 @@ export function DashboardPage() {
   // render nothing here, so there is no hydration mismatch (see useReports).
   if (reports === null) return null;
 
+  // Phase 6a: dynamic client filter options, replacing the static
+  // CLIENT_FILTER_OPTIONS (FF_CLIENTS remains the client-name source for
+  // seedReports()/seedDailyReports() -- see lib/constants.ts). `projects`
+  // may still be loading (null) on first paint; `[]` just means the filter
+  // briefly offers only 'All', never a blocked render (unlike `reports`).
+  // `clientOptions` is a pure <Select> concern -- the "Active Clients" stat
+  // is derived from `projects` directly (passed below), NOT from this list's
+  // length, so a future second sentinel option (e.g. an 'Unassigned' bucket)
+  // can never silently off-by-one that stat.
+  const clientOptions = ['All', ...(projects ?? []).map((p) => p.name)];
+
   return (
     <DashboardScreen
       reports={reports}
+      clientOptions={clientOptions}
+      projects={projects}
       filterStatus={filterStatus}
       onFilterStatusChange={setFilterStatus}
       filterClient={filterClient}

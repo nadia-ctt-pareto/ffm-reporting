@@ -22,6 +22,12 @@ import type { ReportFieldPatch } from '@/lib/types';
  * (the controlled Date input in ReportScreen then simply reverts to the
  * still-current `report.date` on the next render, since nothing changed);
  * `dateError` surfaces why.
+ *
+ * Phase 6a: the collision check is scoped per project bucket
+ * (`report?.projectId ?? null` -- `sameProjectBucket` in lib/report-utils.ts),
+ * so a same-date daily belonging to a different (imported) project no longer
+ * blocks this edit; a house daily (`projectId` unset) still collides with
+ * another house daily on the same date exactly as before.
  */
 export default function DailyReportDetailPage() {
   const params = useParams<{ id: string }>();
@@ -39,7 +45,7 @@ export default function DailyReportDetailPage() {
 
   const handleUpdateFields = (patch: ReportFieldPatch) => {
     if (!id) return;
-    if (patch.date !== undefined && invalidDailyDateEdit(reports ?? [], id, patch.date)) {
+    if (patch.date !== undefined && invalidDailyDateEdit(reports ?? [], id, patch.date, report?.projectId ?? null)) {
       setDateError(patch.date ? 'A daily report for this date already exists.' : 'Enter a report date.');
       return;
     }

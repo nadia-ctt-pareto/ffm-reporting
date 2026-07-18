@@ -10,7 +10,7 @@ import { StepTouchpointsWin } from '@/components/wizard/steps/StepTouchpointsWin
 import { useWizard } from '@/components/wizard/useWizard';
 import { WizardStepper } from '@/components/wizard/WizardStepper';
 import { draftPeriodLabel } from '@/lib/report-utils';
-import type { AnyReport, DailyReport, ReportKind } from '@/lib/types';
+import type { AnyReport, DailyReport, Project, ReportKind } from '@/lib/types';
 import styles from './WizardScreen.module.css';
 
 export interface WizardScreenProps {
@@ -20,6 +20,8 @@ export interface WizardScreenProps {
   reports: AnyReport[];
   /** Weekly wizard only: ALL daily reports, for the "Import This Week's Daily Reports" panel on step 1. Omit for the daily wizard. */
   dailies?: DailyReport[];
+  /** Phase 6a: all known projects -- client-field datalist suggestions (StepTasks/StepRisks) and the client -> projectId stamp (see useWizard). */
+  projects?: Project[];
   initialReport: AnyReport | null;
   onExit: () => void;
   onSaveDraft: (report: AnyReport) => void;
@@ -37,11 +39,17 @@ export interface WizardScreenProps {
  * Phase 4: shared verbatim by both the weekly and daily wizards -- `kind`
  * only changes step 1 (StepBasics) and this file's own header/confirmation
  * copy; steps 2-6 are completely kind-agnostic.
+ *
+ * Phase 6a: `projects` (optional) feeds `clientSuggestions` (project names)
+ * down into StepTasks/StepRisks' Client fields as native `<datalist>`
+ * autocomplete, and into `useWizard` so a client edit can stamp the
+ * matching `projectId`. No project creation happens from the wizard.
  */
 export function WizardScreen({
   kind,
   reports,
   dailies,
+  projects,
   initialReport,
   onExit,
   onSaveDraft,
@@ -49,9 +57,10 @@ export function WizardScreen({
   onShareForPublished,
   onPdfForPublished,
 }: WizardScreenProps) {
-  const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies });
+  const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies, projects });
   const { draft, step, error, published } = wizard;
   const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
+  const clientSuggestions = (projects ?? []).map((p) => p.name);
 
   const stepPanel = (() => {
     switch (step) {
@@ -72,6 +81,7 @@ export function WizardScreen({
             updateTask={wizard.updateTask}
             removeTask={wizard.removeTask}
             addTask={wizard.addTask}
+            clientSuggestions={clientSuggestions}
             sourceOptions={wizard.priorReportOptions}
             importTaskSource={wizard.importTaskSource}
             onImportTaskSourceChange={wizard.onImportTaskSourceChange}
@@ -91,6 +101,7 @@ export function WizardScreen({
             updateRisk={wizard.updateRisk}
             removeRisk={wizard.removeRisk}
             addRisk={wizard.addRisk}
+            clientSuggestions={clientSuggestions}
             sourceOptions={wizard.priorReportOptions}
             importRiskSource={wizard.importRiskSource}
             onImportRiskSourceChange={wizard.onImportRiskSourceChange}

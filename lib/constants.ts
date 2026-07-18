@@ -18,8 +18,14 @@ export interface SelectOption {
 // Line 738: statusFilterOptions
 export const STATUS_FILTER_OPTIONS = ['All', 'Draft', 'Final', 'Sent'] as const;
 
-// Line 738: clientFilterOptions
-export const CLIENT_FILTER_OPTIONS = ['All', ...FF_CLIENTS] as const;
+// Line 738: clientFilterOptions was a static ['All', ...FF_CLIENTS] tuple.
+// Phase 6a: the dashboard's client filter is now dynamic (DashboardPage
+// builds `['All', ...projects.map(p => p.name)]` from useProjects()).
+// FF_CLIENTS remains the client-name source for seedReports()/
+// seedDailyReports() (~50 task/risk `client` strings) -- it is NOT
+// seedProjects()'s source; that function hardcodes its four slug/name pairs
+// verbatim, independently, on purpose (see lib/seed.ts) so the two seeds
+// can never drift by editing one and forgetting the other.
 
 // Line 781: statusEditOptions (detail dialog -- no 'All')
 export const STATUS_EDIT_OPTIONS = ['Draft', 'Final', 'Sent'] as const;

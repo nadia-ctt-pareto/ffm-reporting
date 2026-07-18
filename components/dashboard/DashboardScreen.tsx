@@ -11,15 +11,19 @@ import { Select } from '@/components/ui/Select';
 import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
-import { CLIENT_FILTER_OPTIONS, FF_CLIENTS, PAGE_SIZE_OPTIONS, SORT_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/constants';
+import { PAGE_SIZE_OPTIONS, SORT_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/constants';
 import { buildAllTasksCsv, downloadCsv } from '@/lib/csv';
 import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
 import { onSchedule, openBlockers, statusTone } from '@/lib/report-utils';
-import type { Report, SortKey } from '@/lib/types';
+import type { Project, Report, SortKey } from '@/lib/types';
 import styles from './DashboardScreen.module.css';
 
 export interface DashboardScreenProps {
   reports: Report[];
+  /** Phase 6a: dynamic client filter options ('All' + every known Project's name), replacing the static CLIENT_FILTER_OPTIONS. Filter *matching* logic is unchanged -- still compares `task.client` strings. Purely a <Select> concern -- NOT used to derive the "Active Clients" stat (see `projects` below). */
+  clientOptions: string[];
+  /** Phase 6a: the source of truth for the "Active Clients" StatCard -- null while still loading. Kept independent of `clientOptions` so a future second sentinel option in that list can never silently skew the count. */
+  projects: Project[] | null;
   filterStatus: string;
   onFilterStatusChange: (value: string) => void;
   filterClient: string;
@@ -50,6 +54,8 @@ const TABLE_COLUMNS: TableColumn[] = [
 
 export function DashboardScreen({
   reports,
+  clientOptions,
+  projects,
   filterStatus,
   onFilterStatusChange,
   filterClient,
@@ -155,7 +161,7 @@ export function DashboardScreen({
           <StatCard label="Total Reports" value={String(reports.length)} />
           <StatCard label="Avg. Tasks On Schedule" value={`${avgPct}%`} />
           <StatCard label="Open Blockers (Latest)" value={latest ? String(openBlockers(latest)) : '0'} />
-          <StatCard label="Active Clients" value={String(FF_CLIENTS.length)} />
+          <StatCard label="Active Clients" value={String(projects?.length ?? 0)} />
         </div>
 
         <div className={styles.filterBar}>
@@ -163,7 +169,7 @@ export function DashboardScreen({
             <Select label="Status" options={[...STATUS_FILTER_OPTIONS]} value={filterStatus} onChange={onFilterStatusChange} />
           </div>
           <div style={{ width: 280 }}>
-            <Select label="Client" options={[...CLIENT_FILTER_OPTIONS]} value={filterClient} onChange={onFilterClientChange} />
+            <Select label="Client" options={clientOptions} value={filterClient} onChange={onFilterClientChange} />
           </div>
           <div style={{ width: 260 }}>
             <Input

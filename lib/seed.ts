@@ -15,7 +15,7 @@
 
 import { FF_CLIENTS } from './constants';
 import { uid } from './format';
-import type { DailyReport, Priority, Report, Risk, Task, WeeklyReport } from './types';
+import type { DailyReport, Priority, Project, Report, Risk, Task, WeeklyReport } from './types';
 
 function mk(
   id: string,
@@ -492,5 +492,25 @@ export function seedDailyReports(): DailyReport[] {
       [],
       "Short Friday -- wrapping up the week's open items before end of day."
     ),
+  ];
+}
+
+/**
+ * Phase 6a: the four Projects seeded by `ff.projects.v1` on first read
+ * (LocalStorageReportsRepository.getProjects()). Hardcoded verbatim from the
+ * SQL insert (supabase/migrations/20260717000001_initial_schema.sql's
+ * `clients` seed, renamed to `projects` in
+ * supabase/migrations/20260718000003_projects.sql) -- NOT derived via
+ * slugifyProjectName(), so the app seed and the SQL seed can never drift
+ * apart. Do NOT touch seedReports()/seedDailyReports() above (verbatim-port
+ * content) -- projectId backfill onto their tasks/risks happens lazily at
+ * runtime instead (see lib/projects.ts ensureProjectIds()).
+ */
+export function seedProjects(): Project[] {
+  return [
+    { id: 'helitech-foundation-waterproofing', name: 'Helitech Foundation & Waterproofing' },
+    { id: 'dryroot-waterproofing', name: 'DryRoot Waterproofing' },
+    { id: 'summit-basement-solutions', name: 'Summit Basement Solutions' },
+    { id: 'terrafirm-foundation-repair', name: 'TerraFirm Foundation Repair' },
   ];
 }

@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { nowDate, uid } from '@/lib/format';
 import { aggregateDailiesIntoDraft } from '@/lib/aggregate';
+import { projectIdForClientName } from '@/lib/projects';
 import { blankDailyDraft, blankDraft, dailyDateConflict, reportPeriodEnd, reportPeriodLabel, validateStep } from '@/lib/report-utils';
-import type { AnyReport, DailyReport, Draft, Priority, ReportKind, ReportStatus, Risk, Task } from '@/lib/types';
+import type { AnyReport, DailyReport, Draft, Priority, Project, ReportKind, ReportStatus, Risk, Task } from '@/lib/types';
 
 export interface ImportCandidate {
   id: string;
@@ -33,7 +34,14 @@ function reportToDraft(report: AnyReport): Draft {
   return { ...report, date: '' };
 }
 
-/** The inverse of reportToDraft: builds the AnyReport to persist from a Draft, an id, and a status. Only the fields relevant to `draft.kind` are carried into the result. */
+/**
+ * The inverse of reportToDraft: builds the AnyReport to persist from a
+ * Draft, an id, and a status. Only the fields relevant to `draft.kind` are
+ * carried into the result. Phase 6a: `projectId` must be carried explicitly
+ * here (unlike reportToDraft, which gets it for free via its `{...report}`
+ * spread) -- otherwise resuming an imported draft-status report through the
+ * wizard would silently strip its project on the next save.
+ */
 function draftToReport(draft: Draft, id: string, status: ReportStatus, now: string): AnyReport {
   const core = {
     id,
@@ -48,6 +56,7 @@ function draftToReport(draft: Draft, id: string, status: ReportStatus, now: stri
     win: draft.win,
     touchpoints: draft.touchpoints,
     priorities: draft.priorities,
+    projectId: draft.projectId,
   };
   return draft.kind === 'daily'
     ? { ...core, kind: 'daily', date: draft.date }
@@ -65,6 +74,13 @@ export interface UseWizardOptions {
    * Omit/pass `[]` for the daily wizard itself.
    */
   dailies?: DailyReport[];
+  /**
+   * Phase 6a: all known projects -- used to stamp a Task/Risk's `projectId`
+   * via exact-name match (`projectIdForClientName`) whenever its `client`
+   * field is edited (see updateTask/updateRisk below). No project creation
+   * happens from the wizard in Phase 6 -- that's Phase 6b's CSV importer.
+   */
+  projects?: Project[];
 }
 
 export interface UseWizardResult {
@@ -192,8 +208,16 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
   function addTask() {
     addDraftItem('tasks', () => ({ id: uid('t'), client: '', task: '', status: 'In Progress', deadline: '' }));
   }
+  /**
+   * Phase 6a: when `field` is `'client'`, also stamps `projectId` via an
+   * exact-name match against `options.projects` (undefined on no match --
+   * never creates a project from the wizard, see UseWizardOptions.projects).
+   */
   function updateTask<F extends keyof Task>(id: string, field: F, value: Task[F]) {
     updateDraftItem('tasks', id, field, value);
+    if (field === 'client') {
+      updateDraftItem('tasks', id, 'projectId', projectIdForClientName(value as string, options.projects ?? []));
+    }
   }
   function removeTask(id: string) {
     removeDraftItem('tasks', id);
@@ -203,8 +227,12 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
   function addRisk() {
     addDraftItem('risks', () => ({ id: uid('rk'), client: '', severity: 'At Risk', description: '', nextStep: '' }));
   }
+  /** Phase 6a: see updateTask -- same client -> projectId stamping. */
   function updateRisk<F extends keyof Risk>(id: string, field: F, value: Risk[F]) {
     updateDraftItem('risks', id, field, value);
+    if (field === 'client') {
+      updateDraftItem('risks', id, 'projectId', projectIdForClientName(value as string, options.projects ?? []));
+    }
   }
   function removeRisk(id: string) {
     removeDraftItem('risks', id);
@@ -367,6 +395,11 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     );
     const chosen = candidates.filter((t) => importSel.taskChecked[t.id]);
     if (!chosen.length) return;
+    // TODO(6b): this drops `t.projectId` -- harmless today (ensureProjectIds
+    // re-derives it next load from `client === project.name`), but becomes
+    // silent data loss the moment an imported task's `client` string can
+    // differ from its project's `name` (Phase 6b's CSV importer). Carry
+    // `projectId: t.projectId` through here once that lands.
     const newTasks: Task[] = chosen.map((t) => ({ id: uid('t'), client: t.client, task: t.task, status: t.status, deadline: t.deadline }));
     setDraft((d) => ({ ...d, tasks: [...d.tasks, ...newTasks] }));
     setImportSel((s) => ({ ...s, taskChecked: {} }));
@@ -377,6 +410,9 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     const candidates = riskSrc.risks.filter((rk) => !draft.risks.some((dr) => dr.client === rk.client && dr.description === rk.description));
     const chosen = candidates.filter((rk) => importSel.riskChecked[rk.id]);
     if (!chosen.length) return;
+    // TODO(6b): see the identical note in importSelectedTasks() above --
+    // drops `rk.projectId`, harmless today, becomes silent data loss once an
+    // imported risk's `client` can diverge from its project's `name`.
     const newRisks: Risk[] = chosen.map((rk) => ({ id: uid('rk'), client: rk.client, severity: rk.severity, description: rk.description, nextStep: rk.nextStep }));
     setDraft((d) => ({ ...d, risks: [...d.risks, ...newRisks] }));
     setImportSel((s) => ({ ...s, riskChecked: {} }));

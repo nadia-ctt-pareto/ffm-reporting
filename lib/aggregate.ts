@@ -48,6 +48,11 @@ export function aggregateDailiesIntoDraft(dailies: DailyReport[], draft: Draft):
   for (const daily of ordered) {
     for (const t of daily.tasks) taskByKey.set(taskKey(t), t);
   }
+  // TODO(6b): this drops `t.projectId` -- harmless today (ensureProjectIds
+  // re-derives it next load from `client === project.name`), but becomes
+  // silent data loss the moment an imported daily's `client` string can
+  // diverge from its project's `name`. Carry `projectId: t.projectId`
+  // through here once Phase 6b's CSV importer lands.
   const newTasks: Task[] = [...taskByKey.values()]
     .filter((t) => !draft.tasks.some((dt) => dt.client === t.client && dt.task === t.task))
     .map((t) => ({ id: uid('t'), client: t.client, task: t.task, status: t.status, deadline: t.deadline }));
@@ -56,6 +61,9 @@ export function aggregateDailiesIntoDraft(dailies: DailyReport[], draft: Draft):
   for (const daily of ordered) {
     for (const rk of daily.risks) riskByKey.set(riskKey(rk), rk);
   }
+  // TODO(6b): see the identical note above newTasks -- drops `rk.projectId`,
+  // harmless today, becomes silent data loss once an imported daily risk's
+  // `client` can diverge from its project's `name`.
   const newRisks: Risk[] = [...riskByKey.values()]
     .filter((rk) => !draft.risks.some((dr) => dr.client === rk.client && dr.description === rk.description))
     .map((rk) => ({ id: uid('rk'), client: rk.client, severity: rk.severity, description: rk.description, nextStep: rk.nextStep }));

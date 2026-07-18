@@ -1,11 +1,25 @@
-import { seedDailyReports, seedReports } from '../seed';
-import type { AnyReport, DailyReport, ReportCore, WeeklyReport } from '../types';
+import { ensureProjectIds } from '../projects';
+import { seedDailyReports, seedProjects, seedReports } from '../seed';
+import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '../types';
 import type { ReportsRepository } from './reports-repository';
 
 /** Phase 1-3 key: `WeeklyReport[]` only (no `kind` field). Never written to post-Phase-4 -- kept only as a migration source/backup, see migrateV1ToV2 below. */
 const V1_KEY = 'ff.weekly-reports.v1';
-/** Phase 4 key: `AnyReport[]` (weeklies + dailies, discriminated by `kind`). */
+/**
+ * Phase 4 key: `AnyReport[]` (weeklies + dailies, discriminated by `kind`).
+ *
+ * Phase 6a note: adding `projectId` to tasks/risks/reports did NOT bump this
+ * key. The v1->v2 backup discipline exists for *destructive* reshapes (v1->v2
+ * re-keyed the store and stamped a new `kind` discriminant onto every
+ * record) -- this is not one. A record without `projectId` remains a fully
+ * valid `AnyReport` (the schema marks it `.nullish()`), no existing field is
+ * reshaped or reinterpreted, and no old reader exists that the new shape
+ * could confuse. See ensureProjectIds() in loadAll() below for how existing
+ * records get `projectId` stamped in place, lazily.
+ */
 const V2_KEY = 'ff.reports.v2';
+/** Phase 6a: the Project entity's store, seeded from seedProjects() on first read. */
+const PROJECTS_KEY = 'ff.projects.v1';
 
 /**
  * MVP persistence: browser localStorage. One unified v2 store holds both
@@ -56,27 +70,86 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     window.localStorage.setItem(V2_KEY, JSON.stringify(reports));
   }
 
-  /** Stamps `kind: 'weekly'` on every v1 record and persists it to v2. Never touches/deletes the v1 key. */
+  /**
+   * Stamps `kind: 'weekly'` on every v1 record. Pure -- does NOT write to v2
+   * itself (never touches/deletes the v1 key either way). See loadAll()
+   * below for why: the Phase 6a `projectId` backfill must land in the SAME
+   * write as this migration, not a second one, so a write failure (e.g.
+   * quota) can never leave the store valid-but-unstamped after an
+   * already-"succeeded" first write.
+   */
   private migrateV1ToV2(v1Reports: WeeklyReport[]): AnyReport[] {
-    const migrated: AnyReport[] = v1Reports.map((r) => ({ ...r, kind: 'weekly' as const }));
-    this.writeV2(migrated);
-    return migrated;
+    return v1Reports.map((r) => ({ ...r, kind: 'weekly' as const }));
   }
 
-  private seedAndPersist(): AnyReport[] {
-    const seeded: AnyReport[] = [...seedReports(), ...seedDailyReports()];
-    this.writeV2(seeded);
+  private readProjects(): Project[] | null {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(PROJECTS_KEY);
+    if (raw == null) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error('Stored projects payload is not an array.');
+      return parsed as Project[];
+    } catch {
+      return null;
+    }
+  }
+
+  private writeProjects(projects: Project[]): void {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+  }
+
+  /** ff.projects.v1 present & valid -> use it. Absent/corrupt -> seed from seedProjects() and persist. No v1->v2-style migration needed -- this key didn't exist before Phase 6a. */
+  private async loadProjects(): Promise<Project[]> {
+    if (typeof window === 'undefined') return [];
+    const existing = this.readProjects();
+    if (existing !== null) return existing;
+    const seeded = seedProjects();
+    this.writeProjects(seeded);
     return seeded;
   }
 
-  /** v2 present & valid -> use it. v2 absent/corrupt -> migrate from v1 if present & valid. Neither -> reseed. */
+  /**
+   * v2 present & valid -> use it (WARM path). v2 absent/corrupt -> migrate
+   * from v1 if present & valid, else reseed (COLD path).
+   *
+   * Phase 6a lazy backfill: whichever path resolved `reports`, run
+   * `ensureProjectIds()` against the current project list before persisting
+   * anything.
+   *
+   * - WARM path: write back ONLY if something actually got stamped
+   *   (`changed`) -- so a browser that already has every task/risk's
+   *   `projectId` stamped (the common case, after the very first
+   *   post-upgrade load) never re-writes `ff.reports.v2` on every
+   *   subsequent read.
+   * - COLD path (fresh reseed or a v1->v2 migration): the raw
+   *   migrated/seeded payload is backfilled BEFORE the single `writeV2` --
+   *   never written once unbackfilled and then rewritten a second time.
+   *   That second write was previously the migration/seed's OWN write being
+   *   immediately superseded by the backfill's write; if that second write
+   *   had thrown (e.g. quota), the store would have been left
+   *   valid-but-unstamped. Now there is exactly one write on this path.
+   *
+   * This is the one place backfill happens; every other repository method
+   * goes through here.
+   */
   private async loadAll(): Promise<AnyReport[]> {
     if (typeof window === 'undefined') return [];
+    const projects = await this.loadProjects();
+
     const v2 = this.readV2();
-    if (v2 !== null) return v2;
+    if (v2 !== null) {
+      const backfilled = ensureProjectIds(v2, projects);
+      if (backfilled.changed) this.writeV2(backfilled.reports);
+      return backfilled.reports;
+    }
+
     const v1 = this.readV1();
-    if (v1 !== null) return this.migrateV1ToV2(v1);
-    return this.seedAndPersist();
+    const raw: AnyReport[] = v1 !== null ? this.migrateV1ToV2(v1) : [...seedReports(), ...seedDailyReports()];
+    const backfilled = ensureProjectIds(raw, projects);
+    this.writeV2(backfilled.reports);
+    return backfilled.reports;
   }
 
   async getAll(): Promise<WeeklyReport[]> {
@@ -117,5 +190,17 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     if (!updated) return null;
     this.writeV2(next);
     return updated;
+  }
+
+  async getProjects(): Promise<Project[]> {
+    return this.loadProjects();
+  }
+
+  async upsertProject(project: Project): Promise<Project> {
+    const all = await this.loadProjects();
+    const exists = all.some((p) => p.id === project.id);
+    const next = exists ? all.map((p) => (p.id === project.id ? project : p)) : [...all, project];
+    this.writeProjects(next);
+    return project;
   }
 }

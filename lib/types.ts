@@ -10,12 +10,38 @@
 // calendar views) keeps compiling unchanged -- `ReportsRepository.getAll()`
 // still only ever returns weeklies (see lib/data/), which is what makes
 // that alias sound everywhere it's used.
+//
+// Phase 6a: this file is now a pure FACADE over `lib/schema/` -- every
+// exported type below is `z.infer<typeof XSchema>`, not a hand-written
+// interface. The Zod schemas are the single source of truth; this file
+// exists so ~60 import sites across the codebase keep importing types from
+// `lib/types.ts` unchanged. Because a regex'd `z.string()` still infers as
+// plain `string` and `.nullish()` infers an optional `T | null | undefined`
+// key, every inferred type here is structurally identical to the interfaces
+// it replaces -- see lib/schema/report.ts's header comment.
 
-export type ReportStatus = 'Draft' | 'Final' | 'Sent';
+import type { z } from 'zod';
+import type {
+  AnyReportSchema,
+  DailyReportSchema,
+  PrioritySchema,
+  ProjectSchema,
+  ReportCoreSchema,
+  RiskSchema,
+  RiskSeveritySchema,
+  TaskSchema,
+  TaskStatusSchema,
+  TouchpointsSchema,
+  WeeklyReportSchema,
+  WinSchema,
+  ReportStatusSchema,
+} from './schema';
 
-export type TaskStatus = 'Complete' | 'In Progress' | 'Blocked';
+export type ReportStatus = z.infer<typeof ReportStatusSchema>;
 
-export type RiskSeverity = 'Blocked' | 'At Risk';
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+
+export type RiskSeverity = z.infer<typeof RiskSeveritySchema>;
 
 /**
  * Badge visual tone. NOTE: 'green' is intentionally included here even though
@@ -23,82 +49,43 @@ export type RiskSeverity = 'Blocked' | 'At Risk';
  * ffStatusTone() (design-source line 441) returns 'green' for Final-status
  * reports, but ffBadgeStyle() (line 430-440) has no 'green' entry in its tone
  * map -- so "Final" badges silently fall back to the 'neutral' style. This is
- * a faithful port of that prototype quirk; do not "fix" it silently.
+ * a faithful port of that prototype quirk; do not "fix" it silently. UI-only
+ * -- deliberately NOT part of lib/schema (there is no SQL column to mirror).
  */
 export type BadgeTone = 'positive' | 'negative' | 'warning' | 'sage' | 'dark' | 'neutral' | 'green';
 
+/** UI-only sort key (dashboard). Not part of lib/schema -- no SQL column to mirror. */
 export type SortKey = 'week_desc' | 'week_asc' | 'status' | 'blockers_desc';
 
-/** Phase 4: which shape of report a given row/draft is. */
+/** Phase 4: which shape of report a given row/draft is. UI-only. */
 export type ReportKind = 'weekly' | 'daily';
 
-export interface Task {
-  id: string;
-  client: string;
-  task: string;
-  status: TaskStatus;
-  deadline: string;
-}
+export type Task = z.infer<typeof TaskSchema>;
 
-export interface Risk {
-  id: string;
-  client: string;
-  severity: RiskSeverity;
-  description: string;
-  nextStep: string;
-}
+export type Risk = z.infer<typeof RiskSchema>;
 
-export interface Priority {
-  id: string;
-  text: string;
-}
+export type Priority = z.infer<typeof PrioritySchema>;
 
-export interface Win {
-  stat: string;
-  label: string;
-  narrative: string;
-}
+export type Win = z.infer<typeof WinSchema>;
 
-export interface Touchpoints {
-  calls: number;
-  emails: number;
-  escalations: number;
-  narrative: string;
-}
+export type Touchpoints = z.infer<typeof TouchpointsSchema>;
 
 /**
  * Every field a weekly report and a daily report share. Exported (not just
  * a private helper interface) because `ReportsRepository.update()`'s patch
  * type is `Partial<ReportCore>` -- see lib/data/reports-repository.ts.
  */
-export interface ReportCore {
-  id: string;
-  status: ReportStatus;
-  preparedFor: string;
-  preparedBy: string;
-  createdAt: string;
-  updatedAt: string;
-  summaryNarrative: string;
-  tasks: Task[];
-  risks: Risk[];
-  win: Win;
-  touchpoints: Touchpoints;
-  priorities: Priority[];
-}
+export type ReportCore = z.infer<typeof ReportCoreSchema>;
 
-export interface WeeklyReport extends ReportCore {
-  kind: 'weekly';
-  weekStart: string;
-  weekEnd: string;
-}
+export type WeeklyReport = z.infer<typeof WeeklyReportSchema>;
 
 /** One per calendar day, covering all clients (not per-client). */
-export interface DailyReport extends ReportCore {
-  kind: 'daily';
-  date: string;
-}
+export type DailyReport = z.infer<typeof DailyReportSchema>;
 
-export type AnyReport = WeeklyReport | DailyReport;
+export type AnyReport = z.infer<typeof AnyReportSchema>;
+
+/** Phase 6a: `Project { id, name }` -- matches the SQL `projects` table exactly (renamed from `clients`, see supabase/migrations/20260718000003_projects.sql). Ids are the slugs seeded in the baseline migration; see lib/seed.ts's seedProjects(). */
+export type Project = z.infer<typeof ProjectSchema>;
 
 /**
  * Alias retained so every Phase 1-3 call site (dashboard, weekly wizard,
@@ -129,7 +116,9 @@ export type ReportFieldPatch = Partial<ReportCore> & { weekStart?: string; weekE
  * `weekStart`/`weekEnd`/`date` are ALWAYS present regardless of `kind` (the
  * unused pair is just `''`) -- this keeps every wizard step's props
  * unconditional; only `StepBasics` branches on `kind`. Consumed by the
- * wizard (Pass 2 / Phase 4).
+ * wizard (Pass 2 / Phase 4). Hand-written, not schema-derived -- an
+ * in-progress draft is deliberately looser than a persisted `AnyReport`
+ * (e.g. both period pairs coexist, `id` may be null).
  */
 export interface Draft {
   id: string | null;
@@ -148,4 +137,6 @@ export interface Draft {
   priorities: Priority[];
   createdAt?: string;
   updatedAt?: string;
+  /** Phase 6a: see ReportCoreSchema.projectId (lib/schema/report.ts). `reportToDraft` already spreads it in at runtime; `draftToReport` must carry it explicitly (see components/wizard/useWizard.ts) or resuming an imported draft-status report through the wizard would silently strip its project. */
+  projectId?: string | null;
 }

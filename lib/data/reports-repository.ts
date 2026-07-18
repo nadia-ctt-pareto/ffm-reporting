@@ -1,4 +1,4 @@
-import type { AnyReport, DailyReport, ReportCore, WeeklyReport } from '../types';
+import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '../types';
 
 /**
  * Swappable persistence contract for reports. The MVP implementation is
@@ -33,4 +33,16 @@ export interface ReportsRepository {
    * verbatim at runtime, so those extra kind-specific fields still land.
    */
   update(id: string, patch: Partial<ReportCore>): Promise<AnyReport | null>;
+
+  /**
+   * Phase 6a: the Project entity. Returns all projects, seeding
+   * `ff.projects.v1` from `seedProjects()` on first read (mirrors the
+   * reports store's seed-on-first-read pattern). Additive, not a v1->v2
+   * style migration -- see the V2_KEY comment in
+   * local-storage-reports-repository.ts for why `ff.reports.v2` itself
+   * needed no key bump for `projectId`.
+   */
+  getProjects(): Promise<Project[]>;
+  /** Insert if `project.id` is new, otherwise replace the existing project. */
+  upsertProject(project: Project): Promise<Project>;
 }

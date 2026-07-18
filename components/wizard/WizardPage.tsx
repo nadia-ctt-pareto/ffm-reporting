@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { WizardScreen } from '@/components/wizard/WizardScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
+import { useProjects } from '@/lib/hooks/useProjects';
 import { useReports } from '@/lib/hooks/useReports';
 import type { AnyReport, ReportKind } from '@/lib/types';
 
@@ -33,11 +34,20 @@ export interface WizardPageProps {
  * "Import This Week's Daily Reports" panel; the daily wizard only reads its
  * own dailies list twice over (as `reports` for carry-forward AND as the
  * one-daily-per-day uniqueness source), which is harmless.
+ *
+ * Phase 6a: also calls `useProjects()` and passes the list straight through
+ * to `WizardScreen`/`useWizard` -- client-field datalist suggestions and the
+ * client -> projectId stamp (see `useWizard.updateTask`/`updateRisk`). Not
+ * part of the `loaded` gate below: an empty `projects` list while it's still
+ * loading just means no suggestions/stamping for a moment, never a blocked
+ * render (unlike `weeklyReports`/`dailyReports`, which the wizard cannot
+ * function without).
  */
 export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
   const router = useRouter();
   const { reports: weeklyReports, upsertReport: upsertWeekly } = useReports();
   const { reports: dailyReports, upsertReport: upsertDaily } = useDailyReports();
+  const { projects } = useProjects();
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareReportId, setShareReportId] = useState<string | null>(null);
@@ -114,6 +124,7 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
         kind={kind}
         reports={sameKindReports ?? []}
         dailies={kind === 'weekly' ? (dailyReports ?? []) : undefined}
+        projects={projects ?? []}
         initialReport={initialReport}
         onExit={exitWizard}
         onSaveDraft={handleSaveDraft}

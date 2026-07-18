@@ -15,6 +15,8 @@ export interface StepTasksProps {
   updateTask: <F extends keyof Task>(id: string, field: F, value: Task[F]) => void;
   removeTask: (id: string) => void;
   addTask: () => void;
+  /** Phase 6a: known project names, offered as native datalist autocomplete on the Client field. */
+  clientSuggestions?: string[];
   sourceOptions: { value: string; label: string }[];
   importTaskSource: string;
   onImportTaskSourceChange: (value: string) => void;
@@ -29,6 +31,7 @@ export function StepTasks({
   updateTask,
   removeTask,
   addTask,
+  clientSuggestions,
   sourceOptions,
   importTaskSource,
   onImportTaskSourceChange,
@@ -58,6 +61,7 @@ export function StepTasks({
               label="Client"
               value={t.client}
               onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'client', e.target.value)}
+              suggestions={clientSuggestions}
             />
             <Input
               label="Task"

@@ -96,30 +96,47 @@ export function reportPeriodEnd(report: AnyReport): string {
 }
 
 /**
+ * Phase 6a: the TS mirror of SQL's `coalesce(project_id, '')` -- two
+ * `projectId`s are in the "same bucket" if they're equal once `null`/
+ * `undefined` are folded to `''` (the house bucket). Powers the
+ * per-project-bucket daily-uniqueness scoping below: `(null, null)` collide
+ * (both house), `('p1', 'p1')` collide (same project), `(null, 'p1')` and
+ * `('p1', 'p2')` never collide.
+ */
+export function sameProjectBucket(a?: string | null, b?: string | null): boolean {
+  return (a ?? '') === (b ?? '');
+}
+
+/**
  * Phase 4: true when `draft` is a daily report whose `date` matches an
  * existing daily OTHER than itself (`id !== draft.id`, so editing an
  * existing daily in place is never flagged against its own prior save).
  * Enforces "one daily report per day, covering all clients" in the UI --
  * mirrored in SQL by the `reports_one_daily_per_day` partial unique index
- * (supabase/migrations/20260717000002_daily_reports.sql).
+ * (supabase/migrations/20260717000002_daily_reports.sql). Phase 6a: scoped
+ * per project bucket (`sameProjectBucket`) -- a wizard-created draft always
+ * has no `projectId` (house bucket), so this is a no-op behavior change for
+ * every existing flow; it only stops colliding with imported project-scoped
+ * dailies (supabase/migrations/20260718000003_projects.sql).
  */
 export function dailyDateConflict(draft: Draft, existingDailies: DailyReport[]): boolean {
   if (draft.kind !== 'daily' || !draft.date) return false;
-  return existingDailies.some((d) => d.date === draft.date && d.id !== draft.id);
+  return existingDailies.some((d) => d.date === draft.date && sameProjectBucket(d.projectId, draft.projectId) && d.id !== draft.id);
 }
 
 /**
  * Phase 4: the report-screen-edit cousin of dailyDateConflict, for
  * `/daily/[id]`'s inline, autosaving Date field (which has no wizard-style
  * "Next" gate to catch a bad value before it's persisted). True when `date`
- * is blank OR collides with another daily's date (excluding `id` itself) --
- * both cases must be rejected before the patch reaches
- * `useDailyReports().updateReportFields`, or the one-daily-per-day
+ * is blank OR collides with another daily's date in the SAME project bucket
+ * (excluding `id` itself) -- both cases must be rejected before the patch
+ * reaches `useDailyReports().updateReportFields`, or the one-daily-per-day
  * invariant (`reports_one_daily_per_day` in SQL) can be silently violated
- * via this edit path alone.
+ * via this edit path alone. Phase 6a: `projectId` defaults to `null` (house
+ * bucket) so every pre-Phase-6a call site is unaffected.
  */
-export function invalidDailyDateEdit(existingDailies: DailyReport[], id: string, date: string): boolean {
-  return !date || existingDailies.some((d) => d.date === date && d.id !== id);
+export function invalidDailyDateEdit(existingDailies: DailyReport[], id: string, date: string, projectId?: string | null): boolean {
+  return !date || existingDailies.some((d) => d.date === date && sameProjectBucket(d.projectId, projectId) && d.id !== id);
 }
 
 /**

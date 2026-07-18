@@ -15,6 +15,8 @@ export interface StepRisksProps {
   updateRisk: <F extends keyof Risk>(id: string, field: F, value: Risk[F]) => void;
   removeRisk: (id: string) => void;
   addRisk: () => void;
+  /** Phase 6a: known project names, offered as native datalist autocomplete on the Client field. */
+  clientSuggestions?: string[];
   sourceOptions: { value: string; label: string }[];
   importRiskSource: string;
   onImportRiskSourceChange: (value: string) => void;
@@ -29,6 +31,7 @@ export function StepRisks({
   updateRisk,
   removeRisk,
   addRisk,
+  clientSuggestions,
   sourceOptions,
   importRiskSource,
   onImportRiskSourceChange,
@@ -58,6 +61,7 @@ export function StepRisks({
               label="Client"
               value={rk.client}
               onChange={(e: ChangeEvent<HTMLInputElement>) => updateRisk(rk.id, 'client', e.target.value)}
+              suggestions={clientSuggestions}
             />
             <Select
               label="Severity"
