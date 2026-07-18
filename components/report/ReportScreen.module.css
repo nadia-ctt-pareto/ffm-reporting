@@ -85,22 +85,6 @@
   margin-bottom: 10px;
 }
 
-/* The PDF-preview filmstrip: `.previewViewport` is sized exactly to the
-   scaled deck (width/height set inline from DECK_SLIDE_WIDTH/
-   DECK_TOTAL_HEIGHT * PREVIEW_SCALE in ReportScreen.tsx), so there's no
-   stray blank space below/beside it; `.previewScaler` renders the *same*
-   `<ReportDeck>` used by the present route at native size, then visually
-   shrinks it via `transform: scale()`. */
-.previewViewport {
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 32px;
-}
-
-.previewScaler {
-  transform-origin: top left;
-}
-
 .narrative {
   font-family: var(--font-body);
   font-size: 14px;

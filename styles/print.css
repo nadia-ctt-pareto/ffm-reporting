@@ -6,10 +6,21 @@
  *
  * Selectors below are plain (unhashed) global classnames on purpose: this
  * is a global stylesheet, so it can't reach CSS-Modules' hashed classnames.
- * `deck`/`slide`/`slideScaler`/`presentToolbar`/`presentStage` are applied
- * as literal `className` strings (alongside their CSS-Module classes) by
- * ReportDeck.tsx and PresentScreen.tsx specifically so this file can select
- * them.
+ * `deck`/`slide`/`slideScaler`/`presentToolbar`/`presentStage`/`presentNav`/
+ * `presentPage` are applied as literal `className` strings (alongside their
+ * CSS-Module classes) by ReportDeck.tsx and PresentScreen.tsx specifically
+ * so this file can select them.
+ *
+ * Phase 5: the present route became an interactive, paginated deck (one
+ * slide visible on screen at a time, a bottom `presentNav` overlay bar for
+ * prev/next/dots/fullscreen). This required NO new rules for the slides
+ * themselves: all 6 stay mounted always (see ReportDeck.tsx's doc comment),
+ * and "one slide at a time" is a `@media screen`-scoped hiding rule in
+ * ReportDeck.module.css that print media never sees -- so every `.slide`
+ * rule below still applies exactly as before, and all 6 pages still print
+ * regardless of which slide was active when `window.print()` fired. The
+ * only addition is hiding the new `presentNav` overlay in print, following
+ * the existing `presentToolbar` precedent below.
  *
  * Every rule below is `!important`: Next.js doesn't guarantee this global
  * stylesheet's chunk loads *after* the CSS-Module chunks it's overriding
@@ -48,14 +59,64 @@
     display: none !important;
   }
 
+  /* Phase 5: the interactive deck's bottom prev/next/dots/fullscreen overlay -- screen-only, same as the toolbar above. */
+  .presentNav {
+    display: none !important;
+  }
+
+  /* Phase 5 fix (post-review): `.page` is a fixed-`100dvh` flex column on
+     screen (see PresentScreen.module.css) so the interactive stage fills
+     the viewport below the toolbar. `.page` carries ONLY its hashed
+     CSS-Module class -- unlike `.stage`/`.toolbar`/`.nav`, no global
+     `present*` classname was applied to it, so THIS rule (and the
+     `presentPage` classname it targets) didn't exist for one review round,
+     meaning print.css had no way to reach it at all. That mattered: with
+     `.page` still a fixed-height flex container in print, the 6 slides
+     only paginated because `.presentStage` below was told to overflow that
+     fixed-height ancestor and rely on Chromium fragmenting the overflow --
+     exactly the fragility this file's own comment two rules down already
+     warns about ("Chromium's page-fragmentation engine doesn't paginate
+     flex containers as predictably as plain block boxes"). Neutralizing
+     `.page` itself removes the fixed-height flex ancestor from the
+     equation entirely, so pagination no longer depends on overflow
+     fragmenting through it. */
+  .presentPage {
+    height: auto !important;
+    display: block !important;
+  }
+
   /* Un-does the on-screen centering/height reservation -- in print, slide 1
      must start flush at the paper's top-left corner so the cover's black
-     band is truly full-bleed. */
+     band is truly full-bleed.
+     Phase 5: `.presentStage` is now ALSO a flex item (`.page`/`.presentPage`
+     above is a flex column so the on-screen stage fills the viewport below
+     the toolbar) with `overflow: hidden` (so the inactive slides -- hidden
+     on screen by ReportDeck.module.css's `@media screen`-scoped rule --
+     never produce a stray scrollbar). Neither of those is safe in print:
+     `overflow: hidden` clips anything beyond the box's own size instead of
+     letting the print engine paginate it, and being a flex item lets
+     `flex-shrink` collapse `height: auto` down to the single-viewport-worth
+     of space the flex layout allocates it -- together these silently
+     collapsed the whole 6-slide deck onto ONE clipped page (verified with a
+     real PDF export: `/Count 1` instead of 6, MediaBox correct but only the
+     first slide's content, before this `flex: none` + `overflow: visible`
+     override was added). `flex: none` (not just resetting flex-shrink
+     alone) is required: it takes `.stage` out of the flex-basis/grow/shrink
+     sizing algorithm entirely, so `height: auto` resolves against its
+     actual (stacked, multi-slide) content height instead of being shrunk to
+     fit whatever space the flex container happened to allocate it. Now that
+     `.presentPage` above neutralizes the ANCESTOR's flex/fixed-height too,
+     this rule is belt-and-braces rather than the sole load-bearing
+     mechanism -- kept anyway since `.stage` is still a flex item of
+     whatever `.page` resolves to, and removing it regressed to the
+     `/Count 1` failure in testing. */
   .presentStage {
     margin: 0 !important;
     padding: 0 !important;
     height: auto !important;
     display: block !important;
+    flex: none !important;
+    overflow: visible !important;
   }
 
   /* Chromium's page-fragmentation engine doesn't paginate flex containers

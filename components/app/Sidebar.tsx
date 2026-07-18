@@ -1,10 +1,10 @@
 'use client';
 
+import type { ComponentType, SVGProps } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Tooltip } from 'radix-ui';
-import { useTheme } from '@/components/theme/ThemeProvider';
-import { Switch } from '@/components/ui/Switch';
+import { IconCalendar, IconDaily, IconDashboard, IconSettings, IconTasks } from '@/components/ui/icons';
 import styles from './Sidebar.module.css';
 
 export interface SidebarProps {
@@ -15,20 +15,22 @@ export interface SidebarProps {
 interface NavItem {
   href: string;
   label: string;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
 // Phase 3: Dashboard, Tasks (List/Kanban), Calendar (Week/Month).
 // Phase 4: Daily Reports (/daily).
+// Phase 5: Settings (/settings) + hand-authored square icons (see components/ui/icons.tsx).
 const NAV_ITEMS: NavItem[] = [
-  { href: '/', label: 'Dashboard' },
-  { href: '/daily', label: 'Daily Reports' },
-  { href: '/tasks', label: 'Tasks' },
-  { href: '/calendar', label: 'Calendar' },
+  { href: '/', label: 'Dashboard', icon: IconDashboard },
+  { href: '/daily', label: 'Daily Reports', icon: IconDaily },
+  { href: '/tasks', label: 'Tasks', icon: IconTasks },
+  { href: '/calendar', label: 'Calendar', icon: IconCalendar },
+  { href: '/settings', label: 'Settings', icon: IconSettings },
 ];
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
-  const { theme, setTheme } = useTheme();
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
@@ -48,7 +50,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               aria-label={collapsed ? item.label : undefined}
               aria-current={active ? 'page' : undefined}
             >
-              <span className={styles.navIcon} aria-hidden="true" />
+              <item.icon className={styles.navIcon} aria-hidden="true" />
               {!collapsed ? <span className={styles.navLabel}>{item.label}</span> : null}
             </Link>
           );
@@ -67,20 +69,10 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         })}
       </nav>
 
+      {/* Phase 5: theme control moved to /settings -- this footer is now
+          just the collapse toggle (the Dark Mode Switch/sun-moon button
+          that used to live here is gone, along with the useTheme import). */}
       <div className={styles.footer}>
-        {!collapsed ? (
-          <Switch label="Dark Mode" checked={theme === 'dark'} onChange={(next) => setTheme(next ? 'dark' : 'light')} />
-        ) : (
-          <button
-            type="button"
-            className={styles.iconButton}
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            title="Toggle Dark Mode"
-            aria-label="Toggle Dark Mode"
-          >
-            {theme === 'dark' ? '☾' : '☀'}
-          </button>
-        )}
         <button
           type="button"
           className={styles.collapseToggle}

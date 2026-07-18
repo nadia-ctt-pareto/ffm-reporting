@@ -22,9 +22,14 @@ export const metadata: Metadata = {
 };
 
 // Sets `data-theme="dark"` on <html> before hydration so a stored dark-mode
-// preference never flashes light on first paint. See
-// components/theme/ThemeProvider.tsx for the client-side half of this.
-const THEME_INIT_SCRIPT = `try{if(localStorage.getItem('ff.theme')==='dark'){document.documentElement.setAttribute('data-theme','dark')}}catch(e){}`;
+// preference -- OR a system-dark preference (explicit 'system', or no
+// stored preference at all, which defaults to 'system', see
+// ThemeProvider.tsx) -- never flashes light on first paint. The `!t` branch
+// is what makes a first-visit system-dark user get dark pre-hydration,
+// matching ThemeProvider's own 'system' default; keep these two defaults
+// consistent if either ever changes. See components/theme/ThemeProvider.tsx
+// for the client-side half of this.
+const THEME_INIT_SCRIPT = `try{var t=localStorage.getItem('ff.theme');if(t==='dark'||((t==='system'||!t)&&matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.setAttribute('data-theme','dark')}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

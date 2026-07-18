@@ -36,6 +36,16 @@ the same rule at the wizard layer (`dailyDateConflict`/`validateStep` in
 `lib/report-utils.ts`) so a collision surfaces as an inline wizard error
 instead of a raw constraint violation.
 
+**Phase 6 known trap — record it now so it's not lost**: the current index
+definition `unique(report_date) where kind='daily'` will break the moment
+dailies from different projects share a date (Phase 6 is adding a Project
+entity; `client` becomes a denormalized display name, `projectId` is added).
+The index must become an expression index on `(coalesce(project_id, ''),
+report_date)` — **a plain `(project_id, report_date)` index would NOT work**
+because Postgres treats NULLs as distinct in uniqueness checks. The wizard's
+`dailyDateConflict` function in `lib/report-utils.ts` must be scoped
+identically when that PR lands.
+
 ## Design decisions
 
 - **Text ids, not `uuid`.** Existing localStorage data (`lib/seed.ts`, and

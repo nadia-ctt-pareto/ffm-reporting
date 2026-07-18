@@ -29,20 +29,25 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 - **Now (MVP):** everything local. Data in `localStorage`
   (`ff.reports.v2`), seeded with 7 weekly + 5 daily reports. Share links
-  resolve to a real, read-only branded slide-deck route
-  (`/reports/[id]/present` or `/daily/[id]/present`); "PDF export" is the
-  real browser print flow against that same route (no server-side
-  rendering dependency). Task (List/Kanban) and Calendar (Week/Month) views
-  (Phase 3) derive from `Report[]` (weeklies only -- no new storage; Phase
-  4's dailies are not yet surfaced there, see "Daily reports & the weekly
-  import (Phase 4)" below). Phase 4 added daily reports (`/daily/*`) and the
-  weekly wizard's "Import This Week's Daily Reports" roll-up.
-- **Next:** surface dailies in the Calendar (single-day chips) and Task view
-  (tagged by source) -- deliberately deferred out of Phase 4, see "Daily
-  reports & the weekly import (Phase 4)" below.
-- **Later:** PostgreSQL via Supabase (implement `SupabaseReportsRepository`),
-  deploy on Vercel, true cross-machine share links (today's links only
-  resolve in a browser whose localStorage already has the report).
+  resolve to an interactive branded HTML slide-deck route
+  (`/reports/[id]/present` or `/daily/[id]/present`) with keyboard nav,
+  touch swipe, deep links, and fullscreen; "PDF export" is the real browser
+  print flow against that same route (no server-side rendering dependency).
+  Task (List/Kanban) and Calendar (Week/Month) views (Phase 3) derive from
+  `Report[]` (weeklies only -- no new storage; Phase 4's dailies are not yet
+  surfaced there, see "Daily reports & the weekly import (Phase 4)" below).
+  Phase 4 added daily reports (`/daily/*`) and the weekly wizard's "Import
+  This Week's Daily Reports" roll-up. Phase 5 added Settings (`/settings`)
+  with a system-theme option, a prompt library, and CSV import templates;
+  report screen is now the working document (no PDF filmstrip); present
+  route is the shared interactive artifact.
+- **Next (Phase 6):** surface dailies in the Calendar (single-day chips) and
+  Task view (tagged by source); Zod as the single source of truth; Project
+  entity (`client = project`); CSV importer.
+- **Later (Phase 7):** Supabase Auth (magic link) + per-user ownership.
+- **Eventually (Phase 8):** remote MCP server + Claude Skill (locked tool
+  names already documented in `lib/prompts.ts`).
+- **Deployment (Phase 9):** Vercel deploy.
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
 ## Routing
@@ -67,8 +72,9 @@ app/
     daily/[id]/page.tsx              # /daily/:id                Daily report screen (Phase 4)
     tasks/page.tsx                    # /tasks                   Task view: List/Kanban (Phase 3)
     calendar/page.tsx                 # /calendar                Calendar view: Week/Month (Phase 3)
-  reports/[id]/present/page.tsx       # /reports/:id/present     Bare weekly slide-deck route (Phase 2, outside (shell))
-  daily/[id]/present/page.tsx        # /daily/:id/present        Bare daily slide-deck route (Phase 4, outside (shell))
+    settings/page.tsx                 # /settings                Settings (theme, prompts, CSV templates, Phase 5)
+  reports/[id]/present/page.tsx       # /reports/:id/present     Interactive slide-deck route (Phase 2; made interactive Phase 5, outside (shell))
+  daily/[id]/present/page.tsx        # /daily/:id/present        Interactive slide-deck route (Phase 4; made interactive Phase 5, outside (shell))
 ```
 
 `app/(shell)/reports/[id]/page.tsx` and `app/reports/[id]/present/page.tsx`
@@ -93,13 +99,14 @@ and `components/wizard/WizardPage.tsx`; `app/(shell)/**/page.tsx` files are
 thin wrappers around those. `DashboardScreen`/`DailyListScreen`/
 `WizardScreen` stay presentational (prop-driven), matching the pre-Phase-1
 convention. `app/(shell)/reports/[id]/page.tsx`, `app/(shell)/daily/
-[id]/page.tsx`, `app/(shell)/tasks/page.tsx`, and `app/(shell)/calendar/
-page.tsx` break from that split on purpose (see "Report screen &
-presentation deck" and "Task and Calendar views" below) -- each is small
-enough (one hook, no filter/pagination state, no dialog hosting) that a
+[id]/page.tsx`, `app/(shell)/tasks/page.tsx`, `app/(shell)/calendar/
+page.tsx`, and `app/(shell)/settings/page.tsx` break from that split on
+purpose (see "Report screen & presentation deck", "Task and Calendar views",
+and "Settings" below) -- each is small enough (one hook or none, no
+filter/pagination state, no repository calls, no dialog hosting) that a
 dedicated orchestrator would be pure ceremony; `TaskViewScreen`/
-`CalendarScreen` own their own small List/Kanban and Week/Month toggle
-state directly, the same way `ReportScreen` owns its Share-dialog state.
+`CalendarScreen`/`SettingsScreen` own their own small toggle/picker state
+directly, the same way `ReportScreen` owns its Share-dialog state.
 
 - `DashboardPage`/`DailyPage` own filter/sort/search/pagination state
   locally — it resets on navigation away and back (acceptable; not
@@ -122,52 +129,82 @@ state directly, the same way `ReportScreen` owns its Share-dialog state.
 - The sidebar's Dark Mode switch lives in `components/app/Sidebar.tsx`
   (footer) — it was removed from the dashboard/wizard headers.
 
-## Report screen & presentation deck (Phase 2)
+## Report screen & presentation deck (Phase 2; interactive deck Phase 5)
 
 - **`components/report/ReportScreen.tsx`** (`/reports/[id]`) is the old
   `ReportDetailDialog` promoted to a full route: same editable
   status/preparedFor/weekStart/weekEnd autosave (via `updateReportFields`,
   "Changes save automatically."), same read-only stats/tasks/risks/
-  priorities display, same `dSafe` null-guard -- plus an actions row (Copy
-  Share Link, Download PDF, Open Presentation) and a PDF-preview filmstrip.
+  priorities display, same `dSafe` null-guard -- plus an actions row. Phase
+  5 removed the PDF-preview filmstrip (a scaled-down `<ReportDeck>` was bad
+  practice); the report screen is now **the working document** (native HTML,
+  scrollable, inline-editable). The actions row is now: **Open Presentation**
+  (`dark` variant, primary action), Copy Share Link (`outline`), Download
+  PDF (`outline`). A "Summary" section kicker was added above the summary
+  narrative to match the deck's slide structure.
 - **`components/report/ReportDeck.tsx`** is the branded 6-slide deck (Cover,
   Summary + touchpoints, Task Status, Risks & Blockers, Priorities, The
-  Win), rendered by BOTH the preview filmstrip and the present route --
-  one component, guaranteed parity between what you preview and what you
-  print. It always renders brand-light regardless of `data-theme`: its
+  Win). It always renders brand-light regardless of `data-theme`: its
   `.deck` wrapper class re-declares every semantic token it (and the reused
   Badge/StatCard/Table primitives) reads, back to light-mode values,
   locally overriding whatever `[data-theme='dark']` set upstream.
-  `DECK_SLIDE_WIDTH`/`DECK_SLIDE_HEIGHT`/`DECK_SLIDE_COUNT`/
-  `DECK_TOTAL_HEIGHT` are exported as the single source of truth for both
-  the CSS (fed in as custom properties) and any JS geometry math (preview
-  thumbnail sizing, the present page's responsive fit-scale).
-- **`components/report/PresentScreen.tsx`** (`/reports/[id]/present`) is the
-  bare, read-only route: a screen-only toolbar (Back to Report, Download
-  PDF), `?print=1` auto-triggers `window.print()` after the report loads,
-  `document.fonts.ready` resolves, and one `requestAnimationFrame` passes.
-  Reads `useSearchParams()` -- its caller (`app/reports/[id]/present
-  /page.tsx`) wraps it in `<Suspense>`, which Next.js requires for that
-  hook or `next build` fails prerendering the route. Unknown ids render a
-  branded "Report Not Found" state instead of a redirect (this route has
-  no sidebar to redirect back into).
+  `DECK_SLIDE_WIDTH`/`DECK_SLIDE_HEIGHT`/`DECK_SLIDE_COUNT`/`DECK_SLIDE_GAP`
+  are exported as the single source of truth for both the CSS (fed in as
+  custom properties) and any JS geometry math (present page's responsive
+  two-axis fit-scaling); `DECK_TOTAL_HEIGHT` was removed (Phase 5).
+  Accepts an optional `activeSlide?: number` prop (0-based index); when
+  provided, the deck gains the `deckPaged` modifier class and every slide
+  gets `data-active` -- see ReportDeck.module.css.
+- **`components/report/PresentScreen.tsx`** (`/reports/[id]/present`) is now
+  an **interactive slide-deck route**, not just a static deck + toolbar.
+  Phase 5 makes it the shared artifact, replacing the report screen's
+  filmstrip as the thing share links open. One slide visible on screen at a
+  time (via `@media screen`-scoped hiding rule in ReportDeck.module.css,
+  NOT conditional rendering); keyboard navigation (ArrowRight/Down/Space/
+  PageDown → next; ArrowLeft/Up/PageUp → prev; Home/End; 1-6 digit keys to
+  jump); a bottom `presentNav` overlay bar (Prev/Next buttons, 6 dot
+  indicators with `aria-current`, a "n / 6" counter, Fullscreen toggle
+  hidden when `!document.fullscreenEnabled`); `?slide=N` deep-link support
+  via `history.replaceState`; touch/pen swipe (mouse deliberately excluded
+  so text selection doesn't navigate); two-axis fit-to-viewport scaling
+  allowing scale > 1 for projectors. **All 6 slides stay permanently mounted
+  always** -- "one slide at a time" is a pure `@media screen` hiding rule,
+  so print output is completely unaffected by which slide happens to be
+  active on screen; see the print.css doc comment and ReportDeck.module.css.
+  Conditionally rendering only the active slide is explicitly forbidden
+  (window.print() snapshots the DOM synchronously; beforeprint can't
+  reliably flush a React re-render first). `?print=1` auto-triggers the
+  print dialog after fonts load; which slide was active is irrelevant to
+  print (see above). Reads `useSearchParams()` -- its caller wraps this in
+  `<Suspense>`. Unknown ids render a branded "Report Not Found" state (no
+  sidebar to redirect into).
 - **`styles/print.css`** is a plain (non-CSS-Module) global stylesheet,
   imported only by `PresentScreen.tsx`. `@page { size: 1280px 720px;
   margin: 0 }` + fixed `.slide` boxes means the printed page IS the slide
   -- no scaling, no reflow -- so the on-screen deck and "Save as PDF" are
-  pixel-identical in Chromium. Every rule in it is `!important`: Next
-  doesn't guarantee this stylesheet's chunk loads after the CSS-Module
-  chunks it overrides, and without `!important` a source-order flip
-  silently un-hid the toolbar / mis-sized the print stage in testing,
-  producing 7-8 PDF pages instead of 6 (verified with a real Chromium
-  `page.pdf()` export + the PDF's own `/Count` page-tree value, both in
-  `next dev` and a production `next build`/`next start`). `.slide:last-
-  child { break-after: auto }` is what prevents a trailing blank 7th page.
+  pixel-identical in Chromium. Every rule is `!important`: Next doesn't
+  guarantee this stylesheet loads after the CSS-Module chunks it overrides,
+  and without `!important` a source-order flip silently un-hid the toolbar /
+  mis-sized the print stage, producing 7-8 PDF pages instead of 6
+  (verified with a real Chromium `page.pdf()` export + the PDF's own `/Count`
+  page-tree value). `.slide:last-child { break-after: auto }` prevents a
+  trailing blank page. **Phase 5 additions**: `.presentNav { display: none }`
+  (hides the new overlay in print), and `.presentPage { height: auto;
+  display: block }` (because Phase 5 changed `.page` from a growing block to
+  a fixed-height flex column on screen, which would collapse the printed
+  deck to 1 clipped page if print didn't un-do it; the general rule: any
+  screen-only layout property in the present route's ancestor chain must
+  have a literal global `present*` classname and a print counter-rule here).
+  `ResizeObserver` on the stage div computes the fit scale once on mount and
+  re-fires on fullscreen toggle (implemented as a callback ref, not a plain
+  useRef, so it fires when the stage DOM node actually mounts/unmounts --
+  critical because this component returns `null` until `reports` loads, so
+  the plain-ref + useEffect(..., []) pattern would read `stageRef.current`
+  as `null` on the only pass the effect runs and never attach the observer).
 - **Cross-browser reality (documented, not solved):** custom `@page size`
   is honored by Chromium (Chrome/Edge "Save as PDF", margins None,
   headers/footers off) but ignored by Firefox/Safari, which letterbox/scale
-  instead. The present page's toolbar says so. No headless-render
-  dependency (puppeteer/react-pdf) for this internal tool.
+  instead. The present page's toolbar and README both document this.
 - **Regonia isn't self-hosted.** `--font-display-serif` (the deck's hero-
   stat font) falls back to Didot/Bodoni/serif. Acceptable for MVP; a
   licensed Regonia woff2 via `next/font/local` is a one-file add later.
@@ -350,16 +387,27 @@ per-component `darkMode` prop threaded through inline styles.
   `[data-theme='dark']`.
 - `components/theme/ThemeProvider.tsx` is the cross-route source of truth: a
   React context that persists to `localStorage['ff.theme']` and mirrors the
-  value onto `<html data-theme>`. Consume it via `useTheme()` (`{ theme,
-  toggleTheme, setTheme }`).
+  resolved theme onto `<html data-theme>`. **Phase 5 added a 'system'
+  preference.** Consume it via `useTheme()` (returns `{
+  preference: 'light'|'dark'|'system', theme: 'light'|'dark',
+  setPreference: (p) => void }`). `preference` is what the user picked;
+  `theme` is the resolved value actually applied to `data-theme` (never
+  'system'). While `preference === 'system'`, a `change` listener on the
+  `prefers-color-scheme` media query keeps `theme` live without a reload.
 - `app/layout.tsx` inlines a `next/script` (`strategy="beforeInteractive"`)
   that sets `data-theme="dark"` on `<html>` **before hydration** if
-  `localStorage['ff.theme'] === 'dark'`, so a stored preference never
-  flashes light on first paint. `<html>` has `suppressHydrationWarning` for
-  this reason. `ThemeProvider`'s own React state always starts `'light'`
+  `localStorage['ff.theme'] === 'dark'` OR (`localStorage['ff.theme']` is
+  'system' or absent AND the system prefers dark), so a stored or system-dark
+  preference never flashes light on first paint. `<html>` has
+  `suppressHydrationWarning` for this reason. `ThemeProvider`'s own React
+  state always starts with `preference: 'system'` and `theme: 'light'`
   (matching the server) and syncs from `localStorage` in a `useEffect` after
-  mount, so no *React-rendered* control (e.g. the Dark Mode switch) ever
-  hydrates with mismatched state.
+  mount via a `hydrated` guard (never clobbering the pre-hydration attribute
+  on the very first commit), so no *React-rendered* control (e.g. the theme
+  picker) ever hydrates with mismatched state.
+- **Theme control moved to `/settings`** (Phase 5). The Dark Mode switch was
+  removed from the sidebar footer. Theme preference is now set on the
+  Settings page via three mutually-exclusive buttons (Light / Dark / System).
 - **Solid-fill "chrome" elements pair `--text-heading`/`--surface-page`, not
   literal `--ff-black`/`--ff-white`.** Those two tokens are always each
   theme's ink/paper pair (black-on-white in light, white-on-black in dark),
@@ -417,6 +465,55 @@ installing it against React 19 / Next 15.
 - **`Popover`** (Phase 3): a `{trigger, children, align?}` wrapper, used by
   the Calendar month grid's "+N more" day-overflow disclosure.
 
+## Settings (Phase 5)
+
+`/settings` (`components/settings/SettingsScreen.tsx`) provides three sections,
+none needing backend hooks or pagination:
+
+- **Appearance**: a theme picker with three mutually-exclusive buttons (Light /
+  Dark / System), wired to `useTheme().setPreference` (replaces the Dark Mode
+  switch that used to live in the sidebar footer).
+- **Prompt Library**: a static, copy-to-clipboard card list of prompt templates
+  for driving reports through the future Claude connector (Phase 8's `app/api/mcp`).
+  Tool names referenced here (`list_reports`, `get_report`, `list_projects`,
+  `get_week_rollup`, `create_report`, `update_report`, `create_project`,
+  `create_weekly_from_dailies`) are the locked contract that Phase 8 and the
+  skills/ directory must match exactly (see `lib/prompts.ts` for the full list).
+- **CSV Import Templates**: downloadable example CSVs for both weekly and daily
+  imports, exercising all four `row_type`s (report, task, risk, priority).
+  `lib/csv-templates.ts` exports `IMPORT_COLUMNS` (the exact column order +
+  semantics), `buildWeeklyImportTemplateCsv()`, and `buildDailyImportTemplateCsv()`.
+  This is a **contract**: Phase 6's CSV importer must import `IMPORT_COLUMNS`
+  from this same module so the contract cannot drift at parse time.
+
+Follows the same pattern as `ReportScreen`/`TaskViewScreen`/`CalendarScreen`: no
+separate route-level orchestrator (no filter/sort/pagination state, no hooks),
+`SettingsScreen` owns its own small theme-picker and copy-confirmation state
+directly, `app/(shell)/settings/page.tsx` is a thin thin wrapper.
+
+## Sidebar & navigation (Phase 5 updates)
+
+- `components/ui/icons.tsx` exports hand-authored inline SVG icons
+  (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconSettings`),
+  deliberately NOT `lucide-react` (which is stroke-based with round caps/joins,
+  fighting this design system's "square corners everywhere" rule). Every icon
+  shares a 16×16 viewBox, uses `currentColor` (so the active-nav chip's
+  `--text-heading`/`--surface-page` inversion works with zero extra CSS), and is
+  marked `aria-hidden`. The sidebar's `.navIcon` slot is now 18×18 (was 8×8).
+- `components/app/Sidebar.tsx` gained a "Settings" nav item; the Dark Mode
+  switch was removed from the footer (theme control moved to `/settings`).
+
+## PageHeader (Phase 5)
+
+`components/app/PageHeader.tsx` is a new shared route header (title left, actions
+right) that replaced the duplicated per-screen `.header`/`.brand`/`.logo`/
+`.wordmark` blocks in `DashboardScreen` and `DailyListScreen`. The brand logo
+now lives only in the sidebar. A plain page title is kept (the duplication
+complaint was about the brand wordmark repeating in every screen, not titles).
+Known follow-up: `TaskViewScreen`, `CalendarScreen`, `WizardScreen`, and
+`ReportScreen` still hand-roll near-identical header blocks — the repo currently
+has two header idioms; migrating them was out of Phase 5's scope.
+
 ## Migrations discipline
 
 **Any PR that changes `lib/types.ts` domain shapes must add a
@@ -431,35 +528,44 @@ discriminant, a nullable `report_date` column, a `reports_period_by_kind`
 CHECK constraint, and the `reports_one_daily_per_day` partial unique index,
 authored in the same phase as the `lib/types.ts` union change, not after.
 
+**Phase 5 (report screen redesign, interactive present deck, settings) made
+NO schema changes** — no new migrations were authored, no `lib/types.ts`
+domain shapes changed.
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
   `(shell)/` route group (see "Routing").
 - `styles/tokens/` — brand tokens, copied verbatim from `design-source/tokens/`.
   `styles/theme.css` / `theme-dark.css` — semantic-token light/dark values (see
-  "Dark mode").
-- `lib/` — `types`, `constants`, `format`, `report-utils`, `csv`, `seed` (7
-  weekly + 5 daily seed reports), `aggregate` (Phase 4 daily-into-draft
-  rollup), `view-utils`/`calendar` (Phase 3 derivation selectors), `data/`
-  (repository interface + localStorage impl + factory), `hooks/useReports`,
-  `hooks/useDailyReports` (Phase 4).
+  "Dark mode"). `print.css` — global rules for the presentation deck.
+- `lib/` — `types`, `constants`, `format`, `report-utils`, `csv`, `csv-templates`
+  (Phase 5 CSV import contract), `prompts` (Phase 5 prompt library, locked MCP
+  tool names), `seed` (7 weekly + 5 daily seed reports), `aggregate` (Phase 4
+  daily-into-draft rollup), `view-utils`/`calendar` (Phase 3 derivation
+  selectors), `data/` (repository interface + localStorage impl + factory),
+  `hooks/useReports`, `hooks/useDailyReports` (Phase 4).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
-  Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover).
+  Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
+  plus `icons.tsx` (hand-authored SVG nav icons, Phase 5).
 - `components/theme/` — `ThemeProvider`/`useTheme`.
-- `components/app/` — `AppShell`, `Sidebar`.
+- `components/app/` — `AppShell`, `Sidebar`, `PageHeader` (Phase 5, replaces
+  per-screen brand headers).
 - `components/dashboard|daily|wizard|dialogs/` — screens + route-level
   orchestration (`DashboardPage`, `DailyPage` (Phase 4), `WizardPage`, now
   `kind`-aware) + `ShareDialog` (the only dialog left; Detail/Pdf dialogs
   were superseded by the report screen + real print flow, see "Report
   screen & presentation deck").
 - `components/report/` — `ReportScreen`, `ReportDeck`, `PresentScreen`
-  (Phase 2; generalized to `AnyReport`/`kind` in Phase 4, see "Daily reports
-  & the weekly import (Phase 4)").
+  (Phase 2; made interactive Phase 5; generalized to `AnyReport`/`kind` in
+  Phase 4, see "Daily reports & the weekly import (Phase 4)").
 - `components/tasks/` — `TaskViewScreen`, `TaskList`, `KanbanBoard`,
   `KanbanColumn`, `TaskCard`, `taskCardId` (Phase 3; see "Task and Calendar
   views").
 - `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
   (Phase 3; see "Task and Calendar views").
+- `components/settings/` — `SettingsScreen` (Phase 5; theme picker, prompt
+  library, CSV templates).
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.
 - `supabase/migrations/` — versioned SQL schema (see "Migrations discipline").

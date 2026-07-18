@@ -4,7 +4,6 @@ import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
-import { ReportDeck, DECK_SLIDE_WIDTH, DECK_TOTAL_HEIGHT } from '@/components/report/ReportDeck';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -34,16 +33,16 @@ const TASK_COLUMNS: TableColumn[] = [
   { key: 'deadline', label: 'Deadline' },
 ];
 
-/** Thumbnail scale for the PDF-preview filmstrip -- a purely screen-only UI convenience. */
-const PREVIEW_SCALE = 0.25;
-
 /**
  * Faithful-port null-guard so this can render safely even while `report` is
- * briefly null (mirrors the old ReportDetailDialog's `dSafe`), extended to
- * every field since this screen also feeds `<ReportDeck>` (which needs the
- * full shape) for the PDF preview. Phase 4: a function of `kind` (not a
- * static constant) so the fallback's own `kind`/period fields always match
- * the route being viewed, even in that split-second before `report` loads.
+ * briefly null (mirrors the old ReportDetailDialog's `dSafe`). Phase 4: a
+ * function of `kind` (not a static constant) so the fallback's own
+ * `kind`/period fields always match the route being viewed, even in that
+ * split-second before `report` loads. Phase 5: no longer feeds a
+ * `<ReportDeck>` here (the PDF-preview filmstrip was deleted -- the report
+ * screen is now the working document; `/reports/[id]/present` is the
+ * interactive slide deck / print artifact, see ReportDeck.tsx and
+ * PresentScreen.tsx).
  */
 function emptyReportFallback(kind: ReportKind): AnyReport {
   const core = {
@@ -69,10 +68,15 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * Editable status/preparedFor/period autosave via `onUpdateFields`
  * (optimistic + fresh `updatedAt`, see useReports/useDailyReports);
  * everything else (stats, tasks, risks, priorities) stays read-only display,
- * same scope as the old Detail dialog. Adds an actions row (Copy Share
- * Link, Download PDF, Open Presentation) and a PDF preview -- the real
- * `<ReportDeck>` rendered scaled-down as a thumbnail filmstrip, so the
- * preview and the exported PDF can never drift apart.
+ * same scope as the old Detail dialog.
+ *
+ * Phase 5: this IS the working document -- read + inline edit, native HTML,
+ * scrollable. The PDF-preview filmstrip (a scaled-down `<ReportDeck>`) was
+ * deleted; the present route (`/reports/[id]/present`) is now the shared
+ * artifact -- an interactive slide deck AND the print path -- which is what
+ * a share link should open. The actions row reflects that: "Open
+ * Presentation" is promoted to the primary (`dark`) action, ahead of Copy
+ * Share Link and Download PDF (both stay `outline`).
  *
  * Owns its own (small) Share-dialog UI state directly -- this route is
  * simple enough (one param, one hook) that it doesn't need a separate
@@ -117,9 +121,6 @@ export function ReportScreen({ report, kind, onUpdateFields, dateError }: Report
     status: <Badge tone={taskTone(t.status)}>{t.status}</Badge>,
     deadline: fmtDateShort(t.deadline),
   }));
-
-  const previewWidth = Math.round(DECK_SLIDE_WIDTH * PREVIEW_SCALE);
-  const previewHeight = Math.round(DECK_TOTAL_HEIGHT * PREVIEW_SCALE);
 
   return (
     <div>
@@ -183,27 +184,18 @@ export function ReportScreen({ report, kind, onUpdateFields, dateError }: Report
         <div className={styles.autosaveNote}>Changes save automatically.</div>
 
         <div className={styles.actionsRow}>
+          <Button variant="dark" size="sm" onClick={() => openPresentation(false)}>
+            Open Presentation
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
             Copy Share Link
           </Button>
           <Button variant="outline" size="sm" onClick={() => openPresentation(true)}>
             Download PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={() => openPresentation(false)}>
-            Open Presentation
-          </Button>
         </div>
 
-        <div className={styles.sectionKicker}>PDF Preview</div>
-        <div className={styles.previewViewport} style={{ width: previewWidth, height: previewHeight }}>
-          <div
-            className={styles.previewScaler}
-            style={{ width: DECK_SLIDE_WIDTH, height: DECK_TOTAL_HEIGHT, transform: `scale(${PREVIEW_SCALE})` }}
-          >
-            <ReportDeck report={dSafe} />
-          </div>
-        </div>
-
+        <div className={styles.sectionKicker}>Summary</div>
         <p className={styles.narrative}>{dSafe.summaryNarrative}</p>
 
         <div className={styles.statsGrid}>

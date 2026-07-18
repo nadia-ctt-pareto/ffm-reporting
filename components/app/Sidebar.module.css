@@ -76,9 +76,8 @@
 }
 
 .navIcon {
-  width: 8px;
-  height: 8px;
-  background: currentColor;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
 }
 
@@ -97,16 +96,6 @@
 
 .collapsed .footer {
   align-items: center;
-}
-
-.iconButton {
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  width: 36px;
-  height: 36px;
-  cursor: pointer;
-  font-size: 14px;
-  color: var(--text-body);
 }
 
 .collapseToggle {

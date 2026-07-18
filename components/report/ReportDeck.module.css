@@ -41,6 +41,28 @@
   box-shadow: var(--shadow-card);
 }
 
+/*
+ * Phase 5 (interactive present deck): "one slide at a time" is implemented
+ * purely as a screen-scoped hiding rule -- ALL 6 slides stay mounted
+ * (PresentScreen never conditionally renders a slide; see its doc comment),
+ * only the active one is visible. `@media screen` means print never sees
+ * this rule at all, so styles/print.css's existing slide rules (break-after:
+ * page, etc.) apply completely untouched and all 6 pages still print
+ * regardless of which slide happened to be on screen when window.print()
+ * fired -- no new print.css counter-rule needed.
+ *
+ * `:not([data-active='true'])` (rather than styling the active slide
+ * directly) is deliberate: the active slide keeps whatever `display` its own
+ * rules already give it (`flex` for `.padded`/`.cover`/`.win`, `flex` on
+ * `.deck` itself is irrelevant here since this targets `.slide`) instead of
+ * this rule forcing a possibly-wrong `display: block` on reveal.
+ */
+@media screen {
+  .deckPaged .slide:not([data-active='true']) {
+    display: none;
+  }
+}
+
 .padded {
   display: flex;
   flex-direction: column;

@@ -42,7 +42,7 @@ export function ShareDialog({ open, reportId, kind = 'weekly', copied, onCopy, o
         </div>
         <p className={styles.disclaimer}>
           {
-            "Anyone with this link sees a read-only, branded presentation of this report — but only in a browser whose local storage already has it. This MVP's persistence is per-browser (localStorage); true cross-machine sharing arrives with the Supabase cutover."
+            "Anyone with this link sees a read-only, interactive presentation of this report — but only in a browser whose local storage already has it. This MVP's persistence is per-browser (localStorage); true cross-machine sharing arrives with the Supabase cutover."
           }
         </p>
         <div className={styles.closeRow}>

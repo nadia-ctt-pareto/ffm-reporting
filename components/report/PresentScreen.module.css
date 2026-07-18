@@ -1,5 +1,16 @@
+/*
+ * Phase 5: the stage is now a fixed-height viewport ("height: calc(100dvh -
+ * toolbar)" from the plan) implemented via flexbox rather than a hardcoded
+ * toolbar-height constant -- `.page` is a `100dvh` flex column, `.toolbar`
+ * takes its natural height, `.stage` gets the rest (`flex: 1 1 auto; min-
+ * height: 0`). This is equivalent to the calc() approach but never drifts
+ * out of sync with the toolbar's actual (responsive/wrapping) height.
+ * `100dvh` (not `100vh`) so mobile browser chrome doesn't clip the stage.
+ */
 .page {
-  min-height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--surface-page);
 }
 
@@ -12,8 +23,7 @@
   padding: 20px 40px;
   background: var(--surface-page);
   border-bottom: 1px solid var(--border-subtle);
-  position: sticky;
-  top: 0;
+  flex: 0 0 auto;
   z-index: 10;
 }
 
@@ -43,16 +53,125 @@
   color: var(--text-muted);
 }
 
+/*
+ * The interactive stage: fills the rest of the viewport (see `.page`
+ * above), centers the (possibly up- or down-scaled) single active slide on
+ * both axes, and hosts the `.nav` overlay bar. `position: relative` so
+ * `.nav` (`position: absolute`) anchors to the stage, not the page --
+ * important so the overlay stays put through the fullscreen transition
+ * (this element is what `stageRef.current.requestFullscreen()` targets in
+ * PresentScreen.tsx, so it's also the fullscreen element itself; the
+ * User-Agent's own fullscreen sizing takes over from the flex `flex: 1 1
+ * auto` here, and the ResizeObserver in PresentScreen.tsx recomputes scale
+ * for free off the resulting clientWidth/clientHeight change).
+ */
 .stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
   box-sizing: border-box;
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 40px 24px;
-  /* The scaler keeps a 1280px layout box and only shrinks visually via
-     transform: scale(); clip its horizontal overflow so a narrow viewport
-     doesn't get a stray horizontal scrollbar. `clip` (not `hidden`) avoids
-     promoting the vertical axis to a scroll container. */
-  overflow-x: clip;
+  overflow: hidden;
+  background: var(--surface-page);
+  touch-action: pan-y;
+}
+
+/* ---- Interactive navigator overlay (screen-only; hidden in print, see styles/print.css's `.presentNav` rule) ---- */
+
+.nav {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  background: var(--text-heading);
+  color: var(--surface-page);
+  box-shadow: var(--shadow-card);
+  z-index: 10;
+}
+
+.navArrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid var(--surface-page);
+  color: var(--surface-page);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* `--text-on-dark` (always white), not `--surface-page` (the nav's own
+   normal-state text color, which flips to `--ff-black` in dark mode) --
+   `--ff-green` is a brand-constant fill (same precedent as
+   `.notFoundLink:hover` below: true brand colors carry their own contrast
+   regardless of theme, see CLAUDE.md "Dark mode"). Without this, dark mode
+   paired black text on dark green (~1.3:1 contrast) on hover/active. */
+.navArrow:hover {
+  background: var(--ff-green);
+  border-color: var(--ff-green);
+  color: var(--text-on-dark);
+}
+
+.navDots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.navDot {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--surface-page);
+  cursor: pointer;
+}
+
+.navDot:hover {
+  border-color: var(--ff-sage);
+}
+
+.navDotActive {
+  background: var(--surface-page);
+}
+
+.navCounter {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.navFullscreen {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--surface-page);
+  color: var(--surface-page);
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Same `--text-on-dark` fix as `.navArrow:hover` above. */
+.navFullscreen:hover,
+.navFullscreen[aria-pressed='true'] {
+  background: var(--ff-green);
+  border-color: var(--ff-green);
+  color: var(--text-on-dark);
 }
 
 /* ---- Not found ---- */

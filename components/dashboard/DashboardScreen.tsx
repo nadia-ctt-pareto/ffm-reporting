@@ -2,6 +2,7 @@
 
 import type { ChangeEvent } from 'react';
 import { useMemo } from 'react';
+import { PageHeader } from '@/components/app/PageHeader';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -135,23 +136,19 @@ export function DashboardScreen({
 
   return (
     <div>
-      <div className={styles.header}>
-        <div className={styles.brand}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- fixed-size brand logo, next/image adds no value here */}
-          <img src="/logo-horizontal.svg" alt="Foundation First Marketing" className={styles.logo} />
-          <span className={styles.wordmark}>Weekly Reports</span>
-        </div>
-        <div className={styles.headerActions}>
-          <div className={styles.headerButtons}>
+      <PageHeader
+        title="Dashboard"
+        actions={
+          <>
             <Button variant="outline" size="md" onClick={handleExportCsv}>
               Export All Tasks (CSV)
             </Button>
             <Button variant="primary" size="md" onClick={onNewReport}>
               New Report
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className={styles.content}>
         <div className={styles.statsGrid}>

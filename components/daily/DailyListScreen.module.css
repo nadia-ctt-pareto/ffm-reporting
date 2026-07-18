@@ -1,36 +1,6 @@
 /* Mirrors components/dashboard/DashboardScreen.module.css -- same visual
-   language (header/content/stats/filter-bar/table-action/empty-state), just
-   without the brand logo/wordmark divider (this route sits one level below
-   the dashboard, not at the app's root). */
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px 48px;
-  background: var(--surface-page);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.wordmark {
-  font-family: var(--font-heading);
-  font-weight: 500;
-  font-size: 19px;
-  color: var(--text-heading);
-}
-
-.headerActions {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-
-.headerButtons {
-  display: flex;
-  gap: 12px;
-}
+   language (content/stats/filter-bar/table-action/empty-state). The header
+   itself is now the shared components/app/PageHeader.tsx. */
 
 .content {
   padding: 36px 48px 72px;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { PageHeader } from '@/components/app/PageHeader';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
@@ -109,19 +110,19 @@ export function DailyListScreen({
 
   return (
     <div>
-      <div className={styles.header}>
-        <span className={styles.wordmark}>Daily Reports</span>
-        <div className={styles.headerActions}>
-          <div className={styles.headerButtons}>
+      <PageHeader
+        title="Daily Reports"
+        actions={
+          <>
             <Button variant="outline" size="md" onClick={handleExportCsv}>
               Export All Tasks (CSV)
             </Button>
             <Button variant="primary" size="md" onClick={onNewDaily}>
               New Daily Report
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className={styles.content}>
         <div className={styles.statsGrid}>
