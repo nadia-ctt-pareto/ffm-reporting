@@ -76,6 +76,17 @@ export function IconCalendar(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Two outlined squares (top-left, top-right) converging into one solid square (bottom-center) -- "consolidate": merging several into one. */
+export function IconConsolidate(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <rect x="1.2" y="1.2" width="6" height="6" />
+      <rect x="8.8" y="1.2" width="6" height="6" />
+      <rect x="5" y="8.8" width="6" height="6" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
 /** Three horizontal sliders with square knobs -- a gear is inherently round, so sliders read as "settings" while staying on-brand. */
 export function IconSettings(props: SVGProps<SVGSVGElement>) {
   return (

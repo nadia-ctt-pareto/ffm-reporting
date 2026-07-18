@@ -1,21 +1,53 @@
 // Phase 6a: pure helpers for the Project entity. No storage/React here --
 // mirrors the style of lib/report-utils.ts / lib/aggregate.ts.
 
+import { uid } from './format';
 import type { AnyReport, Project, Risk, Task } from './types';
 
-/**
- * Lowercase, non-alphanumeric runs -> single '-', leading/trailing '-'
- * trimmed. Used only when *creating* new projects at import time (Phase
- * 6b) -- never called from the wizard (Phase 6a has no project-creation
- * UI). Deliberately NOT used by seedProjects() below, so the app seed and
- * the SQL seed (supabase/migrations/20260717000001_initial_schema.sql) can
- * never drift from each other.
- */
-export function slugifyProjectName(name: string): string {
+/** Lowercase, non-alphanumeric runs -> single '-', leading/trailing '-' trimmed. May legitimately return `''` for a name with no letters/digits at all (e.g. `"..."`, an emoji-only string) -- see `isBlankProjectName` below, the primary guard against that. */
+function rawSlug(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * True when `name` has no letters/digits at all, i.e. would slugify to
+ * `''`. The PRIMARY guard against that is at the UI layer
+ * (`CsvImportSection.tsx`'s `resolveNewProject`, called BEFORE
+ * `slugifyProjectName` below, so it can show a visible validation error
+ * instead of silently falling back) -- this predicate is what that check
+ * calls. Exported separately from `slugifyProjectName` (rather than having
+ * callers check `slugifyProjectName(name) === ''`) specifically so it can
+ * detect the blank case even though `slugifyProjectName` itself never
+ * returns `''` (see its own doc comment) -- checking the OUTPUT of the
+ * fallback-having function could never observe the case the fallback just
+ * papered over.
+ */
+export function isBlankProjectName(name: string): boolean {
+  return rawSlug(name) === '';
+}
+
+/**
+ * Used only when *creating* new projects at import time (Phase 6b) --
+ * never called from the wizard (Phase 6a has no project-creation UI).
+ * Deliberately NOT used by seedProjects() below, so the app seed and the
+ * SQL seed (supabase/migrations/20260717000001_initial_schema.sql) can
+ * never drift from each other.
+ *
+ * Never returns `''`: a name with no letters/digits at all would otherwise
+ * slugify to the empty string, which collides with the house bucket's own
+ * `''`/`null` key (`sameProjectBucket`, lib/report-utils.ts) and crashes
+ * Radix's `Select` (which rejects an empty-string item value) the next
+ * time `/settings` renders a project list containing it. Callers are
+ * expected to reject such a name with `isBlankProjectName` BEFORE ever
+ * calling this (see `CsvImportSection.tsx`'s `resolveNewProject`) -- this
+ * `uid()` fallback is defense in depth, not the primary guard, so a bug in
+ * a future caller can never persist a broken project.
+ */
+export function slugifyProjectName(name: string): string {
+  return rawSlug(name) || uid('project');
 }
 
 /** Exact-name match only -- never fuzzy. Returns the matching Project's `id`, or undefined if no project's `name` exactly equals `name`. */

@@ -175,6 +175,20 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     return report;
   }
 
+  /**
+   * Phase 6b: batch upsert -- ONE `loadAll()` and ONE `writeV2()` for the
+   * whole array (see the doc comment on `ReportsRepository.upsertMany`).
+   * Insert-or-replace-by-id, same semantics as `upsert()`, just batched.
+   */
+  async upsertMany(reports: AnyReport[]): Promise<AnyReport[]> {
+    if (reports.length === 0) return reports;
+    const all = await this.loadAll();
+    const byId = new Map(all.map((r) => [r.id, r]));
+    for (const r of reports) byId.set(r.id, r);
+    this.writeV2([...byId.values()]);
+    return reports;
+  }
+
   async update(id: string, patch: Partial<ReportCore>): Promise<AnyReport | null> {
     const all = await this.loadAll();
     let updated: AnyReport | null = null;

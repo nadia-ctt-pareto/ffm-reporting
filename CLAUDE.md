@@ -28,8 +28,8 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 ## Roadmap
 
 - **Now (MVP):** everything local. Data in `localStorage`
-  (`ff.reports.v2`), seeded with 7 weekly + 5 daily reports. Share links
-  resolve to an interactive branded HTML slide-deck route
+  (`ff.reports.v2`, projects in `ff.projects.v1`), seeded with 7 weekly + 5 daily reports.
+  Share links resolve to an interactive branded HTML slide-deck route
   (`/reports/[id]/present` or `/daily/[id]/present`) with keyboard nav,
   touch swipe, deep links, and fullscreen; "PDF export" is the real browser
   print flow against that same route (no server-side rendering dependency).
@@ -40,10 +40,10 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
   This Week's Daily Reports" roll-up. Phase 5 added Settings (`/settings`)
   with a system-theme option, a prompt library, and CSV import templates;
   report screen is now the working document (no PDF filmstrip); present
-  route is the shared interactive artifact.
-- **Next (Phase 6):** surface dailies in the Calendar (single-day chips) and
-  Task view (tagged by source); Zod as the single source of truth; Project
-  entity (`client = project`); CSV importer.
+  route is the shared interactive artifact. Phase 6 refactored the type
+  system to Zod (6a), added the Project entity and per-project daily buckets
+  (6a), built CSV import (6b), and added report consolidation (6b) — surface
+  dailies in the Calendar and Task view are deferred.
 - **Later (Phase 7):** Supabase Auth (magic link) + per-user ownership.
 - **Eventually (Phase 8):** remote MCP server + Claude Skill (locked tool
   names already documented in `lib/prompts.ts`).
@@ -72,7 +72,8 @@ app/
     daily/[id]/page.tsx              # /daily/:id                Daily report screen (Phase 4)
     tasks/page.tsx                    # /tasks                   Task view: List/Kanban (Phase 3)
     calendar/page.tsx                 # /calendar                Calendar view: Week/Month (Phase 3)
-    settings/page.tsx                 # /settings                Settings (theme, prompts, CSV templates, Phase 5)
+    consolidate/page.tsx              # /consolidate             Consolidate weeklies/dailies (Phase 6b)
+    settings/page.tsx                 # /settings                Settings (theme, prompts, CSV templates, Phase 5; CSV import, Phase 6b)
   reports/[id]/present/page.tsx       # /reports/:id/present     Interactive slide-deck route (Phase 2; made interactive Phase 5, outside (shell))
   daily/[id]/present/page.tsx        # /daily/:id/present        Interactive slide-deck route (Phase 4; made interactive Phase 5, outside (shell))
 ```
@@ -100,13 +101,14 @@ thin wrappers around those. `DashboardScreen`/`DailyListScreen`/
 `WizardScreen` stay presentational (prop-driven), matching the pre-Phase-1
 convention. `app/(shell)/reports/[id]/page.tsx`, `app/(shell)/daily/
 [id]/page.tsx`, `app/(shell)/tasks/page.tsx`, `app/(shell)/calendar/
-page.tsx`, and `app/(shell)/settings/page.tsx` break from that split on
-purpose (see "Report screen & presentation deck", "Task and Calendar views",
-and "Settings" below) -- each is small enough (one hook or none, no
-filter/pagination state, no repository calls, no dialog hosting) that a
-dedicated orchestrator would be pure ceremony; `TaskViewScreen`/
-`CalendarScreen`/`SettingsScreen` own their own small toggle/picker state
-directly, the same way `ReportScreen` owns its Share-dialog state.
+page.tsx`, `app/(shell)/consolidate/page.tsx`, and `app/(shell)/settings/page.tsx`
+break from that split on purpose (see "Report screen & presentation deck",
+"Task and Calendar views", "Consolidation (Phase 6b)", and "Settings" below) --
+each is small enough (one hook or none, no filter/pagination state, no
+repository calls, no dialog hosting) that a dedicated orchestrator would be
+pure ceremony; `TaskViewScreen`/`CalendarScreen`/`ConsolidateScreen`/
+`SettingsScreen` own their own small toggle/picker state directly, the same
+way `ReportScreen` owns its Share-dialog state.
 
 - `DashboardPage`/`DailyPage` own filter/sort/search/pagination state
   locally — it resets on navigation away and back (acceptable; not
@@ -373,6 +375,111 @@ daily reports with a Status filter, pagination, "New Daily Report", and a
 CSV export. The sidebar gained a "Daily Reports" nav item
 (`components/app/Sidebar.tsx`).
 
+## Zod schemas and Projects (Phase 6a)
+
+**Schema layer**: `lib/schema/` (Zod 4) is now the single source of truth for
+domain shapes. `lib/types.ts` is a `z.infer` re-export facade — every import site
+is untouched (still `from './types'`), and every inferred type is structurally
+identical to the interface it replaced; verified with type-level `Exact<>`
+assertions (no type widened, `kind` literals intact). Hand-written UI-only shapes
+live in `lib/types.ts` (`BadgeTone` with its faithful-port `'green'` quirk,
+`SortKey`, `ReportKind`, `ReportFieldPatch`, `Draft`) because they never cross
+a wire or hit storage. **Zod 4, not 3.25**: `@modelcontextprotocol/sdk@1.29`
+declares `zod ^3.25 || ^4.0`, and v4 ships `z.toJSONSchema()` natively — Phase 8's
+MCP tool input schemas will use it. `lib/schema/index.ts` barrel-exports domain
+schemas for validation; `lib/schema/import.ts` (UI-boundary, raw strings) is
+deliberately NOT exported through the barrel so its shapes don't pollute the
+domain facade. **Zod ships in the client bundle starting Phase 6b** — `lib/import.ts`
+imports `AnyReportSchema` as a value for runtime CSV validation, and `CsvImportSection`
+is a client component, so zod now lands in `/settings`'s first-load JS (defensible:
+validating untrusted CSV genuinely needs runtime schemas client-side).
+
+**Project entity** (`lib/schema/project.ts`): `Project { id, name }` — a real TS
+entity now, not just a reference table. Seeded to `ff.projects.v1` from
+`lib/seed.ts`'s `seedProjects()` (a verbatim hardcoded copy of the SQL seed so the
+two can't drift; NOT derived from `FF_CLIENTS`, which stays the client-string
+source for task/risk seeding). Optional `projectId` on `Task`/`Risk`/`ReportCore`/
+`Draft` — pure metadata, never replacing the free-text `client` display/dedupe
+string. A lazy, change-gated backfill in `LocalStorageReportsRepository.loadAll()`
+stamps `projectId` where a task/risk `client` exactly matches a project `name`
+(exact-name only, no fuzzy matching, no auto-create). `ff.reports.v2` needed no
+key bump — the change is purely additive (a report without `projectId` is still a
+valid `AnyReport`). `lib/hooks/useProjects.ts` mirrors `useReports.ts`'s
+optimistic-update pattern.
+
+**One daily per day, PER PROJECT BUCKET**: Since imported dailies may share dates
+with house dailies, the uniqueness rule became "one per day, per project bucket."
+A "bucket" = a project (`projectId` set, for imports) or "house" (`projectId`
+NULL, for wizard-authored reports). SQL uses a `coalesce(project_id, '')` expression
+index so house rows (NULL `project_id`) fold into the same bucket key and the
+constraint is actually enforced for them. A plain `(project_id, report_date)` unique
+index would fail for house dailies because Postgres treats NULLs as distinct. The
+TS mirror is `sameProjectBucket()` (`lib/report-utils.ts`), used by `dailyDateConflict()`
+(wizard validation, checked on `next()`, `publish()`, AND `saveDraft()`) and
+`invalidDailyDateEdit()` (the daily report screen's inline Date-field autosave,
+a Phase-4 review blocker that must never regress).
+
+## CSV import and consolidation (Phase 6b)
+
+**CSV parsing** (`lib/csv.ts`): `parseCsv(text): string[][]` is a hand-rolled
+RFC-4180-subset state machine — doubled-quote escapes, embedded newlines
+preserved inside quotes, `\r\n`/`\r` normalized outside quotes, BOM stripped,
+trailing blank line ignored. Hand-rolled because the dialect is fully
+self-controlled and dependency-light ethos; verified against adversarial
+fixtures (unterminated quotes, ragged rows, lone `\r` separators). Both import
+templates round-trip byte-identically. **Formula injection neutralization**: a
+leading `=`/`+`/`-`/`@`/tab/CR triggers formula evaluation in Excel/Sheets even
+inside quoted fields, so `csvEscape` prefixes a literal-text `'` to any such
+value. This matters starting Phase 6b: cell content can originate outside the
+user's keyboard (imported CSV, possibly LLM-authored) and round-trip back out
+into a file someone opens in Excel.
+
+**CSV import** (`lib/import.ts`'s `parseImportCsv(text, targetProjectId, existing)` →
+`{reports, issues}`): Header validation is name-exact but order-insensitive
+(spreadsheet users reorder columns); unknown columns are genuinely ignored.
+Per-row Zod validation via `lib/schema/import.ts`. **All-or-nothing**: any issue
+⇒ nothing is persisted, issues accumulate across the whole file rather than
+aborting at the first. Row numbers are 1-based INCLUDING the header (matches
+spreadsheet gutter). **All ids are freshly generated** — no incoming id is ever
+trusted; `report_key` only groups rows within the file and never survives import.
+**One import run targets one project** (existing / new / "No project (house
+reports)"); a file mixing source projects requires two import runs. Every report
+assembled gets the same `projectId` (`targetProjectId`, resolved by the caller
+BEFORE parsing).
+
+**Report consolidation** (`/consolidate`, `components/consolidate/ConsolidateScreen.tsx`,
+`lib/consolidate.ts`): Three-stage flow — (1) pick a Mon-Sun week (same anchor
+pattern as `CalendarScreen`); (2) every weekly/daily report touching that week,
+grouped by project bucket, each with an include checkbox (all checked by default);
+(3) live merged preview of the checked sources. **"Sanitization" means exactly**:
+dedupe disclosure, client-name normalization (exact-after-trim+casefold against
+project names, no fuzzy), and empty-row drops. Sources themselves are never
+mutated, never re-persisted, never deleted. **"Create Consolidated Weekly Draft"
+always CREATES a new `WeeklyReport`** (never edits one) and pushes to
+`/reports/[id]/edit` for further editing. Verified sources are byte-unchanged
+and no output object shares identity with any source object. Route is
+no-orchestrator pattern (like `TaskViewScreen`/`CalendarScreen`/`SettingsScreen`)
+because it owns only small state (`weekStart`, checked-source checkboxes,
+rename-acceptance toggles); `app/(shell)/consolidate/page.tsx` is a thin wrapper.
+
+**Aggregation generalization** (`lib/aggregate.ts` — `aggregateReportsIntoDraft(sources, draft):
+{draft, log}`): Inverted the old `aggregateDailiesIntoDraft` logic: now accepts
+ANY `AnyReport[]` and merges them into a draft with a `MergeLogEntry` merge log.
+Preserved the Phase-4 asymmetry: tasks/risks are latest-wins (newer source wins
+on dedupe), but priorities are **first-wins** (earlier source wins). Sources
+order by `reportPeriodEnd` ascending with deterministic tie-break: **on equal
+period end a daily outranks a weekly**. `aggregateDailiesIntoDraft` remains as a
+one-line wrapper so the Phase-4 wizard call site is untouched — verified via an
+oracle script deep-equalling old-vs-new output over seed dailies. The generalized
+aggregator is what powers the consolidation preview.
+
+**Batch write path** (`lib/data/reports-repository.ts` + `useReports`/`useDailyReports`):
+added `upsertMany()` (one `loadAll()`, one write). The import commit loop originally
+fired N fire-and-forget `upsert` calls, each an async read-modify-write, all
+resolving against the same pre-import snapshot — last-write-won, so a 5-report
+import persisted 1. `upsertMany()` maps to a single transactional insert at the
+Supabase cutover.
+
 ## Dark mode
 
 `data-theme="dark"` on `<html>` + semantic-token overrides — **not** a
@@ -465,10 +572,9 @@ installing it against React 19 / Next 15.
 - **`Popover`** (Phase 3): a `{trigger, children, align?}` wrapper, used by
   the Calendar month grid's "+N more" day-overflow disclosure.
 
-## Settings (Phase 5)
+## Settings (Phase 5; CSV import Phase 6b)
 
-`/settings` (`components/settings/SettingsScreen.tsx`) provides three sections,
-none needing backend hooks or pagination:
+`/settings` (`components/settings/SettingsScreen.tsx`) provides four sections:
 
 - **Appearance**: a theme picker with three mutually-exclusive buttons (Light /
   Dark / System), wired to `useTheme().setPreference` (replaces the Dark Mode
@@ -483,25 +589,33 @@ none needing backend hooks or pagination:
   imports, exercising all four `row_type`s (report, task, risk, priority).
   `lib/csv-templates.ts` exports `IMPORT_COLUMNS` (the exact column order +
   semantics), `buildWeeklyImportTemplateCsv()`, and `buildDailyImportTemplateCsv()`.
-  This is a **contract**: Phase 6's CSV importer must import `IMPORT_COLUMNS`
+  This is a **contract**: Phase 6b's CSV importer must import `IMPORT_COLUMNS`
   from this same module so the contract cannot drift at parse time.
+- **CSV Import** (Phase 6b): `CsvImportSection.tsx` — file upload with drag-drop,
+  target project picker (existing / new / house), and an async importer UI
+  displaying any import issues (accumulated per-file, not abort-on-first) or
+  success confirmation. `lib/import.ts`'s `parseImportCsv` is pure (no storage,
+  no React); the component reads the file via `FileReader`, resolves/creates the
+  target project, persists via `useReports().upsertMany()` if `issues` is empty.
 
 Follows the same pattern as `ReportScreen`/`TaskViewScreen`/`CalendarScreen`: no
 separate route-level orchestrator (no filter/sort/pagination state, no hooks),
 `SettingsScreen` owns its own small theme-picker and copy-confirmation state
 directly, `app/(shell)/settings/page.tsx` is a thin thin wrapper.
 
-## Sidebar & navigation (Phase 5 updates)
+## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
-  (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconSettings`),
-  deliberately NOT `lucide-react` (which is stroke-based with round caps/joins,
-  fighting this design system's "square corners everywhere" rule). Every icon
-  shares a 16×16 viewBox, uses `currentColor` (so the active-nav chip's
-  `--text-heading`/`--surface-page` inversion works with zero extra CSS), and is
-  marked `aria-hidden`. The sidebar's `.navIcon` slot is now 18×18 (was 8×8).
-- `components/app/Sidebar.tsx` gained a "Settings" nav item; the Dark Mode
-  switch was removed from the footer (theme control moved to `/settings`).
+  (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
+  (Phase 6b), `IconSettings`), deliberately NOT `lucide-react` (which is
+  stroke-based with round caps/joins, fighting this design system's "square
+  corners everywhere" rule). Every icon shares a 16×16 viewBox, uses
+  `currentColor` (so the active-nav chip's `--text-heading`/`--surface-page`
+  inversion works with zero extra CSS), and is marked `aria-hidden`. The
+  sidebar's `.navIcon` slot is now 18×18 (was 8×8).
+- `components/app/Sidebar.tsx` gained a "Settings" nav item (Phase 5) and a
+  "Consolidate" nav item (Phase 6b); the Dark Mode switch was removed from
+  the footer (theme control moved to `/settings`).
 
 ## PageHeader (Phase 5)
 
@@ -516,9 +630,9 @@ has two header idioms; migrating them was out of Phase 5's scope.
 
 ## Migrations discipline
 
-**Any PR that changes `lib/types.ts` domain shapes must add a
-`supabase/migrations/*.sql` delta and update the mapping tables in
-`docs/database-schema.md`.** The baseline schema
+**Any PR that changes `lib/schema/` (Zod) or the inferred `lib/types.ts`
+domain shapes must add a `supabase/migrations/*.sql` delta and update the
+mapping tables in `docs/database-schema.md`.** The baseline schema
 (`supabase/migrations/20260717000001_initial_schema.sql`) exists ahead of
 the actual Supabase cutover specifically so this discipline starts now,
 before there's a repository implementation to keep in sync. Phase 4's daily
@@ -527,6 +641,9 @@ reports are the first real exercise of this rule:
 discriminant, a nullable `report_date` column, a `reports_period_by_kind`
 CHECK constraint, and the `reports_one_daily_per_day` partial unique index,
 authored in the same phase as the `lib/types.ts` union change, not after.
+Phase 6a added `supabase/migrations/20260718000003_projects.sql` (Project
+entity, per-project daily buckets, renamed `clients` → `projects`) alongside
+the `lib/schema/project.ts` and `lib/types.ts` changes.
 
 **Phase 5 (report screen redesign, interactive present deck, settings) made
 NO schema changes** — no new migrations were authored, no `lib/types.ts`
@@ -539,12 +656,15 @@ domain shapes changed.
 - `styles/tokens/` — brand tokens, copied verbatim from `design-source/tokens/`.
   `styles/theme.css` / `theme-dark.css` — semantic-token light/dark values (see
   "Dark mode"). `print.css` — global rules for the presentation deck.
-- `lib/` — `types`, `constants`, `format`, `report-utils`, `csv`, `csv-templates`
-  (Phase 5 CSV import contract), `prompts` (Phase 5 prompt library, locked MCP
-  tool names), `seed` (7 weekly + 5 daily seed reports), `aggregate` (Phase 4
-  daily-into-draft rollup), `view-utils`/`calendar` (Phase 3 derivation
-  selectors), `data/` (repository interface + localStorage impl + factory),
-  `hooks/useReports`, `hooks/useDailyReports` (Phase 4).
+- `lib/` — `types` (z.infer facade, Phase 6a), `constants`, `format`, `report-utils`,
+  `csv` (Phase 6b parsing + escaping), `csv-templates` (Phase 5 import contract),
+  `prompts` (Phase 5 prompt library, locked MCP tool names), `seed` (7 weekly +
+  5 daily + 4 project seed records), `aggregate` (Phase 4 daily-into-draft, Phase 6b
+  generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `import`
+  (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic),
+  `projects` (Phase 6a project backfill), `data/` (repository interface +
+  localStorage impl + factory), `hooks/useReports`, `hooks/useDailyReports`
+  (Phase 4), `hooks/useProjects` (Phase 6a), `schema/` (Zod 4, Phase 6a).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
   plus `icons.tsx` (hand-authored SVG nav icons, Phase 5).
@@ -564,8 +684,9 @@ domain shapes changed.
   views").
 - `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
   (Phase 3; see "Task and Calendar views").
+- `components/consolidate/` — `ConsolidateScreen` (Phase 6b; consolidation UI).
 - `components/settings/` — `SettingsScreen` (Phase 5; theme picker, prompt
-  library, CSV templates).
+  library, CSV templates), `CsvImportSection` (Phase 6b; upload + importer UI).
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.
 - `supabase/migrations/` — versioned SQL schema (see "Migrations discipline").

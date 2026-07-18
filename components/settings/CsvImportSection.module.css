@@ -1,0 +1,146 @@
+.section {
+  margin-bottom: 44px;
+}
+
+.sectionKicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 14px;
+}
+
+.sectionCopy {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0 0 18px;
+}
+
+.controlsRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fileInput {
+  display: none;
+}
+
+.fileName {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-body);
+}
+
+.fieldError {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--negative);
+  margin: -8px 0 16px;
+}
+
+.successBanner {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-body);
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.issuePanel {
+  border: 1px solid var(--negative);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.issueHeading {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-heading);
+  margin-bottom: 10px;
+}
+
+.issueList {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.issueItem {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.previewPanel {
+  border: 1px solid var(--border-subtle);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.previewHeading {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-heading);
+  margin-bottom: 10px;
+}
+
+.previewList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.previewItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-body);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.previewItem:last-child {
+  border-bottom: none;
+}
+
+.previewLabel {
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.previewCounts {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.templateRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}

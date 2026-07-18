@@ -45,11 +45,13 @@ distinct in uniqueness checks, so a plain index would never catch two house
 dailies (both `project_id IS NULL`) sharing a date — `coalesce(project_id,
 '')` folds every house daily into the same non-NULL bucket key so the
 constraint is actually enforced for it too. The app enforces the identical
-rule at the wizard layer via `sameProjectBucket()` (the TS mirror of this
-`coalesce` expression) used by `dailyDateConflict()`/`validateStep()` (step
-1, `saveDraft()`, `publish()`) AND `invalidDailyDateEdit()` (the `/daily/[id]`
-inline Date-field autosave) — all in `lib/report-utils.ts` — so a collision
-surfaces as an inline error instead of a raw constraint violation. A
+rule at THREE sites, all using `sameProjectBucket()` (the TS mirror of this
+`coalesce` expression, `lib/report-utils.ts`): (1) wizard validation via
+`dailyDateConflict()`/`validateStep()` (step 1, `saveDraft()`, `publish()`),
+(2) daily report screen's inline date-field autosave via `invalidDailyDateEdit()`,
+and (3) Phase 6b's CSV importer (`lib/import.ts`), which checks the constraint
+both within the import file and against existing storage. A collision surfaces
+as an inline error before constraint-violation instead of a raw DB error. A
 wizard-created draft always has `projectId` unset (house bucket), so this
 scoping is a no-op behavior change for every pre-Phase-6a flow.
 

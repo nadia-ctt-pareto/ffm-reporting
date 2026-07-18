@@ -1,7 +1,12 @@
 // Barrel for lib/schema/*. lib/types.ts imports its `z.infer` sources from
 // here (not from the individual files directly) -- see that file's header
-// comment. Do NOT add lib/schema/api.ts (Phase 7) or lib/schema/import.ts
-// (Phase 6b) here yet -- out of scope for Phase 6a.
+// comment. `./import` (Phase 6b, the CSV importer's row schemas) is
+// intentionally NOT re-exported as part of the domain-type facade lib/
+// types.ts consumes -- import.ts's schemas are UI-boundary-only shapes
+// (an `ImportRow`'s raw string cells), not `AnyReport`/`Task`/etc.
+// themselves, so lib/import.ts imports directly from './import' rather than
+// through this barrel. Do NOT add lib/schema/api.ts (Phase 7) here yet --
+// out of scope for Phase 6b.
 
 export * from './report';
 export * from './project';

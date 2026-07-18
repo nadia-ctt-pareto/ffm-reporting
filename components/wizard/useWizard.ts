@@ -395,12 +395,12 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     );
     const chosen = candidates.filter((t) => importSel.taskChecked[t.id]);
     if (!chosen.length) return;
-    // TODO(6b): this drops `t.projectId` -- harmless today (ensureProjectIds
-    // re-derives it next load from `client === project.name`), but becomes
-    // silent data loss the moment an imported task's `client` string can
-    // differ from its project's `name` (Phase 6b's CSV importer). Carry
-    // `projectId: t.projectId` through here once that lands.
-    const newTasks: Task[] = chosen.map((t) => ({ id: uid('t'), client: t.client, task: t.task, status: t.status, deadline: t.deadline }));
+    // Phase 6b: carries `t.projectId` through verbatim -- dropping it here
+    // was harmless pre-6b (ensureProjectIds re-derives it next load from
+    // `client === project.name`), but became silent data loss once an
+    // imported task's `client` string could differ from its project's
+    // `name` (the CSV importer, lib/import.ts).
+    const newTasks: Task[] = chosen.map((t) => ({ id: uid('t'), client: t.client, projectId: t.projectId, task: t.task, status: t.status, deadline: t.deadline }));
     setDraft((d) => ({ ...d, tasks: [...d.tasks, ...newTasks] }));
     setImportSel((s) => ({ ...s, taskChecked: {} }));
   }
@@ -410,10 +410,9 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     const candidates = riskSrc.risks.filter((rk) => !draft.risks.some((dr) => dr.client === rk.client && dr.description === rk.description));
     const chosen = candidates.filter((rk) => importSel.riskChecked[rk.id]);
     if (!chosen.length) return;
-    // TODO(6b): see the identical note in importSelectedTasks() above --
-    // drops `rk.projectId`, harmless today, becomes silent data loss once an
-    // imported risk's `client` can diverge from its project's `name`.
-    const newRisks: Risk[] = chosen.map((rk) => ({ id: uid('rk'), client: rk.client, severity: rk.severity, description: rk.description, nextStep: rk.nextStep }));
+    // Phase 6b: see the identical note in importSelectedTasks() above --
+    // carries `rk.projectId` through verbatim.
+    const newRisks: Risk[] = chosen.map((rk) => ({ id: uid('rk'), client: rk.client, projectId: rk.projectId, severity: rk.severity, description: rk.description, nextStep: rk.nextStep }));
     setDraft((d) => ({ ...d, risks: [...d.risks, ...newRisks] }));
     setImportSel((s) => ({ ...s, riskChecked: {} }));
   }

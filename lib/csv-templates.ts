@@ -123,14 +123,22 @@ function priorityRow(kind: 'weekly' | 'daily', reportKey: string, item: string):
   return { ...blankRow(), kind, report_key: reportKey, row_type: 'priority', item };
 }
 
-/** Downloadable example CSV for a weekly-report import, exercising all four `row_type`s. */
+/**
+ * Downloadable example CSV for a weekly-report import, exercising all four
+ * `row_type`s. Dates deliberately sit OUTSIDE the seeded 2026-07-13..17
+ * range (`lib/seed.ts`'s `r7`/`d1`-`d5`) -- an earlier version of this
+ * template collided with seed data (the daily template's date matched
+ * seeded daily `d2`, making the documented download-template-then-import
+ * happy path fail on a fresh install with a one-per-day collision). 2026-08
+ * is otherwise unused by any seed report.
+ */
 export function buildWeeklyImportTemplateCsv(): string {
   const reportKey = 'W1';
   const rows: ImportRow[] = [
     reportRow(
       'weekly',
       reportKey,
-      { weekStart: '2026-07-13', weekEnd: '2026-07-17' },
+      { weekStart: '2026-08-03', weekEnd: '2026-08-07' },
       {
         status: 'Final',
         preparedFor: 'Christene, Founder',
@@ -145,22 +153,28 @@ export function buildWeeklyImportTemplateCsv(): string {
         touchpointsNote: 'Weekly check-in calls with all four clients; one escalation resolved same-day.',
       }
     ),
-    taskRow('weekly', reportKey, 'Helitech Foundation & Waterproofing', 'Finalize Q3 change order', 'Complete', '2026-07-15'),
-    taskRow('weekly', reportKey, 'DryRoot Waterproofing', 'Submit city permit application', 'Blocked', '2026-07-18'),
+    taskRow('weekly', reportKey, 'Helitech Foundation & Waterproofing', 'Finalize Q3 change order', 'Complete', '2026-08-05'),
+    taskRow('weekly', reportKey, 'DryRoot Waterproofing', 'Submit city permit application', 'Blocked', '2026-08-08'),
     riskRow('weekly', reportKey, 'DryRoot Waterproofing', 'Permit office backlog delaying groundwork start', 'Blocked', 'Escalate to city liaison Monday'),
     priorityRow('weekly', reportKey, 'Close out DryRoot permit blocker'),
   ];
   return buildCsv(rows);
 }
 
-/** Downloadable example CSV for a daily-report import, exercising all four `row_type`s (report, task, risk, priority). */
+/**
+ * Downloadable example CSV for a daily-report import, exercising all four
+ * `row_type`s (report, task, risk, priority). See the doc comment on
+ * `buildWeeklyImportTemplateCsv` above -- dates likewise moved outside the
+ * seeded range (this template's `date` used to collide with seeded daily
+ * `d2`'s 2026-07-14).
+ */
 export function buildDailyImportTemplateCsv(): string {
   const reportKey = 'D1';
   const rows: ImportRow[] = [
     reportRow(
       'daily',
       reportKey,
-      { date: '2026-07-14' },
+      { date: '2026-08-04' },
       {
         status: 'Sent',
         preparedFor: 'Christene, Founder',
@@ -175,8 +189,8 @@ export function buildDailyImportTemplateCsv(): string {
         touchpointsNote: 'Both calls were routine status check-ins.',
       }
     ),
-    taskRow('daily', reportKey, 'Summit Basement Solutions', 'On-site waterproofing inspection', 'Complete', '2026-07-14'),
-    taskRow('daily', reportKey, 'TerraFirm Foundation Repair', 'Draft assessment proposal for referral', 'In Progress', '2026-07-16'),
+    taskRow('daily', reportKey, 'Summit Basement Solutions', 'On-site waterproofing inspection', 'Complete', '2026-08-04'),
+    taskRow('daily', reportKey, 'TerraFirm Foundation Repair', 'Draft assessment proposal for referral', 'In Progress', '2026-08-06'),
     riskRow(
       'daily',
       reportKey,

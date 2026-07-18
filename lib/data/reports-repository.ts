@@ -23,6 +23,19 @@ export interface ReportsRepository {
   /** Insert if `report.id` is new, otherwise replace the existing report. */
   upsert(report: AnyReport): Promise<AnyReport>;
   /**
+   * Phase 6b: batch upsert -- ONE `loadAll()` + ONE write for the whole
+   * array, not N sequential `upsert()` round-trips. This matters because
+   * `upsert()` is an async read-modify-write (load, then write back); firing
+   * N of them without awaiting each one in turn is NOT safe -- all N can
+   * read the SAME pre-batch snapshot before any of them writes, and then
+   * race to write it back, so only the last write survives and the other
+   * N-1 reports are silently dropped. `upsertMany` exists specifically so a
+   * CSV-import-sized batch (mixed weeklies + dailies) commits atomically.
+   * Accepts `AnyReport[]` (mixed kinds) since a single import run can
+   * produce both.
+   */
+  upsertMany(reports: AnyReport[]): Promise<AnyReport[]>;
+  /**
    * Shallow-merges `patch` into the existing report; returns null if not
    * found. Typed `Partial<ReportCore>` (the fields common to both kinds) so
    * the interface itself never needs to know which kind it's patching --
