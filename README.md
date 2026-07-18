@@ -9,10 +9,11 @@ Internal weekly-reporting tool for a boutique marketing agency. Project managers
 - **6-Step New Report Wizard** (`/reports/new`, resume at `/reports/[id]/edit`): Basics → Task Status → Touchpoints & Win → Risks & Blockers → Priorities → Review & Export.
   - Per-step validation; Save Draft / Publish.
   - Import carry-forward panels on steps 2, 4, and 5 (re-use pending items from prior reports).
-- **Detail dialog**: inline auto-save of report fields (becomes a full report page in a later phase).
-- **Dark mode**: a real, uniform theme (`data-theme` + semantic tokens) with 1:1 parity to light mode; preference persists across reloads.
-- **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 sample reports).
-- **Share & PDF** are mocked (UI-only) in the current phase — real slide-deck presentation, print-to-PDF, and share routes land in Phase 2.
+- **Report screen** (`/reports/[id]`): the full report, with inline auto-save of status/prepared-for/week dates, read-only stats/tasks/risks/priorities, a PDF-preview filmstrip, and actions to copy the share link, download a PDF, or open the full presentation.
+- **Branded HTML slide-deck presentation** (`/reports/[id]/present`): a bare, read-only, 6-slide deck (Cover, Summary & Touchpoints, Task Status, Risks & Blockers, Priorities, The Win) — no sidebar, just the deck + a screen-only export toolbar. The exact same `ReportDeck` component powers both this route and the report screen's preview, so what you preview is what you export.
+- **Print-to-PDF**: "Download PDF" opens the presentation route and auto-triggers the browser's print dialog once fonts are ready; fixed 1280×720 slide pages print pixel-faithfully in Chrome/Edge (`@page` custom size + `print-color-adjust: exact` for the full-bleed black cover band and sage "Win" slide).
+- **Dark mode**: a real, uniform theme (`data-theme` + semantic tokens) with 1:1 parity to light mode; preference persists across reloads. The presentation deck itself always renders brand-light, regardless of the app's theme — it's the printed/shared artifact.
+- **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 sample reports). Share links only resolve in a browser whose local storage already has that report — true cross-machine sharing arrives with the Supabase cutover.
 
 ## Getting Started
 
@@ -39,19 +40,22 @@ All three gates (`build`, `lint`, `typecheck`) must pass before review.
 
 ```
 app/
-  layout.tsx                    # Root layout: fonts, ThemeProvider, pre-hydration theme script
+  layout.tsx                       # Root layout: fonts, ThemeProvider, pre-hydration theme script
   (shell)/
-    layout.tsx                  # AppShell (sidebar + content) wrapping every in-app route
-    page.tsx                    # /                    Dashboard
-    reports/new/page.tsx        # /reports/new         Blank weekly wizard
-    reports/[id]/edit/page.tsx  # /reports/:id/edit    Resume a draft
+    layout.tsx                     # AppShell (sidebar + content) wrapping every in-shell route
+    page.tsx                       # /                        Dashboard
+    reports/new/page.tsx           # /reports/new              Blank weekly wizard
+    reports/[id]/edit/page.tsx     # /reports/:id/edit         Resume a draft
+    reports/[id]/page.tsx          # /reports/:id              Report screen
+  reports/[id]/present/page.tsx    # /reports/:id/present      Bare slide-deck route (no sidebar)
 
 components/
   app/          AppShell.tsx, Sidebar.tsx           # navigation shell
   theme/        ThemeProvider.tsx                   # data-theme dark-mode source of truth
   dashboard/    DashboardPage.tsx (orchestration), DashboardScreen.tsx (presentational)
   wizard/       WizardPage.tsx, WizardScreen.tsx, WizardStepper.tsx, ImportPanel.tsx, steps/, useWizard.ts
-  dialogs/      ReportDetailDialog.tsx, ShareDialog.tsx, PdfDialog.tsx
+  report/       ReportScreen.tsx, ReportDeck.tsx, PresentScreen.tsx
+  dialogs/      ShareDialog.tsx
   ui/           Button, StatCard, Table, Select, Input, Textarea, Checkbox,
                 Switch, Badge, Dialog, Pagination   # design-system primitives (Radix-backed where interactive)
 
@@ -63,6 +67,7 @@ lib/
 styles/
   tokens/*.css                  # Brand tokens (verbatim from design-source)
   theme.css, theme-dark.css     # Semantic-token light values + [data-theme='dark'] overrides
+  print.css                     # Global print rules for the presentation deck (present route only)
   (globals.css lives in app/)
 
 supabase/
@@ -86,21 +91,28 @@ Data access is decoupled via the `ReportsRepository` interface (`lib/data/report
 ### Styling & theming
 
 - **No Tailwind.** Brand CSS custom properties (`styles/tokens/*.css` + `styles/theme.css` / `styles/theme-dark.css`) + CSS Modules. Components read semantic tokens (`var(--surface-card)`, `var(--text-heading)`, …); there is no `darkMode ? {...} : {...}` inline branching.
-- **Dark mode** = `data-theme="dark"` on `<html>` + token overrides, managed by `ThemeProvider` and applied pre-hydration to avoid a flash.
+- **Dark mode** = `data-theme="dark"` on `<html>` + token overrides, managed by `ThemeProvider` and applied pre-hydration to avoid a flash. The presentation deck (`ReportDeck`) is the one exception by design: it always renders brand-light, regardless of the app's theme, because it's the printed/shared artifact — its wrapper locally re-declares the semantic tokens it reads back to their light values.
 - **Radix primitives** (`radix-ui`) power `Dialog`, `Select`, `Switch`, and the sidebar tooltip — headless, fully styled by our own CSS. Note: `Select`'s `onChange` receives the value directly (`onChange(value)`), and `Switch`'s receives the next `checked` boolean.
 - Square corners everywhere; only the wizard stepper circles use `--radius-pill`.
+
+### Presentation deck & print-to-PDF
+
+- `/reports/[id]/present` is a bare route (no sidebar) rendering the same `ReportDeck` component used by the report screen's PDF-preview filmstrip — one component, so the preview and the exported PDF can never drift apart.
+- Fixed 1280×720 slide boxes + a custom `@page` size mean the printed page IS the slide (no scaling, no reflow): the on-screen deck and the "Save as PDF" output are pixel-identical **in Chromium (Chrome/Edge)**. Firefox/Safari ignore custom `@page` sizes and will letterbox/scale instead — export via Chrome or Edge for a pixel-perfect PDF (the present page's toolbar says so too).
+- "Download PDF" (report screen and wizard publish-confirmation screen) opens the presentation route with `?print=1`, which auto-triggers the browser's print dialog once the report has loaded and fonts are ready.
 
 ### Known quirks (by design)
 
 - "Final" status badge renders neutral (prototype's intended tone).
 - `saveDraft` always forces status to "Draft", even when editing a published report.
-- Share links and PDF export are UI-only mocked dialogs in the current phase (real ones arrive in Phase 2).
+- Share links resolve to a real route (`/reports/[id]/present`), but persistence is per-browser `localStorage` — a shared link only resolves in a browser whose local storage already has that report. True cross-machine sharing arrives with the Supabase cutover.
+- Pixel-faithful PDF export only works in Chromium-based browsers (see above).
 
 ## Roadmap
 
-**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination.
-**Next phases**: full report page + branded HTML slide deck + print-to-PDF + share route (2); Task view (List/Kanban) + Calendar view (3); daily reports + roll-up into the weekly wizard (4).
-**Later**: implement `SupabaseReportsRepository` against the versioned migrations, deploy on Vercel.
+**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination, full report screen, branded HTML slide-deck presentation, print-to-PDF, share links.
+**Next phases**: Task view (List/Kanban) + Calendar view (3); daily reports + roll-up into the weekly wizard (4).
+**Later**: implement `SupabaseReportsRepository` against the versioned migrations, deploy on Vercel, true cross-machine share links.
 
 Post-MVP usability/design backlog: `design-source/NEXT_STEPS.md`. Design rationale and conventions: `CLAUDE.md`.
 

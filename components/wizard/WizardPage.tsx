@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PdfDialog } from '@/components/dialogs/PdfDialog';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { WizardScreen } from '@/components/wizard/WizardScreen';
 import { useReports } from '@/lib/hooks/useReports';
@@ -16,9 +15,12 @@ export interface WizardPageProps {
 /**
  * Route-level orchestration for `/reports/new` and `/reports/[id]/edit`.
  * Loads reports itself (per-route, per the plan), resolves the initial
- * draft, and hosts the Share/Pdf dialogs used by the wizard's
- * publish-confirmation screen. An unknown `reportId` redirects to `/`
- * instead of falling through to a blank wizard (parity with the prototype's
+ * draft, and hosts the Share dialog used by the wizard's
+ * publish-confirmation screen ("Copy Share Link"). "Download PDF" on that
+ * screen is the real print flow now -- it opens `/reports/[id]/present
+ * ?print=1` in a new tab (see ReportDeck/PresentScreen, Phase 2) rather
+ * than a mocked dialog. An unknown `reportId` redirects to `/` instead of
+ * falling through to a blank wizard (parity with the prototype's
  * resumeDraft no-op-on-missing-id behavior).
  */
 export function WizardPage({ reportId }: WizardPageProps) {
@@ -29,9 +31,6 @@ export function WizardPage({ reportId }: WizardPageProps) {
   const [shareReportId, setShareReportId] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const shareCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [pdfOpen, setPdfOpen] = useState(false);
-  const [pdfReportId, setPdfReportId] = useState<string | null>(null);
 
   useEffect(
     () => () => {
@@ -78,10 +77,8 @@ export function WizardPage({ reportId }: WizardPageProps) {
   };
 
   const openPdf = (id: string) => {
-    setPdfReportId(id);
-    setPdfOpen(true);
+    window.open(`/reports/${id}/present?print=1`, '_blank', 'noopener,noreferrer');
   };
-  const closePdf = () => setPdfOpen(false);
 
   // Reports haven't loaded yet, or a reportId lookup is still pending the
   // redirect effect above: render nothing rather than a flash of a blank
@@ -89,7 +86,6 @@ export function WizardPage({ reportId }: WizardPageProps) {
   if (reports === null || notFound) return null;
 
   const initialReport = found ? structuredClone(found) : null;
-  const pdfReport = reports.find((r) => r.id === pdfReportId) ?? null;
 
   return (
     <>
@@ -111,8 +107,6 @@ export function WizardPage({ reportId }: WizardPageProps) {
         onCopy={copyShareLink}
         onClose={closeShare}
       />
-
-      <PdfDialog open={pdfOpen} report={pdfReport} onClose={closePdf} />
     </>
   );
 }

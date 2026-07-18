@@ -13,9 +13,15 @@ export interface ShareDialogProps {
   onClose: () => void;
 }
 
-/** Line 626 */
+/**
+ * Points at the real `/reports/[id]/present` slide-deck route (Phase 2).
+ * SSR-guarded (`window` doesn't exist on the server) -- falls back to a
+ * relative path, which is fine since this is only ever rendered/copied
+ * client-side (see ReportScreen / WizardPage).
+ */
 export function shareLinkFor(reportId: string | null): string {
-  return 'https://reports.foundationfirstmarketing.com/r/' + (reportId ?? '');
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  return `${origin}/reports/${reportId ?? ''}/present`;
 }
 
 export function ShareDialog({ open, reportId, copied, onCopy, onClose }: ShareDialogProps) {
@@ -24,9 +30,7 @@ export function ShareDialog({ open, reportId, copied, onCopy, onClose }: ShareDi
   return (
     <Dialog open={open} onClose={onClose} title="Share This Report" width={480}>
       <div>
-        <div style={{ width: 150 }}>
-          <Input label="Viewer Link" value={link} readOnly />
-        </div>
+        <Input label="Viewer Link" value={link} readOnly />
         <div className={styles.copyRow}>
           <Button variant="primary" size="sm" onClick={onCopy}>
             {copied ? 'Copied' : 'Copy Link'}
@@ -34,7 +38,7 @@ export function ShareDialog({ open, reportId, copied, onCopy, onClose }: ShareDi
         </div>
         <p className={styles.disclaimer}>
           {
-            "Anyone with this link sees a read-only view of this report. Prototype — the link isn't live yet; it will be wired up in the full build."
+            "Anyone with this link sees a read-only, branded presentation of this report — but only in a browser whose local storage already has it. This MVP's persistence is per-browser (localStorage); true cross-machine sharing arrives with the Supabase cutover."
           }
         </p>
         <div className={styles.closeRow}>

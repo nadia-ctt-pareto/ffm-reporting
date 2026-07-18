@@ -1,0 +1,311 @@
+/*
+ * The deck is the printed/shared artifact -- it must render brand-light no
+ * matter which theme the author is in. Custom properties inherit down the
+ * DOM tree, so re-declaring every semantic token this file (plus the
+ * reused Badge/StatCard/Table primitives) reads, back to their light-mode
+ * values here, on `.deck`, locally overrides whatever `[data-theme='dark']`
+ * set on a `<html>` ancestor. Values are copied verbatim from
+ * styles/tokens/colors.css + styles/theme.css (light values) -- do not let
+ * these two definitions drift apart.
+ */
+.deck {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--slide-gap);
+  font-family: var(--font-body);
+
+  --surface-page: var(--ff-white);
+  --surface-card: var(--ff-white);
+  --surface-band-dark: var(--ff-black);
+  --surface-accent: var(--ff-sage);
+  --surface-panel-muted: var(--ff-off-white);
+  --text-heading: var(--ff-black);
+  --text-heading-accent: var(--ff-green);
+  --text-body: var(--ff-gray-2);
+  --text-muted: var(--ff-gray-1);
+  --border-subtle: #e4e4de;
+  --border-strong: var(--ff-black);
+  --link: var(--ff-green);
+}
+
+.slide {
+  width: var(--slide-w);
+  height: var(--slide-h);
+  flex: 0 0 auto;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--surface-page);
+  color: var(--text-heading);
+  box-shadow: var(--shadow-card);
+}
+
+.padded {
+  display: flex;
+  flex-direction: column;
+  padding: 88px 96px;
+}
+
+.kicker {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 28px;
+}
+
+/* ---- Slide 1: Cover ---- */
+
+.cover {
+  background: var(--surface-band-dark);
+  color: var(--ff-white);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 72px 88px;
+}
+
+/* The signature diagonal band: an oversized inner layer clipped with the
+   brand's diagonal-clip token, nudged with a small extra rotation so the
+   shear reads clearly at full slide scale (~4-8 degrees). */
+.coverDiagonal {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: -10%;
+  height: 60%;
+  background: var(--ff-green-soft);
+  clip-path: var(--diagonal-clip);
+  transform: rotate(-4deg);
+}
+
+.coverTop {
+  position: relative;
+  z-index: 1;
+}
+
+.coverKicker {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--ff-sage);
+  margin-bottom: 28px;
+}
+
+.coverWeek {
+  font-family: var(--font-heading);
+  font-weight: var(--weight-light);
+  font-size: 56px;
+  line-height: var(--leading-tight);
+  margin: 0 0 40px;
+  color: var(--ff-white);
+}
+
+.coverMeta {
+  display: flex;
+  gap: 64px;
+}
+
+.coverMetaLabel {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--ff-sage);
+  margin-bottom: 8px;
+}
+
+.coverMetaValue {
+  font-family: var(--font-body);
+  font-size: 19px;
+  color: var(--ff-white);
+}
+
+.coverHero {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+}
+
+/* Regonia isn't self-hosted yet (see styles/tokens/typography.css) -- this
+   falls back to Didot/Bodoni/serif. Acceptable for MVP; swap in a licensed
+   Regonia woff2 via next/font/local later (one-file add). */
+.coverHeroStat {
+  font-family: var(--font-display-serif);
+  font-size: 120px;
+  line-height: 1;
+  color: var(--ff-white);
+}
+
+.coverHeroLabel {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--ff-sage);
+  margin-top: 14px;
+  max-width: 640px;
+}
+
+/* ---- Slide 2: Summary + touchpoints ---- */
+
+.narrative {
+  font-family: var(--font-body);
+  font-size: 23px;
+  line-height: var(--leading-body);
+  color: var(--text-body);
+  max-width: 960px;
+  margin: 0 0 40px;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  max-width: 880px;
+  margin-bottom: 28px;
+}
+
+.caption {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: var(--leading-body);
+  color: var(--text-muted);
+  max-width: 860px;
+}
+
+/* ---- Slide 3: Task Status ---- */
+
+.tableWrap {
+  border: 1px solid var(--border-subtle);
+}
+
+.slideFootnote {
+  margin-top: 24px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ---- Slide 4: Risks & Blockers ---- */
+
+.riskGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.riskCard {
+  border: 1px solid var(--border-subtle);
+  padding: 22px 26px;
+}
+
+.riskHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 19px;
+  color: var(--text-heading);
+  margin-bottom: 10px;
+}
+
+.riskDescription {
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  line-height: var(--leading-body);
+  color: var(--text-body);
+  margin-bottom: 8px;
+}
+
+.riskNextStep {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.mutedNote {
+  font-family: var(--font-body);
+  font-size: 17px;
+  color: var(--text-muted);
+}
+
+/* ---- Slide 5: Priorities ---- */
+
+.priorityList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: priority;
+}
+
+.priorityItem {
+  counter-increment: priority;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-family: var(--font-body);
+  font-size: 19px;
+  color: var(--text-heading);
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.priorityItem::before {
+  content: counter(priority) '.';
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--text-heading-accent);
+}
+
+/* ---- Slide 6: The Win ---- */
+
+.win {
+  background: var(--surface-accent);
+  color: var(--ff-black);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 96px;
+}
+
+.win .kicker {
+  color: var(--ff-green);
+}
+
+.winStat {
+  font-family: var(--font-display-serif);
+  font-size: 140px;
+  line-height: 1;
+  color: var(--ff-black);
+  margin-bottom: 20px;
+}
+
+.winLabel {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--ff-black);
+  margin: 0 0 24px;
+  max-width: 860px;
+}
+
+.winNarrative {
+  font-family: var(--font-body);
+  font-size: 18px;
+  line-height: var(--leading-body);
+  color: var(--ff-gray-2);
+  max-width: 820px;
+  margin: 0;
+}

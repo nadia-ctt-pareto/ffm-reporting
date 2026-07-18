@@ -1,0 +1,156 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 48px;
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.wordmark {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--text-heading);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.backLink {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--link);
+}
+
+.content {
+  padding: 36px 48px 72px;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.editRow {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.autosaveNote {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.actionsRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sectionKicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 10px;
+}
+
+/* The PDF-preview filmstrip: `.previewViewport` is sized exactly to the
+   scaled deck (width/height set inline from DECK_SLIDE_WIDTH/
+   DECK_TOTAL_HEIGHT * PREVIEW_SCALE in ReportScreen.tsx), so there's no
+   stray blank space below/beside it; `.previewScaler` renders the *same*
+   `<ReportDeck>` used by the present route at native size, then visually
+   shrinks it via `transform: scale()`. */
+.previewViewport {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 32px;
+}
+
+.previewScaler {
+  transform-origin: top left;
+}
+
+.narrative {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-body);
+  margin: 0 0 24px;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 28px;
+}
+
+.riskList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.riskCard {
+  border: 1px solid var(--border-subtle);
+  padding: 12px 14px;
+}
+
+.riskHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+  color: var(--text-heading);
+}
+
+.riskDescription {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-body);
+  margin-bottom: 4px;
+}
+
+.riskNextStep {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mutedNote {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.priorityRow {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  color: var(--text-heading);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}

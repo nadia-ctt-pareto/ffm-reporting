@@ -28,46 +28,118 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 ## Roadmap
 
 - **Now (MVP):** everything local. Data in `localStorage`, seeded with 7 reports.
-  Share links and PDF export are intentionally **mocked** (UI-only dialogs).
+  Share links resolve to a real, read-only branded slide-deck route
+  (`/reports/[id]/present`); "PDF export" is the real browser print flow
+  against that same route (no server-side rendering dependency).
 - **Later:** PostgreSQL via Supabase (implement `SupabaseReportsRepository`),
-  deploy on Vercel, real share routes (`/r/[id]`) and real PDF generation.
+  deploy on Vercel, true cross-machine share links (today's links only
+  resolve in a browser whose localStorage already has the report).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
 ## Routing
 
-Real App Router routes, all inside the `(shell)` route group (a sidebar +
-content grid shared by every route in Phase 1):
+Real App Router routes. Every route lives inside the `(shell)` route group
+(a sidebar + content grid) **except** `/reports/[id]/present`, which
+deliberately sits outside it so only the root layout applies (no sidebar on
+the bare, shareable slide-deck route):
 
 ```
 app/
   layout.tsx                          # html/body, fonts, ThemeProvider, pre-hydration theme script
   (shell)/
     layout.tsx                        # 'use client' -- <AppShell> (sidebar + main)
-    page.tsx                          # /                      Dashboard
-    reports/new/page.tsx              # /reports/new            Weekly wizard (blank)
-    reports/[id]/edit/page.tsx        # /reports/:id/edit       Weekly wizard (resume draft)
+    page.tsx                          # /                       Dashboard
+    reports/new/page.tsx              # /reports/new             Weekly wizard (blank)
+    reports/[id]/edit/page.tsx        # /reports/:id/edit        Weekly wizard (resume draft)
+    reports/[id]/page.tsx             # /reports/:id             Report screen (Phase 2)
+  reports/[id]/present/page.tsx       # /reports/:id/present     Bare slide-deck route (Phase 2, outside (shell))
 ```
 
-Only these routes exist in Phase 1. `/tasks`, `/calendar`, `/reports/[id]`,
-`/reports/[id]/present`, `/daily/*` are later phases — don't add nav items or
+`app/(shell)/reports/[id]/page.tsx` and `app/reports/[id]/present/page.tsx`
+both contribute to the `reports/[id]/*` URL space from two different
+physical trees (one inside the `(shell)` group, one outside it) but resolve
+to distinct paths (`/reports/[id]` vs `/reports/[id]/present`) -- verified
+in `next build`'s route table (the former is listed without a route-group
+collision error, and only the latter is confirmed sidebar-free by
+inspecting the rendered DOM). If a future route ever needs a genuinely
+different `[id]` param name at the same segment depth, promote `present/`
+into its own `(present)` route group instead of relying on this.
+
+`/tasks`, `/calendar`, `/daily/*` are later phases — don't add nav items or
 routes for them yet.
 
 Route-level orchestration (filter/sort/pagination state, dialog hosting,
 `useReports()` calls) lives in `components/dashboard/DashboardPage.tsx` and
 `components/wizard/WizardPage.tsx`; `app/(shell)/**/page.tsx` files are thin
 wrappers around those. `DashboardScreen`/`WizardScreen` stay presentational
-(prop-driven), matching the pre-Phase-1 convention.
+(prop-driven), matching the pre-Phase-1 convention. `app/(shell)/reports/
+[id]/page.tsx` breaks from that split on purpose (see "Report screen &
+presentation deck" below) -- it's small enough (one param, one hook, no
+dialog hosting) that a dedicated orchestrator would be pure ceremony.
 
 - `DashboardPage` owns filter/sort/search/pagination state locally — it
-  resets on navigation away and back (acceptable; not persisted).
+  resets on navigation away and back (acceptable; not persisted). "View"
+  navigates to `/reports/[id]` (a real route, not a dialog).
 - `WizardPage` loads reports itself, resolves the initial draft
   (`structuredClone`'d from the matching report on `/reports/[id]/edit`,
   exactly like the old `resumeDraft`), and renders `<WizardScreen key={id}>`
   so a fresh "New Report" or "Continue" always remounts with clean internal
   state. An unknown `id` redirects to `/` — it never falls through to a
-  blank wizard.
+  blank wizard. The publish-confirmation screen's "Download PDF" opens
+  `/reports/[id]/present?print=1` in a new tab (real print flow, not a
+  dialog); "Copy Share Link" still goes through `ShareDialog`.
 - The sidebar's Dark Mode switch lives in `components/app/Sidebar.tsx`
   (footer) — it was removed from the dashboard/wizard headers.
+
+## Report screen & presentation deck (Phase 2)
+
+- **`components/report/ReportScreen.tsx`** (`/reports/[id]`) is the old
+  `ReportDetailDialog` promoted to a full route: same editable
+  status/preparedFor/weekStart/weekEnd autosave (via `updateReportFields`,
+  "Changes save automatically."), same read-only stats/tasks/risks/
+  priorities display, same `dSafe` null-guard -- plus an actions row (Copy
+  Share Link, Download PDF, Open Presentation) and a PDF-preview filmstrip.
+- **`components/report/ReportDeck.tsx`** is the branded 6-slide deck (Cover,
+  Summary + touchpoints, Task Status, Risks & Blockers, Priorities, The
+  Win), rendered by BOTH the preview filmstrip and the present route --
+  one component, guaranteed parity between what you preview and what you
+  print. It always renders brand-light regardless of `data-theme`: its
+  `.deck` wrapper class re-declares every semantic token it (and the reused
+  Badge/StatCard/Table primitives) reads, back to light-mode values,
+  locally overriding whatever `[data-theme='dark']` set upstream.
+  `DECK_SLIDE_WIDTH`/`DECK_SLIDE_HEIGHT`/`DECK_SLIDE_COUNT`/
+  `DECK_TOTAL_HEIGHT` are exported as the single source of truth for both
+  the CSS (fed in as custom properties) and any JS geometry math (preview
+  thumbnail sizing, the present page's responsive fit-scale).
+- **`components/report/PresentScreen.tsx`** (`/reports/[id]/present`) is the
+  bare, read-only route: a screen-only toolbar (Back to Report, Download
+  PDF), `?print=1` auto-triggers `window.print()` after the report loads,
+  `document.fonts.ready` resolves, and one `requestAnimationFrame` passes.
+  Reads `useSearchParams()` -- its caller (`app/reports/[id]/present
+  /page.tsx`) wraps it in `<Suspense>`, which Next.js requires for that
+  hook or `next build` fails prerendering the route. Unknown ids render a
+  branded "Report Not Found" state instead of a redirect (this route has
+  no sidebar to redirect back into).
+- **`styles/print.css`** is a plain (non-CSS-Module) global stylesheet,
+  imported only by `PresentScreen.tsx`. `@page { size: 1280px 720px;
+  margin: 0 }` + fixed `.slide` boxes means the printed page IS the slide
+  -- no scaling, no reflow -- so the on-screen deck and "Save as PDF" are
+  pixel-identical in Chromium. Every rule in it is `!important`: Next
+  doesn't guarantee this stylesheet's chunk loads after the CSS-Module
+  chunks it overrides, and without `!important` a source-order flip
+  silently un-hid the toolbar / mis-sized the print stage in testing,
+  producing 7-8 PDF pages instead of 6 (verified with a real Chromium
+  `page.pdf()` export + the PDF's own `/Count` page-tree value, both in
+  `next dev` and a production `next build`/`next start`). `.slide:last-
+  child { break-after: auto }` is what prevents a trailing blank 7th page.
+- **Cross-browser reality (documented, not solved):** custom `@page size`
+  is honored by Chromium (Chrome/Edge "Save as PDF", margins None,
+  headers/footers off) but ignored by Firefox/Safari, which letterbox/scale
+  instead. The present page's toolbar says so. No headless-render
+  dependency (puppeteer/react-pdf) for this internal tool.
+- **Regonia isn't self-hosted.** `--font-display-serif` (the deck's hero-
+  stat font) falls back to Didot/Bodoni/serif. Acceptable for MVP; a
+  licensed Regonia woff2 via `next/font/local` is a one-file add later.
 
 ## Dark mode
 
@@ -135,6 +207,10 @@ issues were hit installing it against React 19 / Next 15.
   directly (Radix's `onCheckedChange`), not a `ChangeEvent`.
 - The sidebar wraps `<AppShell>` in a single `Tooltip.Provider` (used for
   collapsed-sidebar nav-item labels).
+- `ShareDialog`'s `shareLinkFor(reportId)` (Phase 2) returns
+  `${window.location.origin}/reports/${id}/present` — SSR-guarded (`window`
+  doesn't exist server-side; falls back to a relative path, fine since it's
+  only ever rendered/copied client-side).
 
 ## Migrations discipline
 
@@ -160,7 +236,13 @@ before there's a repository implementation to keep in sync.
 - `components/theme/` — `ThemeProvider`/`useTheme`.
 - `components/app/` — `AppShell`, `Sidebar`.
 - `components/dashboard|wizard|dialogs/` — screens + route-level orchestration
-  (`DashboardPage`, `WizardPage`).
+  (`DashboardPage`, `WizardPage`) + `ShareDialog` (the only dialog left;
+  Detail/Pdf dialogs were superseded by the report screen + real print flow,
+  see "Report screen & presentation deck").
+- `components/report/` — `ReportScreen`, `ReportDeck`, `PresentScreen`
+  (Phase 2; see "Report screen & presentation deck").
+- `styles/print.css` — global print stylesheet for the presentation deck,
+  imported only by `PresentScreen.tsx`.
 - `supabase/migrations/` — versioned SQL schema (see "Migrations discipline").
 - `design-source/` — imported prototype + tokens + backlog (reference only; not shipped).
 
@@ -181,6 +263,16 @@ before there's a repository implementation to keep in sync.
   always forces `Draft` status. (The two dark-mode quirks previously listed
   here — "dark mode is partial by design" and "header/panel stays white in
   dark" — were intentionally superseded in Phase 1; see "Dark mode" above.)
+- **Share/PDF are no longer mocked (Phase 2)** — superseding the Phase-1
+  quirk "Share links and PDF export are UI-only mocked dialogs". Share
+  links now resolve to a real route (`/reports/[id]/present`) and PDF
+  export is a real browser print flow, but two things stay genuinely
+  limited by this MVP's architecture (document, don't silently "fix"):
+  persistence is per-browser `localStorage`, so a shared link only
+  resolves in a browser whose local storage already has that report (true
+  cross-machine sharing arrives with Supabase); and pixel-faithful export
+  (`@page` custom size honored, no letterboxing) only works in Chromium
+  (Chrome/Edge) — Firefox/Safari ignore custom `@page size`.
 
 ## Gates
 

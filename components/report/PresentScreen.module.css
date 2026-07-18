@@ -1,0 +1,113 @@
+.page {
+  min-height: 100vh;
+  background: var(--surface-page);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 40px;
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.backLink {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--link);
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.toolbarHint {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stage {
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  padding: 40px 24px;
+  /* The scaler keeps a 1280px layout box and only shrinks visually via
+     transform: scale(); clip its horizontal overflow so a narrow viewport
+     doesn't get a stray horizontal scrollbar. `clip` (not `hidden`) avoids
+     promoting the vertical axis to a scroll container. */
+  overflow-x: clip;
+}
+
+/* ---- Not found ---- */
+
+.notFoundWrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 64px 24px;
+  background: var(--surface-page);
+}
+
+.notFoundMark {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 24px;
+}
+
+.notFoundTitle {
+  font-family: var(--font-heading);
+  font-weight: var(--weight-light);
+  font-size: 40px;
+  color: var(--text-heading);
+  margin: 0 0 16px;
+}
+
+.notFoundCopy {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: var(--leading-body);
+  color: var(--text-muted);
+  max-width: 520px;
+  margin: 0 0 32px;
+}
+
+.notFoundLink {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--surface-page);
+  background: var(--text-heading);
+  padding: 14px 28px;
+  text-decoration: none;
+}
+
+.notFoundLink:hover {
+  background: var(--ff-green);
+  color: var(--text-on-dark);
+}

@@ -1,0 +1,89 @@
+/*
+ * Print rules for the branded report deck (components/report/ReportDeck.tsx),
+ * imported only by the bare `/reports/[id]/present` route
+ * (components/report/PresentScreen.tsx) -- these rules never load on any
+ * other route.
+ *
+ * Selectors below are plain (unhashed) global classnames on purpose: this
+ * is a global stylesheet, so it can't reach CSS-Modules' hashed classnames.
+ * `deck`/`slide`/`slideScaler`/`presentToolbar`/`presentStage` are applied
+ * as literal `className` strings (alongside their CSS-Module classes) by
+ * ReportDeck.tsx and PresentScreen.tsx specifically so this file can select
+ * them.
+ *
+ * Every rule below is `!important`: Next.js doesn't guarantee this global
+ * stylesheet's chunk loads *after* the CSS-Module chunks it's overriding
+ * (`PresentScreen.module.css`'s `.toolbar{display:flex}`, `.stage`'s
+ * padding, `ReportDeck.module.css`'s `.slide`'s `box-shadow`, ...). Those
+ * module rules are equal-specificity, unconditional (not media-scoped), so
+ * without `!important` a source-order flip silently un-hides the toolbar
+ * or under/over-reserves layout height in print -- verified by generating
+ * a real PDF (Chromium `page.pdf()` + `/Count` in the PDF's page tree) and
+ * confirming exactly 6 pages; omitting `!important` here produced 7-8
+ * pages (a lingering toolbar/height reservation pushed a stray 7th page).
+ *
+ * Fixed 1280x720 `.slide` boxes + `@page { size: 1280px 720px; margin: 0 }`
+ * means the printed page IS the slide -- no scaling, no reflow -- so the
+ * on-screen deck and the "Save as PDF" output are pixel-identical in
+ * Chromium (Chrome/Edge). Firefox/Safari ignore custom `@page size` and
+ * will letterbox/scale instead; this is a documented limitation (see the
+ * present page's toolbar hint + README), not something this stylesheet can
+ * fix -- no headless-render dependency (puppeteer/react-pdf) for an
+ * internal tool.
+ */
+
+@page {
+  size: 1280px 720px;
+  margin: 0;
+}
+
+@media print {
+  html,
+  body {
+    margin: 0 !important;
+    background: #fff !important;
+  }
+
+  .presentToolbar {
+    display: none !important;
+  }
+
+  /* Un-does the on-screen centering/height reservation -- in print, slide 1
+     must start flush at the paper's top-left corner so the cover's black
+     band is truly full-bleed. */
+  .presentStage {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  /* Chromium's page-fragmentation engine doesn't paginate flex containers
+     as predictably as plain block boxes -- printing plain stacked block
+     children keeps pagination to exactly one page per `.slide`. */
+  .deck {
+    display: block !important;
+    gap: 0 !important;
+  }
+
+  .slide {
+    break-after: page !important;
+    break-inside: avoid !important;
+    box-shadow: none !important;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  /* Without this, the last slide's own `break-after: page` prints a stray
+     blank trailing page. */
+  .slide:last-child {
+    break-after: auto !important;
+  }
+
+  .slideScaler {
+    transform: none !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+  }
+}
