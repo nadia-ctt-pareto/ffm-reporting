@@ -42,11 +42,15 @@ const conflicting = candidates.filter((pid) => sh('lsof', ['-a', '-p', pid, '-d'
 
 if (conflicting.length > 0) {
   const pids = [...new Set(conflicting)].join(' ');
-  process.stderr.write(
-    `\n  A dev server is already running for this project (pid ${pids}).\n\n` +
-      `  Two servers share one .next/ and corrupt each other's build output,\n` +
-      `  which shows up as ENOENT or "reading 'call'" errors that look like\n` +
-      `  application bugs. Use the server that's already running, or:\n\n` +
+  // stdout, not stderr: this is a deliberate notice, not a failure. Printed on
+  // stderr it reads as a crash, which is the opposite of the point.
+  process.stdout.write(
+    `\n  Nothing is wrong -- a dev server is ALREADY RUNNING for this project (pid ${pids}).\n` +
+      `  Open http://localhost:3000 and use it.\n\n` +
+      `  Not starting a second one on purpose: two servers share a single .next/\n` +
+      `  and overwrite each other's build output, which surfaces as ENOENT or\n` +
+      `  "reading 'call'" errors that look like application bugs but aren't.\n\n` +
+      `  To restart from scratch instead:\n\n` +
       `    kill ${pids} && rm -rf .next && npm run dev\n\n`,
   );
   process.exit(1);
