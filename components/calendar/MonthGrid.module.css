@@ -1,0 +1,146 @@
+.month {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+}
+
+.dayLabels {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dayLabelCell {
+  padding: 10px 12px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  text-align: center;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.dayLabelCell:last-child {
+  border-right: none;
+}
+
+.week {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.week:last-child {
+  border-bottom: none;
+}
+
+.dayNumbers {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.dayCell {
+  padding: 8px 10px 0;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--text-body);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.dayCell:last-child {
+  border-right: none;
+}
+
+.outsideMonth {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.today {
+  color: var(--text-heading);
+  font-weight: 700;
+}
+
+.barLanes {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  /* MAX_VISIBLE_LANES (2) + 1 overflow row -- fixed so every week-row is a uniform height regardless of report count. */
+  grid-template-rows: repeat(3, 22px);
+  gap: 4px 6px;
+  padding: 4px 8px 10px;
+}
+
+.bar {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--ff-green);
+  padding: 0 8px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-heading);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.bar:hover {
+  border-color: var(--text-heading);
+}
+
+.bar:focus-visible {
+  outline: 2px solid var(--ff-green);
+  outline-offset: 2px;
+}
+
+.overflow {
+  display: flex;
+  align-items: center;
+}
+
+.overflowTrigger {
+  all: unset;
+  box-sizing: border-box;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--link);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.overflowTrigger:hover {
+  color: var(--link-hover);
+}
+
+.overflowList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.overflowItem {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--text-heading);
+  cursor: pointer;
+  width: 100%;
+}
+
+.overflowItem:hover {
+  border-color: var(--text-heading);
+}

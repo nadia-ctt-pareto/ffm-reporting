@@ -1,0 +1,62 @@
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--border-strong);
+  padding: 12px 14px;
+  cursor: grab;
+  /* Recommended by dnd-kit for pointer-sensor drags on touch devices --
+     without it, the browser's own touch-scroll competes with the drag. */
+  touch-action: none;
+  outline: none;
+}
+
+.card:hover {
+  border-color: var(--text-heading);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--ff-green);
+  outline-offset: 2px;
+}
+
+.card[data-status='Complete'] {
+  border-left-color: var(--positive);
+}
+
+.card[data-status='In Progress'] {
+  border-left-color: var(--ff-sage);
+}
+
+.card[data-status='Blocked'] {
+  border-left-color: var(--negative);
+}
+
+.cardTask {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-heading);
+  margin-bottom: 6px;
+}
+
+.cardMeta {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-body);
+  margin-bottom: 12px;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.overlay {
+  cursor: grabbing;
+  box-shadow: var(--shadow-dialog);
+}

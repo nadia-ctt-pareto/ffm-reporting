@@ -1,0 +1,50 @@
+.root {
+  display: block;
+}
+
+.list {
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+}
+
+.trigger {
+  all: unset;
+  box-sizing: border-box;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 22px;
+  cursor: pointer;
+  color: var(--text-body);
+  border-right: 1px solid var(--border-subtle);
+  text-align: center;
+  transition:
+    background var(--speed-fast) var(--ease-brand),
+    color var(--speed-fast) var(--ease-brand);
+}
+
+.trigger:last-child {
+  border-right: none;
+}
+
+.trigger:hover {
+  color: var(--text-heading);
+}
+
+/* Same ink/paper inversion as the sidebar's active-nav chip -- stays
+   visible whether the segmented control sits on a light or dark surface. */
+.trigger[data-state='active'] {
+  background: var(--text-heading);
+  color: var(--surface-page);
+}
+
+.trigger[data-state='active']:hover {
+  color: var(--surface-page);
+}
+
+.content {
+  outline: none;
+}

@@ -17,9 +17,13 @@ interface NavItem {
   label: string;
 }
 
-// Phase 1 scope: Dashboard is the only route. /tasks, /calendar, /daily/* etc.
-// arrive in later phases -- do not add nav items for routes that don't exist yet.
-const NAV_ITEMS: NavItem[] = [{ href: '/', label: 'Dashboard' }];
+// Phase 3 scope: Dashboard, Tasks (List/Kanban), Calendar (Week/Month).
+// /daily/* is a later phase -- don't add a nav item for it yet.
+const NAV_ITEMS: NavItem[] = [
+  { href: '/', label: 'Dashboard' },
+  { href: '/tasks', label: 'Tasks' },
+  { href: '/calendar', label: 'Calendar' },
+];
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();

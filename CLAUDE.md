@@ -30,7 +30,10 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 - **Now (MVP):** everything local. Data in `localStorage`, seeded with 7 reports.
   Share links resolve to a real, read-only branded slide-deck route
   (`/reports/[id]/present`); "PDF export" is the real browser print flow
-  against that same route (no server-side rendering dependency).
+  against that same route (no server-side rendering dependency). Task
+  (List/Kanban) and Calendar (Week/Month) views (Phase 3) derive entirely
+  from the same `Report[]` -- no new storage.
+- **Next:** daily reports + roll-up into the weekly wizard (Phase 4).
 - **Later:** PostgreSQL via Supabase (implement `SupabaseReportsRepository`),
   deploy on Vercel, true cross-machine share links (today's links only
   resolve in a browser whose localStorage already has the report).
@@ -52,6 +55,8 @@ app/
     reports/new/page.tsx              # /reports/new             Weekly wizard (blank)
     reports/[id]/edit/page.tsx        # /reports/:id/edit        Weekly wizard (resume draft)
     reports/[id]/page.tsx             # /reports/:id             Report screen (Phase 2)
+    tasks/page.tsx                    # /tasks                   Task view: List/Kanban (Phase 3)
+    calendar/page.tsx                 # /calendar                Calendar view: Week/Month (Phase 3)
   reports/[id]/present/page.tsx       # /reports/:id/present     Bare slide-deck route (Phase 2, outside (shell))
 ```
 
@@ -65,17 +70,22 @@ inspecting the rendered DOM). If a future route ever needs a genuinely
 different `[id]` param name at the same segment depth, promote `present/`
 into its own `(present)` route group instead of relying on this.
 
-`/tasks`, `/calendar`, `/daily/*` are later phases — don't add nav items or
-routes for them yet.
+`/tasks` (List/Kanban) and `/calendar` (Week/Month) landed in Phase 3 (see
+"Task and Calendar views (Phase 3)" below). `/daily/*` is still a later
+phase — don't add nav items or routes for it yet.
 
 Route-level orchestration (filter/sort/pagination state, dialog hosting,
 `useReports()` calls) lives in `components/dashboard/DashboardPage.tsx` and
 `components/wizard/WizardPage.tsx`; `app/(shell)/**/page.tsx` files are thin
 wrappers around those. `DashboardScreen`/`WizardScreen` stay presentational
 (prop-driven), matching the pre-Phase-1 convention. `app/(shell)/reports/
-[id]/page.tsx` breaks from that split on purpose (see "Report screen &
-presentation deck" below) -- it's small enough (one param, one hook, no
-dialog hosting) that a dedicated orchestrator would be pure ceremony.
+[id]/page.tsx`, `app/(shell)/tasks/page.tsx`, and `app/(shell)/calendar/
+page.tsx` break from that split on purpose (see "Report screen &
+presentation deck" and "Task and Calendar views" below) -- each is small
+enough (one hook, no filter/pagination state, no dialog hosting) that a
+dedicated orchestrator would be pure ceremony; `TaskViewScreen`/
+`CalendarScreen` own their own small List/Kanban and Week/Month toggle
+state directly, the same way `ReportScreen` owns its Share-dialog state.
 
 - `DashboardPage` owns filter/sort/search/pagination state locally — it
   resets on navigation away and back (acceptable; not persisted). "View"
@@ -141,6 +151,80 @@ dialog hosting) that a dedicated orchestrator would be pure ceremony.
   stat font) falls back to Didot/Bodoni/serif. Acceptable for MVP; a
   licensed Regonia woff2 via `next/font/local` is a one-file add later.
 
+## Task and Calendar views (Phase 3)
+
+Both views are pure derivations over `Report[]` -- **no new storage**. The
+selectors live in `lib/view-utils.ts` (`allTasks`, `groupTasksByStatus`,
+`reportsOverlappingRange`) and `lib/calendar.ts` (date math), written so
+they extend cleanly once daily reports (Phase 4, not built here) exist:
+`TaskEntry` already carries the *parent report*, and
+`reportsOverlappingRange` takes a plain `[startISO, endISO]` range rather
+than assuming "week".
+
+- **`components/tasks/TaskViewScreen.tsx`** (`/tasks`) owns a `mode: 'list'
+  | 'kanban'` toggle (a `components/ui/Tabs.tsx`, styled as a square-
+  cornered segmented control) and derives `entries`/`grouped` via
+  `lib/view-utils.ts`. **List** (`TaskList.tsx`) groups every report's
+  tasks by status, in the order Blocked → In Progress → Complete, each row
+  linking to `/reports/[id]`. **Kanban** (`KanbanBoard.tsx` +
+  `KanbanColumn.tsx` + `TaskCard.tsx`) is one `@dnd-kit/core` `DndContext`:
+  three `useDroppable` columns keyed by `TaskStatus`, `useDraggable` cards
+  keyed by the composite `${reportId}::${taskId}` id (a task's status lives
+  on its *parent report*, see `taskCardId.ts`), and a `DragOverlay` for the
+  floating card (avoids clip/z-index fights with the shell's scroll
+  containers). Dropping a card on a different column calls the new pure
+  `withTaskStatus(report, taskId, status)` helper (`lib/report-utils.ts`)
+  and feeds the result into `useReports().updateReportFields` (existing
+  optimistic update + fresh `updatedAt` + persist) -- no new mutation path.
+  Columns derive their own order (report `weekEnd` desc, then task
+  `deadline` asc); no intra-column order is persisted.
+- **Click vs. drag**: `PointerSensor` uses `activationConstraint: {distance:
+  8}`, so a plain click never moves the pointer 8px and dnd-kit never
+  starts a drag -- the card's own `onClick` (navigate to `/reports/[id]`)
+  fires normally; a real drag's trailing click is swallowed by dnd-kit
+  itself (a one-shot document `click` listener that stops propagation after
+  a drop), so `onClick` never double-fires post-drop. `KeyboardSensor` (its
+  default codes: Space/Enter to pick up and drop, arrow keys to move
+  between droppables, Escape to cancel) gives the same interaction without
+  a pointer -- note this means a focused card's Enter key starts a
+  *drag*, not navigation, by dnd-kit's own default keyboard codes.
+- **`components/calendar/CalendarScreen.tsx`** (`/calendar`) owns a
+  `mode: 'week' | 'month'` toggle (same `Tabs`) plus two independent
+  anchors: `weekStart` (always Monday-anchored, `startOfWeekISO`) and
+  `monthStart` (always 1st-of-month-anchored, `firstOfMonthISO`), so
+  switching tabs never loses your place in the other view. Prev/Next/Today
+  operate on whichever anchor is active.
+  - **`WeekGrid.tsx`**: a single Mon–Sun 7-column row. Every report
+    overlapping the displayed week renders as a bar spanning
+    `weekStart→weekEnd`, clipped to the week via ISO `localeCompare`
+    (`reportsOverlappingRange`'s convention); each overlapping report gets
+    its own row (no lane cap -- a single week has plenty of vertical room).
+  - **`MonthGrid.tsx`**: Monday-start, 6-row (42-cell) grid
+    (`monthGridDays`), so a Mon–Fri seed week always sits inside a single
+    row by construction. Days outside the displayed month render dimmed.
+    Each row does real interval-lane packing (`packLanes`): non-overlapping
+    report bars share a lane; genuinely overlapping ones stack into new
+    lanes. Bars beyond `MAX_VISIBLE_LANES` (2) collapse into a "+N more"
+    `components/ui/Popover.tsx` trigger listing the rest -- keeps every
+    row a uniform height regardless of report count. (The seed data has no
+    naturally overlapping weeks, so this was verified by temporarily
+    injecting two overlapping-week draft reports into `localStorage` at
+    runtime, confirming the popover appears and lists them, then removing
+    them again -- `lib/seed.ts` itself was not touched.)
+- **`lib/calendar.ts`** date math uses `Date.UTC(y, m-1, d)` +
+  `getUTCDay()`/`getUTCFullYear()`/`getUTCMonth()`/`getUTCDate()` **only** --
+  never a local-time `new Date(isoString)` -- so the grid never shifts a day
+  depending on the browser's timezone, matching the rest of the codebase's
+  "dates are ISO strings, compare with `localeCompare`" rule. "Today" is
+  sourced from the existing `nowDate()` (`lib/format.ts`), read once via
+  `useState(() => nowDate())` (safe -- both new pages already render
+  nothing until `reports !== null`, so this is never the first paint).
+- **`@dnd-kit/core@^6.3` + `@dnd-kit/utilities`** (no `@dnd-kit/sortable`,
+  no the 0.x `@dnd-kit/react`) installed with **zero peer-dependency
+  issues against React 19 / Next 15** -- `npm install` needed no
+  `--legacy-peer-deps` flag and no `overrides` entry, same clean result as
+  Radix in Phase 1.
+
 ## Dark mode
 
 `data-theme="dark"` on `<html>` + semantic-token overrides — **not** a
@@ -186,11 +270,12 @@ prop on every component that only used it for that branching).
 
 ## Radix primitives
 
-`components/ui/Dialog.tsx`, `Select.tsx`, and `Switch.tsx` are rebuilt on the
-unified `radix-ui` package (`import { Dialog, Select, Switch, Tooltip,
-VisuallyHidden } from 'radix-ui'`) — headless behavior, 100% styled by our
-own CSS Modules (`className={styles.x}` on each Radix part). No peer-dep
-issues were hit installing it against React 19 / Next 15.
+`components/ui/Dialog.tsx`, `Select.tsx`, `Switch.tsx`, `Tabs.tsx`, and
+`Popover.tsx` are rebuilt on the unified `radix-ui` package (`import {
+Dialog, Select, Switch, Tabs, Popover, Tooltip, VisuallyHidden } from
+'radix-ui'`) — headless behavior, 100% styled by our own CSS Modules
+(`className={styles.x}` on each Radix part). No peer-dep issues were hit
+installing it against React 19 / Next 15.
 
 - **`Dialog`** keeps its exact `{open, onClose, title, width, children}`
   API — zero call-site churn. Radix's own layered dismiss stack replaces the
@@ -211,6 +296,15 @@ issues were hit installing it against React 19 / Next 15.
   `${window.location.origin}/reports/${id}/present` — SSR-guarded (`window`
   doesn't exist server-side; falls back to a relative path, fine since it's
   only ever rendered/copied client-side).
+- **`Tabs`** (Phase 3): a compound `{value, onChange, items: {value, label,
+  content}[]}` API (`onChange` follows the same `onValueChange`-as-`value`
+  convention as `Select`/`Switch`). Radix leaves an inactive tab's `content`
+  genuinely unmounted (not just hidden) unless `forceMount` is passed --
+  verified in `@radix-ui/react-tabs`'s source (`children: present &&
+  children`) -- which is what keeps the Kanban board's `DndContext` from
+  ever mounting while the List tab is selected.
+- **`Popover`** (Phase 3): a `{trigger, children, align?}` wrapper, used by
+  the Calendar month grid's "+N more" day-overflow disclosure.
 
 ## Migrations discipline
 
@@ -229,10 +323,10 @@ before there's a repository implementation to keep in sync.
   `styles/theme.css` / `theme-dark.css` — semantic-token light/dark values (see
   "Dark mode").
 - `lib/` — `types`, `constants`, `format`, `report-utils`, `csv`, `seed` (the 7
-  seed reports), `data/` (repository interface + localStorage impl + factory),
-  `hooks/useReports`.
+  seed reports), `view-utils`/`calendar` (Phase 3 derivation selectors),
+  `data/` (repository interface + localStorage impl + factory), `hooks/useReports`.
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
-  Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination).
+  Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover).
 - `components/theme/` — `ThemeProvider`/`useTheme`.
 - `components/app/` — `AppShell`, `Sidebar`.
 - `components/dashboard|wizard|dialogs/` — screens + route-level orchestration
@@ -241,6 +335,11 @@ before there's a repository implementation to keep in sync.
   see "Report screen & presentation deck").
 - `components/report/` — `ReportScreen`, `ReportDeck`, `PresentScreen`
   (Phase 2; see "Report screen & presentation deck").
+- `components/tasks/` — `TaskViewScreen`, `TaskList`, `KanbanBoard`,
+  `KanbanColumn`, `TaskCard`, `taskCardId` (Phase 3; see "Task and Calendar
+  views").
+- `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
+  (Phase 3; see "Task and Calendar views").
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.
 - `supabase/migrations/` — versioned SQL schema (see "Migrations discipline").

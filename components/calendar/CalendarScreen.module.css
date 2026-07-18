@@ -1,0 +1,52 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 48px;
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.wordmark {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--text-heading);
+}
+
+.content {
+  padding: 36px 48px 72px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.rangeLabel {
+  font-family: var(--font-heading);
+  font-weight: 300;
+  font-size: 22px;
+  color: var(--text-heading);
+}
+
+.nav {
+  display: flex;
+  gap: 10px;
+}
+
+.tabsRow {
+  margin-bottom: 4px;
+}
+
+.panel {
+  margin-top: 24px;
+}

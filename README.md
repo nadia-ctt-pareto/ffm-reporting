@@ -11,6 +11,8 @@ Internal weekly-reporting tool for a boutique marketing agency. Project managers
   - Import carry-forward panels on steps 2, 4, and 5 (re-use pending items from prior reports).
 - **Report screen** (`/reports/[id]`): the full report, with inline auto-save of status/prepared-for/week dates, read-only stats/tasks/risks/priorities, a PDF-preview filmstrip, and actions to copy the share link, download a PDF, or open the full presentation.
 - **Branded HTML slide-deck presentation** (`/reports/[id]/present`): a bare, read-only, 6-slide deck (Cover, Summary & Touchpoints, Task Status, Risks & Blockers, Priorities, The Win) — no sidebar, just the deck + a screen-only export toolbar. The exact same `ReportDeck` component powers both this route and the report screen's preview, so what you preview is what you export.
+- **Task view** (`/tasks`): every task across every report, in **List** mode (grouped by status: Blocked → In Progress → Complete, each row linking to its report) or **Kanban** mode (three drag-and-drop columns, powered by `@dnd-kit/core`; dragging a card to another column updates that task's status on its parent report and persists). A plain click on a Kanban card navigates to its report; dragging changes its status; keyboard drag (Space/arrows/Space) works too.
+- **Calendar view** (`/calendar`): reports placed on a calendar by their `weekStart`/`weekEnd`, in **This Week** (a single Mon–Sun row) or **This Month** (a Monday-start, 6-row grid) mode, with Prev/Next/Today navigation. Weekly reports render as spanning bars; a month row with more reports than fit collapses the rest into a "+N more" popover.
 - **Print-to-PDF**: "Download PDF" opens the presentation route and auto-triggers the browser's print dialog once fonts are ready; fixed 1280×720 slide pages print pixel-faithfully in Chrome/Edge (`@page` custom size + `print-color-adjust: exact` for the full-bleed black cover band and sage "Win" slide).
 - **Dark mode**: a real, uniform theme (`data-theme` + semantic tokens) with 1:1 parity to light mode; preference persists across reloads. The presentation deck itself always renders brand-light, regardless of the app's theme — it's the printed/shared artifact.
 - **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 sample reports). Share links only resolve in a browser whose local storage already has that report — true cross-machine sharing arrives with the Supabase cutover.
@@ -47,6 +49,8 @@ app/
     reports/new/page.tsx           # /reports/new              Blank weekly wizard
     reports/[id]/edit/page.tsx     # /reports/:id/edit         Resume a draft
     reports/[id]/page.tsx          # /reports/:id              Report screen
+    tasks/page.tsx                 # /tasks                    Task view (List/Kanban)
+    calendar/page.tsx              # /calendar                 Calendar view (Week/Month)
   reports/[id]/present/page.tsx    # /reports/:id/present      Bare slide-deck route (no sidebar)
 
 components/
@@ -55,12 +59,15 @@ components/
   dashboard/    DashboardPage.tsx (orchestration), DashboardScreen.tsx (presentational)
   wizard/       WizardPage.tsx, WizardScreen.tsx, WizardStepper.tsx, ImportPanel.tsx, steps/, useWizard.ts
   report/       ReportScreen.tsx, ReportDeck.tsx, PresentScreen.tsx
+  tasks/        TaskViewScreen.tsx, TaskList.tsx, KanbanBoard.tsx, KanbanColumn.tsx, TaskCard.tsx
+  calendar/     CalendarScreen.tsx, WeekGrid.tsx, MonthGrid.tsx
   dialogs/      ShareDialog.tsx
   ui/           Button, StatCard, Table, Select, Input, Textarea, Checkbox,
-                Switch, Badge, Dialog, Pagination   # design-system primitives (Radix-backed where interactive)
+                Switch, Badge, Dialog, Pagination, Tabs, Popover   # design-system primitives (Radix-backed where interactive)
 
 lib/
   types.ts, constants.ts, format.ts, report-utils.ts, csv.ts, seed.ts
+  view-utils.ts, calendar.ts   # Phase 3 derivation selectors (pure, no new storage)
   data/         reports-repository.ts (interface), local-storage-reports-repository.ts, index.ts (factory)
   hooks/        useReports.ts
 
@@ -92,8 +99,9 @@ Data access is decoupled via the `ReportsRepository` interface (`lib/data/report
 
 - **No Tailwind.** Brand CSS custom properties (`styles/tokens/*.css` + `styles/theme.css` / `styles/theme-dark.css`) + CSS Modules. Components read semantic tokens (`var(--surface-card)`, `var(--text-heading)`, …); there is no `darkMode ? {...} : {...}` inline branching.
 - **Dark mode** = `data-theme="dark"` on `<html>` + token overrides, managed by `ThemeProvider` and applied pre-hydration to avoid a flash. The presentation deck (`ReportDeck`) is the one exception by design: it always renders brand-light, regardless of the app's theme, because it's the printed/shared artifact — its wrapper locally re-declares the semantic tokens it reads back to their light values.
-- **Radix primitives** (`radix-ui`) power `Dialog`, `Select`, `Switch`, and the sidebar tooltip — headless, fully styled by our own CSS. Note: `Select`'s `onChange` receives the value directly (`onChange(value)`), and `Switch`'s receives the next `checked` boolean.
+- **Radix primitives** (`radix-ui`) power `Dialog`, `Select`, `Switch`, `Tabs`, `Popover`, and the sidebar tooltip — headless, fully styled by our own CSS. Note: `Select`'s `onChange` receives the value directly (`onChange(value)`), and `Switch`'s receives the next `checked` boolean.
 - Square corners everywhere; only the wizard stepper circles use `--radius-pill`.
+- **Drag and drop** (Task view's Kanban board) uses `@dnd-kit/core` + `@dnd-kit/utilities` — installed with zero peer-dependency issues against React 19/Next 15 (no `--legacy-peer-deps`, no `overrides`).
 
 ### Presentation deck & print-to-PDF
 
@@ -110,8 +118,8 @@ Data access is decoupled via the `ReportsRepository` interface (`lib/data/report
 
 ## Roadmap
 
-**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination, full report screen, branded HTML slide-deck presentation, print-to-PDF, share links.
-**Next phases**: Task view (List/Kanban) + Calendar view (3); daily reports + roll-up into the weekly wizard (4).
+**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination, full report screen, branded HTML slide-deck presentation, print-to-PDF, share links, Task view (List/Kanban) + Calendar view (Week/Month).
+**Next phase**: daily reports + roll-up into the weekly wizard (4).
 **Later**: implement `SupabaseReportsRepository` against the versioned migrations, deploy on Vercel, true cross-machine share links.
 
 Post-MVP usability/design backlog: `design-source/NEXT_STEPS.md`. Design rationale and conventions: `CLAUDE.md`.

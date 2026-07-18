@@ -1,0 +1,14 @@
+.content {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  padding: 14px;
+  min-width: 220px;
+  max-width: 280px;
+  z-index: 1200;
+  outline: none;
+}
+
+.arrow {
+  fill: var(--surface-card);
+}

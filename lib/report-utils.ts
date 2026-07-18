@@ -2,7 +2,7 @@
 // ffOnSchedule/ffOpenBlockers (428-429), tone mappers (441-443),
 // ffBlankDraft (445-448), validateStep (530-536).
 
-import type { BadgeTone, Draft, Report, RiskSeverity, TaskStatus } from './types';
+import type { BadgeTone, Draft, Report, RiskSeverity, Task, TaskStatus } from './types';
 
 /** Line 428 */
 export function onSchedule(report: Pick<Report, 'tasks'>): { onSched: number; total: number } {
@@ -51,6 +51,17 @@ export function blankDraft(): Draft {
     risks: [],
     priorities: [],
   };
+}
+
+/**
+ * Phase 3 (Task view Kanban). Pure helper: returns a new `tasks` array with
+ * the task matching `taskId` moved to `status` (no-op copy if not found).
+ * Callers pass the result straight into `useReports().updateReportFields`
+ * (which stamps a fresh `updatedAt` and persists) -- this function never
+ * touches storage itself.
+ */
+export function withTaskStatus(report: Pick<Report, 'tasks'>, taskId: string, status: TaskStatus): Task[] {
+  return report.tasks.map((t) => (t.id === taskId ? { ...t, status } : t));
 }
 
 /**
