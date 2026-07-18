@@ -10,7 +10,6 @@ import styles from './Step.module.css';
 
 export interface StepPrioritiesProps {
   draft: Draft;
-  darkMode: boolean;
   updatePriority: <F extends keyof Priority>(id: string, field: F, value: Priority[F]) => void;
   removePriority: (id: string) => void;
   addPriority: () => void;
@@ -25,7 +24,6 @@ export interface StepPrioritiesProps {
 /** Ported from design-source lines 234-264. */
 export function StepPriorities({
   draft,
-  darkMode,
   updatePriority,
   removePriority,
   addPriority,
@@ -49,7 +47,6 @@ export function StepPriorities({
         candidates={importPriorityCandidates}
         onImport={importSelectedPriorities}
         disabled={importPriorityDisabled}
-        darkMode={darkMode}
       />
 
       <div className={styles.rowsList}>

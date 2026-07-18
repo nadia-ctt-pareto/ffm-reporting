@@ -2,6 +2,8 @@
 @import '../styles/tokens/typography.css';
 @import '../styles/tokens/spacing.css';
 @import '../styles/tokens/effects.css';
+@import '../styles/theme.css';
+@import '../styles/theme-dark.css';
 
 /*
  * next/font family names are hashed, so the token files' default
@@ -47,16 +49,16 @@ a:hover {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #0a0a0a;
+  color: var(--text-heading);
   margin-bottom: 6px;
 }
 
 .ffr-textarea {
   font-family: var(--font-body);
   font-size: 14px;
-  color: #3a3a36;
-  background: #fff;
-  border: 1px solid #e4e4de;
+  color: var(--text-body);
+  background: var(--surface-field);
+  border: 1px solid var(--border-subtle);
   border-radius: 0;
   padding: 10px 12px;
   outline: none;
@@ -67,5 +69,5 @@ a:hover {
 }
 
 .ffr-textarea:focus {
-  border-color: #283625;
+  border-color: var(--ff-green);
 }

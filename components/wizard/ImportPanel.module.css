@@ -1,3 +1,11 @@
+.panel {
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 20px 22px;
+  margin-bottom: 28px;
+  color: var(--text-body);
+}
+
 .kicker {
   font-family: var(--font-heading);
   font-weight: 600;
@@ -5,6 +13,7 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 14px;
+  color: var(--text-heading-accent);
 }
 
 .sourceSelect {
@@ -22,5 +31,5 @@
 .emptyMessage {
   font-family: var(--font-body);
   font-size: 13px;
-  color: var(--ff-gray-1);
+  color: var(--text-muted);
 }

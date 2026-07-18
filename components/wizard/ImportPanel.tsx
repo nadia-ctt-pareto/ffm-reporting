@@ -1,6 +1,5 @@
 'use client';
 
-import type { ChangeEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Select } from '@/components/ui/Select';
@@ -22,15 +21,15 @@ export interface ImportPanelProps {
   candidates: ImportCandidateProps[];
   onImport: () => void;
   disabled: boolean;
-  darkMode: boolean;
 }
 
 /**
  * Generic "import pending items from a prior report" panel, shared by the
  * Task Status / Risks & Blockers / Priorities steps. Ported from
  * design-source lines 142-156 / 203-217 / 238-252 (identical shape, only the
- * kicker/empty-message copy and candidate source differ) and importPanelStyle
- * / kickerStyle (lines 726-727).
+ * kicker/empty-message copy and candidate source differ). The old
+ * importPanelStyle/kickerStyle darkMode branches (lines 726-727) are gone --
+ * the panel is now a plain token-driven class that flips with the theme.
  */
 export function ImportPanel({
   kicker,
@@ -41,25 +40,12 @@ export function ImportPanel({
   candidates,
   onImport,
   disabled,
-  darkMode,
 }: ImportPanelProps) {
-  const panelStyle = darkMode
-    ? { background: '#141414', border: 'none', padding: '20px 22px', marginBottom: '28px', color: '#CFCFC9' }
-    : { background: '#F7F7F5', border: '1px solid #E4E4DE', padding: '20px 22px', marginBottom: '28px', color: '#3A3A36' };
-  const kickerColor = { color: darkMode ? '#9BA394' : '#283625' };
-
   return (
-    <div style={panelStyle}>
-      <div className={styles.kicker} style={kickerColor}>
-        {kicker}
-      </div>
+    <div className={styles.panel}>
+      <div className={styles.kicker}>{kicker}</div>
       <div className={styles.sourceSelect}>
-        <Select
-          label="Source Report"
-          options={sourceOptions}
-          value={sourceId}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => onSourceChange(e.target.value)}
-        />
+        <Select label="Source Report" options={sourceOptions} value={sourceId} onChange={onSourceChange} />
       </div>
       {candidates.length > 0 ? (
         <>

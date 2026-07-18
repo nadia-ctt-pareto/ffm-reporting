@@ -41,46 +41,54 @@
   letter-spacing: 0.08em;
 }
 
-/* Variants */
+/*
+ * Variants. `--text-heading`/`--surface-page` are always each theme's
+ * "ink"/"paper" pair (black-on-white in light, white-on-black in dark), so
+ * pairing them for a solid fill+text combo guarantees contrast in both
+ * themes -- unlike hardcoding `--ff-black`/`--ff-white` literally, which
+ * would render invisible once the page itself turns black in dark mode.
+ */
 .primary {
   background: var(--ff-green);
-  color: var(--ff-white);
+  color: var(--text-on-dark);
   border: 1px solid var(--ff-green);
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--ff-black);
-  border-color: var(--ff-black);
+  background: var(--text-heading);
+  color: var(--surface-page);
+  border-color: var(--text-heading);
 }
 
 .outline {
   background: transparent;
-  color: var(--ff-black);
-  border: 1px solid var(--ff-black);
+  color: var(--text-heading);
+  border: 1px solid var(--text-heading);
 }
 
 .outline:hover:not(:disabled) {
-  background: var(--ff-black);
-  color: var(--ff-white);
+  background: var(--text-heading);
+  color: var(--surface-page);
 }
 
 .ghost {
   background: transparent;
-  color: var(--ff-black);
+  color: var(--text-heading);
   border: 1px solid transparent;
 }
 
 .ghost:hover:not(:disabled) {
-  color: var(--ff-green);
+  color: var(--link);
 }
 
 .dark {
-  background: var(--ff-black);
-  color: var(--ff-white);
-  border: 1px solid var(--ff-black);
+  background: var(--text-heading);
+  color: var(--surface-page);
+  border: 1px solid var(--text-heading);
 }
 
 .dark:hover:not(:disabled) {
   background: var(--ff-green);
   border-color: var(--ff-green);
+  color: var(--text-on-dark);
 }

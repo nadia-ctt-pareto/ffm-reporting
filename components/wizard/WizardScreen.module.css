@@ -1,10 +1,9 @@
-/* Line 73/723: header stays white regardless of dark mode. */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 24px 48px;
-  background: var(--ff-white);
+  background: var(--surface-page);
   border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
   gap: 16px;
@@ -14,7 +13,7 @@
   font-family: var(--font-heading);
   font-weight: 500;
   font-size: 19px;
-  color: var(--ff-black);
+  color: var(--text-heading);
 }
 
 .headerActions {
@@ -33,6 +32,13 @@
   padding: 36px 48px 24px;
   max-width: 880px;
   margin: 0 auto;
+}
+
+/* Line 730 (superseded): the step content used to gain a white panel wrapper
+   only in dark mode. It now renders identically -- structurally -- in both
+   themes; no wrapper box, just page background. */
+.panel {
+  padding: 0;
 }
 
 /* Line 325 */
@@ -68,7 +74,7 @@
 .publishedCopy {
   font-family: var(--font-body);
   font-size: 14px;
-  color: var(--ff-gray-2);
+  color: var(--text-body);
   max-width: 480px;
   margin: 0 auto 32px;
 }

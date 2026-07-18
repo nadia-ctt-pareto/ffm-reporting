@@ -32,14 +32,16 @@
   border: 1px solid var(--ff-sage);
 }
 
+/* Same ink/paper inversion as Button's `.dark` variant -- guarantees
+   contrast against a card row even after the page/card surface goes dark. */
 .dark {
-  background: var(--ff-black);
-  color: var(--ff-white);
-  border: 1px solid var(--ff-black);
+  background: var(--text-heading);
+  color: var(--surface-page);
+  border: 1px solid var(--text-heading);
 }
 
 .neutral {
-  background: var(--ff-off-white);
-  color: var(--ff-gray-2);
+  background: var(--surface-panel-muted);
+  color: var(--text-body);
   border: 1px solid var(--border-subtle);
 }

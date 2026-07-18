@@ -10,15 +10,15 @@
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ff-black);
+  color: var(--text-heading);
   margin-bottom: 6px;
 }
 
 .input {
   font-family: var(--font-body);
   font-size: 14px;
-  color: var(--ff-gray-2);
-  background: var(--ff-white);
+  color: var(--text-body);
+  background: var(--surface-field);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-none);
   padding: 10px 12px;
@@ -33,6 +33,6 @@
 }
 
 .input[readonly] {
-  background: var(--ff-off-white);
-  color: var(--ff-gray-1);
+  background: var(--surface-panel-muted);
+  color: var(--text-muted);
 }

@@ -34,7 +34,7 @@
   margin-top: 14px;
   font-family: var(--font-body);
   font-size: 13px;
-  color: var(--ff-gray-1);
+  color: var(--text-muted);
 }
 
 .rowsList {

@@ -1,0 +1,12 @@
+/*
+ * Light-mode values for semantic tokens that components previously
+ * hardcoded inline (via `darkMode ? {...} : {...}` objects). Landing these
+ * alongside styles/tokens/colors.css (verbatim, do not edit) lets every
+ * consumer read a single semantic token instead of branching in JS; the
+ * dark-mode override lives in theme-dark.css.
+ */
+:root {
+  --surface-field: var(--ff-white);
+  --surface-panel-muted: var(--ff-off-white);
+  --surface-overlay: rgba(10, 10, 10, 0.4);
+}

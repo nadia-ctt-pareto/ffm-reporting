@@ -1,0 +1,14 @@
+.shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+  transition: grid-template-columns var(--speed-med) var(--ease-brand);
+}
+
+.shell.collapsed {
+  grid-template-columns: 76px 1fr;
+}
+
+.main {
+  min-width: 0;
+}

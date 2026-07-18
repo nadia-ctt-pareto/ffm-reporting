@@ -1,10 +1,9 @@
-/* Line 34/723: header stays white regardless of dark mode (intentional). */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 24px 48px;
-  background: var(--ff-white);
+  background: var(--surface-page);
   border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
   gap: 16px;
@@ -24,7 +23,7 @@
   font-family: var(--font-heading);
   font-weight: 500;
   font-size: 19px;
-  color: var(--ff-black);
+  color: var(--text-heading);
   border-left: 1px solid var(--border-subtle);
   padding-left: 16px;
 }
@@ -53,6 +52,17 @@
   margin-bottom: 36px;
 }
 
+/* Line 730 (superseded): the filter bar used to gain a white panel wrapper
+   only in dark mode. It now renders identically -- structurally -- in both
+   themes; only the semantic tokens beneath its children (Select/Input) flip. */
+.filterBar {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
 .rowAction {
   font-family: var(--font-heading);
   font-weight: 600;
@@ -60,20 +70,20 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: transparent;
-  border: 1px solid var(--ff-black);
+  border: 1px solid var(--text-heading);
   padding: 7px 16px;
   cursor: pointer;
-  color: var(--ff-black);
+  color: var(--text-heading);
 }
 
 .rowAction:hover {
-  background: var(--ff-black);
-  color: var(--ff-white);
+  background: var(--text-heading);
+  color: var(--surface-page);
 }
 
 .emptyState {
   padding: 64px 0;
   text-align: center;
-  color: var(--ff-gray-1);
+  color: var(--text-muted);
   font-size: 14px;
 }

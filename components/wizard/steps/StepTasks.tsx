@@ -12,7 +12,6 @@ import styles from './Step.module.css';
 
 export interface StepTasksProps {
   draft: Draft;
-  darkMode: boolean;
   updateTask: <F extends keyof Task>(id: string, field: F, value: Task[F]) => void;
   removeTask: (id: string) => void;
   addTask: () => void;
@@ -27,7 +26,6 @@ export interface StepTasksProps {
 /** Ported from design-source lines 138-171. */
 export function StepTasks({
   draft,
-  darkMode,
   updateTask,
   removeTask,
   addTask,
@@ -51,7 +49,6 @@ export function StepTasks({
         candidates={importTaskCandidates}
         onImport={importSelectedTasks}
         disabled={importTaskDisabled}
-        darkMode={darkMode}
       />
 
       <div className={styles.rowsList}>
@@ -71,7 +68,7 @@ export function StepTasks({
               label="Status"
               options={[...TASK_STATUS_OPTIONS]}
               value={t.status}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => updateTask(t.id, 'status', e.target.value as Task['status'])}
+              onChange={(value) => updateTask(t.id, 'status', value as Task['status'])}
             />
             <Input
               type="date"

@@ -1,8 +1,6 @@
 'use client';
 
-import type { CSSProperties } from 'react';
 import { Button } from '@/components/ui/Button';
-import { Switch } from '@/components/ui/Switch';
 import { StepBasics } from '@/components/wizard/steps/StepBasics';
 import { StepPriorities } from '@/components/wizard/steps/StepPriorities';
 import { StepReview } from '@/components/wizard/steps/StepReview';
@@ -18,8 +16,6 @@ import styles from './WizardScreen.module.css';
 export interface WizardScreenProps {
   reports: Report[];
   initialReport: Report | null;
-  darkMode: boolean;
-  onToggleDarkMode: () => void;
   onExit: () => void;
   onSaveDraft: (report: Report) => void;
   onPublish: (report: Report) => void;
@@ -36,8 +32,6 @@ export interface WizardScreenProps {
 export function WizardScreen({
   reports,
   initialReport,
-  darkMode,
-  onToggleDarkMode,
   onExit,
   onSaveDraft,
   onPublish,
@@ -47,12 +41,6 @@ export function WizardScreen({
   const wizard = useWizard(reports, initialReport, { onSaveDraft, onPublish });
   const { draft, step, error, published } = wizard;
 
-  // Line 730: lightPanelStyle wraps the step content in a white panel when
-  // dark mode is on; the header (below) always stays white (line 723).
-  const lightPanelStyle: CSSProperties = darkMode
-    ? { background: '#FFFFFF', padding: '28px', border: '1px solid #2E2E2A' }
-    : { padding: '0' };
-
   const stepPanel = (() => {
     switch (step) {
       case 1:
@@ -61,7 +49,6 @@ export function WizardScreen({
         return (
           <StepTasks
             draft={draft}
-            darkMode={darkMode}
             updateTask={wizard.updateTask}
             removeTask={wizard.removeTask}
             addTask={wizard.addTask}
@@ -81,7 +68,6 @@ export function WizardScreen({
         return (
           <StepRisks
             draft={draft}
-            darkMode={darkMode}
             updateRisk={wizard.updateRisk}
             removeRisk={wizard.removeRisk}
             addRisk={wizard.addRisk}
@@ -97,7 +83,6 @@ export function WizardScreen({
         return (
           <StepPriorities
             draft={draft}
-            darkMode={darkMode}
             updatePriority={wizard.updatePriority}
             removePriority={wizard.removePriority}
             addPriority={wizard.addPriority}
@@ -123,7 +108,6 @@ export function WizardScreen({
       <div className={styles.header}>
         <span className={styles.wordmark}>{draft.id ? 'Editing Draft' : 'New Weekly Report'}</span>
         <div className={styles.headerActions}>
-          <Switch label="Dark Mode" checked={darkMode} onChange={onToggleDarkMode} />
           <div className={styles.headerButtons}>
             <Button variant="ghost" size="sm" onClick={wizard.saveDraft}>
               Save Draft
@@ -139,7 +123,7 @@ export function WizardScreen({
       <WizardStepper step={step} onStepClick={wizard.goToStep} />
 
       <div className={styles.body}>
-        <div style={lightPanelStyle}>
+        <div className={styles.panel}>
           {published ? (
             <div className={styles.publishedWrap}>
               <div className={styles.publishedTitle}>Report Published</div>

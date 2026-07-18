@@ -12,7 +12,6 @@ import styles from './Step.module.css';
 
 export interface StepRisksProps {
   draft: Draft;
-  darkMode: boolean;
   updateRisk: <F extends keyof Risk>(id: string, field: F, value: Risk[F]) => void;
   removeRisk: (id: string) => void;
   addRisk: () => void;
@@ -27,7 +26,6 @@ export interface StepRisksProps {
 /** Ported from design-source lines 199-232. */
 export function StepRisks({
   draft,
-  darkMode,
   updateRisk,
   removeRisk,
   addRisk,
@@ -51,7 +49,6 @@ export function StepRisks({
         candidates={importRiskCandidates}
         onImport={importSelectedRisks}
         disabled={importRiskDisabled}
-        darkMode={darkMode}
       />
 
       <div className={styles.rowsList}>
@@ -66,7 +63,7 @@ export function StepRisks({
               label="Severity"
               options={[...RISK_SEVERITY_OPTIONS]}
               value={rk.severity}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => updateRisk(rk.id, 'severity', e.target.value as Risk['severity'])}
+              onChange={(value) => updateRisk(rk.id, 'severity', value as Risk['severity'])}
             />
             <Input
               label="Description"

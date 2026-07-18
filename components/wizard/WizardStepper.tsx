@@ -15,29 +15,18 @@ export function WizardStepper({ step, onStepClick }: WizardStepperProps) {
 
   STEP_LABELS.forEach((label, i) => {
     const n = i + 1;
+    const reached = stepReached(n);
     elements.push(
       <div key={`step-${n}`} className={styles.item} onClick={() => onStepClick(n)}>
-        <div
-          className={styles.circle}
-          style={{
-            background: stepReached(n) ? '#283625' : '#FFFFFF',
-            color: stepReached(n) ? '#FFFFFF' : '#6B6B66',
-            border: stepReached(n) ? '2px solid #283625' : '2px solid #E4E4DE',
-          }}
-        >
-          {n}
-        </div>
-        <span className={styles.label} style={{ color: step === n ? '#0A0A0A' : '#6B6B66' }}>
-          {label}
-        </span>
+        <div className={`${styles.circle} ${reached ? styles.circleReached : ''}`}>{n}</div>
+        <span className={`${styles.label} ${step === n ? styles.labelActive : ''}`}>{label}</span>
       </div>
     );
     if (n < 6) {
       elements.push(
         <div
           key={`divider-${n}`}
-          className={styles.divider}
-          style={{ background: stepReached(n + 1) ? '#283625' : '#E4E4DE' }}
+          className={`${styles.divider} ${stepReached(n + 1) ? styles.dividerReached : ''}`}
         />
       );
     }

@@ -10,11 +10,6 @@
   box-sizing: border-box;
 }
 
-.dark {
-  background: var(--surface-card-dark);
-  border-color: var(--surface-card-dark);
-}
-
 .label {
   font-family: var(--font-heading);
   font-weight: 600;
@@ -24,17 +19,9 @@
   color: var(--text-heading-accent);
 }
 
-.dark .label {
-  color: #9ba394;
-}
-
 .value {
   font-family: var(--font-heading);
   font-weight: 300;
   font-size: 30px;
   color: var(--text-heading);
-}
-
-.dark .value {
-  color: var(--ff-white);
 }

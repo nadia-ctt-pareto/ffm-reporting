@@ -1,0 +1,21 @@
+/*
+ * Dark-mode overrides, activated via `<html data-theme="dark">` (see
+ * components/theme/ThemeProvider.tsx). Every value here is the exact hex the
+ * old scattered `darkMode ? {...} : {...}` inline-style objects used to
+ * hardcode per-component -- centralized here so dark mode now applies
+ * uniformly (real dark surfaces everywhere, not just a "partial" subset).
+ */
+[data-theme='dark'] {
+  --surface-page: var(--ff-black);
+  --surface-card: var(--surface-card-dark);
+  --surface-field: #141414;
+  --surface-panel-muted: #141414;
+  --border-subtle: #2e2e2a;
+  --border-strong: var(--ff-white);
+  --text-heading: var(--ff-white);
+  --text-heading-accent: #9ba394;
+  --text-body: #cfcfc9;
+  --text-muted: #9ba394;
+  --link: var(--ff-sage);
+  --link-hover: var(--ff-white);
+}

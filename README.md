@@ -1,17 +1,18 @@
 # Weekly Reports Dashboard — Foundation First Marketing
 
-Internal weekly-reporting tool for a boutique marketing agency. Project managers compose a structured weekly client report through a 6-step wizard, then browse and filter published reports on a dashboard. This is a faithful Next.js/React port of a Claude Design prototype (kept in `design-source/`).
+Internal weekly-reporting tool for a boutique marketing agency. Project managers compose a structured weekly client report through a 6-step wizard, then browse and filter published reports on a dashboard. Started as a faithful Next.js/React port of a Claude Design prototype (kept in `design-source/`), now growing into a fuller internal app.
 
 ## Features
 
-- **Dashboard**: overview stats, filter by status/client/search, sort reports, export all tasks as CSV, dark-mode toggle.
-- **6-Step New Report Wizard**: Basics → Task Status → Touchpoints & Win → Risks & Blockers → Priorities → Review & Export.
-  - Per-step validation and auto-save drafts.
+- **Sidebar app shell** with route-per-screen navigation and a collapsible sidebar.
+- **Dashboard**: overview stats; filter by status/client/search; sort; **pagination** (page size 4 / 8 / 12 / All); export all tasks as CSV.
+- **6-Step New Report Wizard** (`/reports/new`, resume at `/reports/[id]/edit`): Basics → Task Status → Touchpoints & Win → Risks & Blockers → Priorities → Review & Export.
+  - Per-step validation; Save Draft / Publish.
   - Import carry-forward panels on steps 2, 4, and 5 (re-use pending items from prior reports).
-  - Publish or save as draft.
-- **Detail Dialog**: inline auto-save of report fields.
-- **Share & Export** (mocked in MVP): UI-only dialogs for share links and PDF export.
-- **Data Persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 sample reports).
+- **Detail dialog**: inline auto-save of report fields (becomes a full report page in a later phase).
+- **Dark mode**: a real, uniform theme (`data-theme` + semantic tokens) with 1:1 parity to light mode; preference persists across reloads.
+- **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 sample reports).
+- **Share & PDF** are mocked (UI-only) in the current phase — real slide-deck presentation, print-to-PDF, and share routes land in Phase 2.
 
 ## Getting Started
 
@@ -20,7 +21,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. On first load, the app seeds `localStorage` with 7 sample reports (key: `ff.weekly-reports.v1`). To reset, clear your browser's local storage for this origin.
+Open [http://localhost:3000](http://localhost:3000). On first load, the app seeds `localStorage` with 7 sample reports (key: `ff.weekly-reports.v1`). To reset, clear your browser's local storage for this origin.
 
 ## Scripts
 
@@ -38,99 +39,73 @@ All three gates (`build`, `lint`, `typecheck`) must pass before review.
 
 ```
 app/
-  layout.tsx                    # Root layout (fonts, globals)
-  page.tsx                      # Entry point → <WeeklyReportsApp/>
+  layout.tsx                    # Root layout: fonts, ThemeProvider, pre-hydration theme script
+  (shell)/
+    layout.tsx                  # AppShell (sidebar + content) wrapping every in-app route
+    page.tsx                    # /                    Dashboard
+    reports/new/page.tsx        # /reports/new         Blank weekly wizard
+    reports/[id]/edit/page.tsx  # /reports/:id/edit    Resume a draft
 
 components/
-  ui/                           # Design-system primitives
-    Button.tsx, StatCard.tsx, Table.tsx, Select.tsx, Input.tsx,
-    Textarea.tsx, Checkbox.tsx, Switch.tsx, Badge.tsx, Dialog.tsx
-  app/
-    WeeklyReportsApp.tsx        # Main app shell
-  dashboard/
-    Dashboard.tsx               # Dashboard screen
-  wizard/
-    NewReportWizard.tsx         # 6-step form wizard
-    Step*.tsx                   # Individual wizard steps
-  dialogs/
-    DetailDialog.tsx            # Inline report editor
-    ShareDialog.tsx             # Mocked share-link dialog
-    ExportDialog.tsx            # Mocked PDF export dialog
+  app/          AppShell.tsx, Sidebar.tsx           # navigation shell
+  theme/        ThemeProvider.tsx                   # data-theme dark-mode source of truth
+  dashboard/    DashboardPage.tsx (orchestration), DashboardScreen.tsx (presentational)
+  wizard/       WizardPage.tsx, WizardScreen.tsx, WizardStepper.tsx, ImportPanel.tsx, steps/, useWizard.ts
+  dialogs/      ReportDetailDialog.tsx, ShareDialog.tsx, PdfDialog.tsx
+  ui/           Button, StatCard, Table, Select, Input, Textarea, Checkbox,
+                Switch, Badge, Dialog, Pagination   # design-system primitives (Radix-backed where interactive)
 
 lib/
-  types.ts                      # Report, Task, Risk, Priority types
-  constants.ts                  # FF_CLIENTS and other constants
-  format.ts                     # Date/time parsing, formatting
-  report-utils.ts               # Business logic (task status rolls up, etc.)
-  csv.ts                        # CSV export
-  seed.ts                       # 7 sample reports (verbatim port of prototype)
-  data/
-    reports-repository.ts       # ReportsRepository interface
-    local-storage-reports-repository.ts  # MVP localStorage impl
-    index.ts                    # getReportsRepository() factory
-  hooks/
-    useReports.ts               # Custom hook for reports CRUD
+  types.ts, constants.ts, format.ts, report-utils.ts, csv.ts, seed.ts
+  data/         reports-repository.ts (interface), local-storage-reports-repository.ts, index.ts (factory)
+  hooks/        useReports.ts
 
 styles/
-  tokens/
-    *.css                       # Brand tokens (colors, typography, spacing)
-  globals.css                   # Global resets, dark mode
+  tokens/*.css                  # Brand tokens (verbatim from design-source)
+  theme.css, theme-dark.css     # Semantic-token light values + [data-theme='dark'] overrides
+  (globals.css lives in app/)
 
-design-source/
-  original-dashboard.dc.html    # Claude Design prototype (reference)
-  tokens/                       # Original design tokens
-  NEXT_STEPS.md                 # Post-MVP backlog
+supabase/
+  migrations/*.sql              # Versioned Postgres schema for the future Supabase cutover
+
+docs/
+  database-schema.md            # Schema + TS↔SQL field mapping + cutover checklist
+  progress-log.md               # Dated build log
+
+design-source/                  # Claude Design prototype + tokens + NEXT_STEPS backlog (reference)
 ```
 
 ## Architecture
 
-### Swappable Repository Pattern
+### Swappable repository pattern
 
-Data access is decoupled via the `ReportsRepository` interface (`lib/data/reports-repository.ts`):
+Data access is decoupled via the `ReportsRepository` interface (`lib/data/reports-repository.ts`). The **MVP** `LocalStorageReportsRepository` stores everything under the versioned key `ff.weekly-reports.v1` and auto-seeds 7 sample reports on first load.
 
-```typescript
-export interface ReportsRepository {
-  getAll(): Promise<Report[]>;
-  getById(id: string): Promise<Report | null>;
-  upsert(report: Report): Promise<Report>;
-  update(id: string, patch: Partial<Report>): Promise<Report | null>;
-}
-```
+**UI code must never import a concrete repository** — everything calls `getReportsRepository()` from `lib/data/index.ts`. That single factory is where a future Supabase/Postgres implementation slots in with **zero UI changes**. The Postgres schema is already versioned under `supabase/migrations/` (see `docs/database-schema.md`) so the cutover is fast, even though no repository reads it yet.
 
-**MVP**: `LocalStorageReportsRepository` stores everything in the browser's `localStorage` under the versioned key `ff.weekly-reports.v1`. On first load (key absent), it auto-seeds with 7 sample reports from `lib/seed.ts`.
+### Styling & theming
 
-**UI code must never import a concrete repository.** Instead, all components call `getReportsRepository()` from `lib/data/index.ts`. This single factory is where future Supabase/Postgres persistence slots in with **zero UI changes**.
-
-### Styling
-
-- No Tailwind. Styling uses CSS custom properties (brand tokens in `styles/tokens/`) + CSS Modules for UI primitives + dynamic inline-style objects (for dark-mode-dependent layouts).
-- Fonts: **Poppins** (headings/UI) and **Open Sans** (body) via `next/font/google`.
+- **No Tailwind.** Brand CSS custom properties (`styles/tokens/*.css` + `styles/theme.css` / `styles/theme-dark.css`) + CSS Modules. Components read semantic tokens (`var(--surface-card)`, `var(--text-heading)`, …); there is no `darkMode ? {...} : {...}` inline branching.
+- **Dark mode** = `data-theme="dark"` on `<html>` + token overrides, managed by `ThemeProvider` and applied pre-hydration to avoid a flash.
+- **Radix primitives** (`radix-ui`) power `Dialog`, `Select`, `Switch`, and the sidebar tooltip — headless, fully styled by our own CSS. Note: `Select`'s `onChange` receives the value directly (`onChange(value)`), and `Switch`'s receives the next `checked` boolean.
 - Square corners everywhere; only the wizard stepper circles use `--radius-pill`.
 
-### Known MVP Quirks (by design)
+### Known quirks (by design)
 
 - "Final" status badge renders neutral (prototype's intended tone).
-- Dark mode is partial.
-- Share links and PDF export are UI-only mocked dialogs (no real generation or hosting yet).
-- `saveDraft` always forces status to "Draft", even if editing a published report.
+- `saveDraft` always forces status to "Draft", even when editing a published report.
+- Share links and PDF export are UI-only mocked dialogs in the current phase (real ones arrive in Phase 2).
 
 ## Roadmap
 
-**Now (MVP)**: Everything local. Data in `localStorage`, seeded with 7 reports. Share/PDF dialogs are mocked (UI only).
+**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination.
+**Next phases**: full report page + branded HTML slide deck + print-to-PDF + share route (2); Task view (List/Kanban) + Calendar view (3); daily reports + roll-up into the weekly wizard (4).
+**Later**: implement `SupabaseReportsRepository` against the versioned migrations, deploy on Vercel.
 
-**Later**: 
-1. Implement `SupabaseReportsRepository` (same interface, real Postgres backend).
-2. Deploy on Vercel.
-3. Build real share routes (`/r/[id]`) and real PDF generation.
-
-Post-MVP usability and design improvements are tracked in `design-source/NEXT_STEPS.md` (out of scope for MVP).
+Post-MVP usability/design backlog: `design-source/NEXT_STEPS.md`. Design rationale and conventions: `CLAUDE.md`.
 
 ## Tech Stack
 
-- **Next.js 15** (App Router) + **React 19** + **TypeScript** (strict mode).
-- **Fonts**: Poppins + Open Sans via `next/font/google`.
-- **No framework CSS** — custom design tokens + CSS Modules + inline styles.
-
----
-
-For design rationale and implementation notes, see `CLAUDE.md`.
+- **Next.js 15** (App Router) + **React 19** + **TypeScript** (strict).
+- **Radix UI** headless primitives; **no** framework CSS (custom tokens + CSS Modules).
+- Fonts: **Poppins** + **Open Sans** via `next/font/google`.

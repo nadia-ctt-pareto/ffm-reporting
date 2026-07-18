@@ -72,7 +72,7 @@ export function ReportDetailDialog({ report, open, onClose, onUpdateFields, onSh
               label="Status"
               options={[...STATUS_EDIT_OPTIONS]}
               value={dSafe.status}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdateFields({ status: e.target.value as ReportStatus })}
+              onChange={(value) => onUpdateFields({ status: value as ReportStatus })}
             />
           </div>
           <div style={{ width: 220 }}>

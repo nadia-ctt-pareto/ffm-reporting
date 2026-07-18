@@ -1,16 +1,16 @@
 'use client';
 
-import type { ChangeEvent, CSSProperties } from 'react';
+import type { ChangeEvent } from 'react';
 import { useMemo } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Pagination } from '@/components/ui/Pagination';
 import { Select } from '@/components/ui/Select';
 import { StatCard } from '@/components/ui/StatCard';
-import { Switch } from '@/components/ui/Switch';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
-import { CLIENT_FILTER_OPTIONS, FF_CLIENTS, SORT_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/constants';
+import { CLIENT_FILTER_OPTIONS, FF_CLIENTS, PAGE_SIZE_OPTIONS, SORT_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/constants';
 import { buildAllTasksCsv, downloadCsv } from '@/lib/csv';
 import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
 import { onSchedule, openBlockers, statusTone } from '@/lib/report-utils';
@@ -19,8 +19,6 @@ import styles from './DashboardScreen.module.css';
 
 export interface DashboardScreenProps {
   reports: Report[];
-  darkMode: boolean;
-  onToggleDarkMode: () => void;
   filterStatus: string;
   onFilterStatusChange: (value: string) => void;
   filterClient: string;
@@ -29,6 +27,11 @@ export interface DashboardScreenProps {
   onSearchChange: (value: string) => void;
   sortBy: SortKey;
   onSortByChange: (value: SortKey) => void;
+  /** One of PAGE_SIZE_OPTIONS ('4' | '8' | '12' | 'All'). */
+  pageSize: string;
+  onPageSizeChange: (value: string) => void;
+  page: number;
+  onPageChange: (page: number) => void;
   onNewReport: () => void;
   onResumeDraft: (id: string) => void;
   onViewReport: (id: string) => void;
@@ -46,8 +49,6 @@ const TABLE_COLUMNS: TableColumn[] = [
 
 export function DashboardScreen({
   reports,
-  darkMode,
-  onToggleDarkMode,
   filterStatus,
   onFilterStatusChange,
   filterClient,
@@ -56,6 +57,10 @@ export function DashboardScreen({
   onSearchChange,
   sortBy,
   onSortByChange,
+  pageSize,
+  onPageSizeChange,
+  page,
+  onPageChange,
   onNewReport,
   onResumeDraft,
   onViewReport,
@@ -77,9 +82,15 @@ export function DashboardScreen({
     });
   }, [reports, filterStatus, filterClient, search, sortBy]);
 
+  // Pagination: slice AFTER filter + sort. 'All' disables paging entirely.
+  const totalPages = pageSize === 'All' ? 1 : Math.max(1, Math.ceil(filtered.length / Number(pageSize)));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const paged =
+    pageSize === 'All' ? filtered : filtered.slice((safePage - 1) * Number(pageSize), safePage * Number(pageSize));
+
   // Lines 661-676: table rows, including the status badge and the
   // Continue(draft)/View(else) action button.
-  const tableRows = filtered.map((r) => {
+  const tableRows = paged.map((r) => {
     const { onSched, total } = onSchedule(r);
     const blockers = openBlockers(r);
     const isDraft = r.status === 'Draft';
@@ -122,27 +133,6 @@ export function DashboardScreen({
     downloadCsv('weekly-reports-tasks.csv', csv);
   };
 
-  // Line 730-731: lightPanelStyle wraps the filter bar in a white panel when
-  // dark mode is on; the header itself always stays white (line 723).
-  const filterBarStyle: CSSProperties = darkMode
-    ? {
-        background: '#FFFFFF',
-        padding: '28px',
-        border: '1px solid #2E2E2A',
-        display: 'flex',
-        gap: '16px',
-        alignItems: 'flex-end',
-        marginBottom: '22px',
-        flexWrap: 'wrap',
-      }
-    : {
-        display: 'flex',
-        gap: '16px',
-        alignItems: 'flex-end',
-        marginBottom: '22px',
-        flexWrap: 'wrap',
-      };
-
   return (
     <div>
       <div className={styles.header}>
@@ -152,7 +142,6 @@ export function DashboardScreen({
           <span className={styles.wordmark}>Weekly Reports</span>
         </div>
         <div className={styles.headerActions}>
-          <Switch label="Dark Mode" checked={darkMode} onChange={onToggleDarkMode} />
           <div className={styles.headerButtons}>
             <Button variant="outline" size="md" onClick={handleExportCsv}>
               Export All Tasks (CSV)
@@ -166,32 +155,18 @@ export function DashboardScreen({
 
       <div className={styles.content}>
         <div className={styles.statsGrid}>
-          <StatCard label="Total Reports" value={String(reports.length)} dark={darkMode} />
-          <StatCard label="Avg. Tasks On Schedule" value={`${avgPct}%`} dark={darkMode} />
-          <StatCard
-            label="Open Blockers (Latest)"
-            value={latest ? String(openBlockers(latest)) : '0'}
-            dark={darkMode}
-          />
-          <StatCard label="Active Clients" value={String(FF_CLIENTS.length)} dark={darkMode} />
+          <StatCard label="Total Reports" value={String(reports.length)} />
+          <StatCard label="Avg. Tasks On Schedule" value={`${avgPct}%`} />
+          <StatCard label="Open Blockers (Latest)" value={latest ? String(openBlockers(latest)) : '0'} />
+          <StatCard label="Active Clients" value={String(FF_CLIENTS.length)} />
         </div>
 
-        <div style={filterBarStyle}>
+        <div className={styles.filterBar}>
           <div style={{ width: 170 }}>
-            <Select
-              label="Status"
-              options={[...STATUS_FILTER_OPTIONS]}
-              value={filterStatus}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => onFilterStatusChange(e.target.value)}
-            />
+            <Select label="Status" options={[...STATUS_FILTER_OPTIONS]} value={filterStatus} onChange={onFilterStatusChange} />
           </div>
           <div style={{ width: 280 }}>
-            <Select
-              label="Client"
-              options={[...CLIENT_FILTER_OPTIONS]}
-              value={filterClient}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => onFilterClientChange(e.target.value)}
-            />
+            <Select label="Client" options={[...CLIENT_FILTER_OPTIONS]} value={filterClient} onChange={onFilterClientChange} />
           </div>
           <div style={{ width: 260 }}>
             <Input
@@ -206,13 +181,22 @@ export function DashboardScreen({
               label="Sort By"
               options={SORT_OPTIONS}
               value={sortBy}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => onSortByChange(e.target.value as SortKey)}
+              onChange={(value) => onSortByChange(value as SortKey)}
             />
+          </div>
+          <div style={{ width: 110 }}>
+            <Select label="Per Page" options={[...PAGE_SIZE_OPTIONS]} value={pageSize} onChange={onPageSizeChange} />
           </div>
         </div>
 
-        <Table columns={TABLE_COLUMNS} rows={tableRows} />
-        {tableRows.length === 0 ? <div className={styles.emptyState}>No reports match these filters.</div> : null}
+        {filtered.length === 0 ? (
+          <div className={styles.emptyState}>No reports match these filters.</div>
+        ) : (
+          <>
+            <Table columns={TABLE_COLUMNS} rows={tableRows} />
+            {pageSize !== 'All' ? <Pagination page={safePage} totalPages={totalPages} onPageChange={onPageChange} /> : null}
+          </>
+        )}
       </div>
     </div>
   );

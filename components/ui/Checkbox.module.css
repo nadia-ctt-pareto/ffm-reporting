@@ -10,9 +10,9 @@
   -webkit-appearance: none;
   width: 16px;
   height: 16px;
-  border: 1px solid var(--ff-black);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-none);
-  background: var(--ff-white);
+  background: var(--surface-field);
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
@@ -39,5 +39,5 @@
 .label {
   font-family: var(--font-body);
   font-size: 13px;
-  color: var(--ff-gray-2);
+  color: var(--text-body);
 }

@@ -32,6 +32,11 @@ export const SORT_OPTIONS: SelectOption[] = [
   { value: 'blockers_desc', label: 'Open Blockers' },
 ];
 
+// Phase 1 (dashboard pagination): page-size choices for the reports table.
+// 'All' disables pagination (renders every filtered row on one page).
+export const PAGE_SIZE_OPTIONS = ['4', '8', '12', 'All'] as const;
+export const DEFAULT_PAGE_SIZE: (typeof PAGE_SIZE_OPTIONS)[number] = '8';
+
 // Line 762: taskStatusOptions
 export const TASK_STATUS_OPTIONS: TaskStatus[] = ['Complete', 'In Progress', 'Blocked'];
 
