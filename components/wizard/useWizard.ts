@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { fmtWeekLabel, nowDate, uid } from '@/lib/format';
-import { blankDraft, validateStep } from '@/lib/report-utils';
-import type { Draft, Priority, Report, Risk, Task } from '@/lib/types';
+import { nowDate, uid } from '@/lib/format';
+import { aggregateDailiesIntoDraft } from '@/lib/aggregate';
+import { blankDailyDraft, blankDraft, dailyDateConflict, reportPeriodEnd, reportPeriodLabel, validateStep } from '@/lib/report-utils';
+import type { AnyReport, DailyReport, Draft, Priority, ReportKind, ReportStatus, Risk, Task } from '@/lib/types';
 
 export interface ImportCandidate {
   id: string;
@@ -26,9 +27,44 @@ function blankImportSel(): ImportSelState {
   return { taskSource: '', taskChecked: {}, riskSource: '', riskChecked: {}, prioritySource: '', priorityChecked: {} };
 }
 
+/** Converts a saved AnyReport into a Draft -- the missing period pair (date for weekly, weekStart/weekEnd for daily) is filled with ''. */
+function reportToDraft(report: AnyReport): Draft {
+  if (report.kind === 'daily') return { ...report, weekStart: '', weekEnd: '' };
+  return { ...report, date: '' };
+}
+
+/** The inverse of reportToDraft: builds the AnyReport to persist from a Draft, an id, and a status. Only the fields relevant to `draft.kind` are carried into the result. */
+function draftToReport(draft: Draft, id: string, status: ReportStatus, now: string): AnyReport {
+  const core = {
+    id,
+    status,
+    preparedFor: draft.preparedFor,
+    preparedBy: draft.preparedBy,
+    createdAt: draft.createdAt || now,
+    updatedAt: now,
+    summaryNarrative: draft.summaryNarrative,
+    tasks: draft.tasks,
+    risks: draft.risks,
+    win: draft.win,
+    touchpoints: draft.touchpoints,
+    priorities: draft.priorities,
+  };
+  return draft.kind === 'daily'
+    ? { ...core, kind: 'daily', date: draft.date }
+    : { ...core, kind: 'weekly', weekStart: draft.weekStart, weekEnd: draft.weekEnd };
+}
+
 export interface UseWizardOptions {
-  onSaveDraft: (report: Report) => void;
-  onPublish: (report: Report) => void;
+  /** Which kind of report this wizard mount is drafting -- decides the blank-draft shape and which fields draftToReport emits. */
+  kind: ReportKind;
+  onSaveDraft: (report: AnyReport) => void;
+  onPublish: (report: AnyReport) => void;
+  /**
+   * ALL daily reports (used only by the weekly wizard's "Import This Week's
+   * Daily Reports" action -- see weekDailyCount/importWeekDailies below).
+   * Omit/pass `[]` for the daily wizard itself.
+   */
+  dailies?: DailyReport[];
 }
 
 export interface UseWizardResult {
@@ -79,6 +115,21 @@ export interface UseWizardResult {
   importPriorityCandidates: ImportCandidate[];
   importPriorityDisabled: boolean;
   importSelectedPriorities: () => void;
+
+  /** Weekly wizard only: how many daily reports fall inside the draft's current [weekStart, weekEnd]. Always 0 for a daily draft. */
+  weekDailyCount: number;
+  /** Weekly wizard only: whether the CURRENT [weekStart, weekEnd] has already been imported this wizard session -- see importWeekDailies. */
+  weekDailiesImported: boolean;
+  /**
+   * Weekly wizard only: aggregates this week's daily reports into the
+   * draft (see lib/aggregate.ts). No-op if weekDailyCount is 0 OR
+   * weekDailiesImported is already true -- tasks/risks/priorities/win are
+   * naturally idempotent on re-import, but touchpoints (summed) and the
+   * touchpoints narrative (joined) are NOT, so import is a one-shot action
+   * per distinct [weekStart, weekEnd] pair for the life of this wizard
+   * mount. Changing the week to one not yet imported re-enables it.
+   */
+  importWeekDailies: () => void;
 }
 
 type DraftListKey = 'tasks' | 'risks' | 'priorities';
@@ -90,13 +141,35 @@ type DraftListKey = 'tasks' | 'risks' | 'priorities';
  * wizardError/wizardPublished/importSel slice of state and the methods that
  * operate on it (lines 521-604), plus the derived import-candidate values
  * from renderVals() (lines 688-699).
+ *
+ * Phase 4: generalized to AnyReport via `options.kind` (decides the blank
+ * draft and which fields draftToReport emits) -- `reports` is always the
+ * SAME-KIND prior-reports list (weeklies for the weekly wizard, dailies for
+ * the daily wizard), which is what keeps the carry-forward Import panels
+ * (steps 2/4/5) working unchanged for both kinds. `options.dailies` is a
+ * separate, always-ALL-dailies list used only by the weekly wizard's
+ * "Import This Week's Daily Reports" action.
  */
-export function useWizard(reports: Report[], initialReport: Report | null, options: UseWizardOptions): UseWizardResult {
-  const [draft, setDraft] = useState<Draft>(() => initialReport ?? blankDraft());
+export function useWizard(reports: AnyReport[], initialReport: AnyReport | null, options: UseWizardOptions): UseWizardResult {
+  const [draft, setDraft] = useState<Draft>(() => {
+    if (initialReport) return reportToDraft(initialReport);
+    return options.kind === 'daily' ? blankDailyDraft() : blankDraft();
+  });
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [published, setPublished] = useState(false);
   const [importSel, setImportSel] = useState<ImportSelState>(blankImportSel);
+  // Phase 4: which `weekStart|weekEnd` keys have already been imported this
+  // wizard session (see importWeekDailies below) -- a Set, not a single
+  // flag, so importing week A, then week B, then navigating step 1 back to
+  // week A stays correctly disabled (re-importing A a second time would
+  // double its touchpoints again).
+  const [importedWeekKeys, setImportedWeekKeys] = useState<Set<string>>(() => new Set());
+
+  // Same-kind sibling reports, narrowed to DailyReport[] -- non-empty only
+  // for the daily wizard (where `reports` IS the dailies list); used for
+  // the one-daily-per-day uniqueness check (dailyDateConflict/validateStep).
+  const dailySiblings = reports.filter((r): r is DailyReport => r.kind === 'daily');
 
   // ---- generic draft list ops (lines 558-560) ----
   function addDraftItem<L extends DraftListKey>(list: L, factory: () => Draft[L][number]) {
@@ -167,7 +240,7 @@ export function useWizard(reports: Report[], initialReport: Report | null, optio
     }
   }
   function next() {
-    const err = validateStep(step, draft);
+    const err = validateStep(step, draft, dailySiblings);
     if (err) {
       setError(err);
       return;
@@ -182,15 +255,17 @@ export function useWizard(reports: Report[], initialReport: Report | null, optio
 
   // ---- draft persistence (lines 542-553) ----
   function saveDraft() {
-    const id = draft.id || uid('r');
+    // Save Draft otherwise bypasses per-step validation entirely (a
+    // faithful-port quirk, see CLAUDE.md) -- but the one-daily-per-day
+    // invariant is a hard data-integrity rule, not a step-gate, so it's
+    // checked here too, not just on `next()`/`publish()`.
+    if (dailyDateConflict(draft, dailySiblings)) {
+      setError('A daily report for this date already exists.');
+      return;
+    }
+    const id = draft.id || uid(draft.kind === 'daily' ? 'd' : 'r');
     const now = nowDate();
-    const report = {
-      ...draft,
-      id,
-      status: 'Draft',
-      updatedAt: now,
-      createdAt: draft.createdAt || now,
-    } as Report;
+    const report = draftToReport(draft, id, 'Draft', now);
     options.onSaveDraft(report);
   }
 
@@ -202,7 +277,7 @@ export function useWizard(reports: Report[], initialReport: Report | null, optio
    * error is falsy), and jump to whichever step produced the first error.
    */
   function publish() {
-    const err1 = validateStep(1, draft);
+    const err1 = validateStep(1, draft, dailySiblings);
     const err2 = err1 ? '' : validateStep(2, draft);
     const err5 = err1 || err2 ? '' : validateStep(5, draft);
     const err = err1 || err2 || err5;
@@ -211,25 +286,19 @@ export function useWizard(reports: Report[], initialReport: Report | null, optio
       setStep(err1 ? 1 : err2 ? 2 : 5);
       return;
     }
-    const id = draft.id || uid('r');
+    const id = draft.id || uid(draft.kind === 'daily' ? 'd' : 'r');
     const now = nowDate();
-    const report = {
-      ...draft,
-      id,
-      status: 'Final',
-      updatedAt: now,
-      createdAt: draft.createdAt || now,
-    } as Report;
+    const report = draftToReport(draft, id, 'Final', now);
     setDraft((d) => ({ ...d, id }));
     setPublished(true);
     options.onPublish(report);
   }
 
   // ---- import machinery (lines 576-604, derived candidates 688-699) ----
-  const priorReports = [...reports].filter((r) => r.id !== draft.id).sort((a, b) => b.weekEnd.localeCompare(a.weekEnd));
+  const priorReports = [...reports].filter((r) => r.id !== draft.id).sort((a, b) => reportPeriodEnd(b).localeCompare(reportPeriodEnd(a)));
   const priorReportOptions = priorReports.map((r) => ({
     value: r.id,
-    label: fmtWeekLabel(r.weekStart, r.weekEnd) + ' — ' + r.status,
+    label: reportPeriodLabel(r) + ' — ' + r.status,
   }));
   const defaultSourceId = priorReports[0]?.id ?? '';
 
@@ -323,6 +392,29 @@ export function useWizard(reports: Report[], initialReport: Report | null, optio
     setImportSel((s) => ({ ...s, priorityChecked: {} }));
   }
 
+  // ---- Phase 4: weekly wizard's "Import This Week's Daily Reports" ----
+  // Recomputed live off the draft's current weekStart/weekEnd, so editing
+  // the week dates on step 1 updates the found-count before importing.
+  const allDailies = options.dailies ?? [];
+  const hasWeek = draft.kind === 'weekly' && Boolean(draft.weekStart) && Boolean(draft.weekEnd);
+  const weekKey = hasWeek ? `${draft.weekStart}|${draft.weekEnd}` : null;
+  const weekDailies = hasWeek
+    ? allDailies.filter((d) => d.date.localeCompare(draft.weekStart) >= 0 && d.date.localeCompare(draft.weekEnd) <= 0)
+    : [];
+  const weekDailyCount = weekDailies.length;
+  // Import is one-shot per distinct week for this wizard mount -- tasks/
+  // risks/priorities/win are naturally idempotent on re-import, but
+  // touchpoints (summed) and its narrative (joined) are NOT, so a second
+  // click on the same week must be a no-op, not a second sum. See the
+  // UseWizardResult doc comment.
+  const weekDailiesImported = weekKey !== null && importedWeekKeys.has(weekKey);
+
+  function importWeekDailies() {
+    if (weekDailies.length === 0 || weekKey === null || weekDailiesImported) return;
+    setDraft((d) => aggregateDailiesIntoDraft(weekDailies, d));
+    setImportedWeekKeys((prev) => new Set(prev).add(weekKey));
+  }
+
   return {
     draft,
     step,
@@ -371,5 +463,9 @@ export function useWizard(reports: Report[], initialReport: Report | null, optio
     importPriorityCandidates,
     importPriorityDisabled: !importPriorityCandidates.some((c) => c.checked),
     importSelectedPriorities,
+
+    weekDailyCount,
+    weekDailiesImported,
+    importWeekDailies,
   };
 }

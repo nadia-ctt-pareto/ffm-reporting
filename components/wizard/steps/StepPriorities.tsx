@@ -21,7 +21,13 @@ export interface StepPrioritiesProps {
   importSelectedPriorities: () => void;
 }
 
-/** Ported from design-source lines 234-264. */
+/**
+ * Ported from design-source lines 234-264. Phase 4: the title is
+ * kind-aware ("next week" only makes sense for a weekly draft) --
+ * `ReportScreen`/`ReportDeck` already made the same "Priorities" vs. "Next
+ * Week's Priorities" call for the read-only display; this is the wizard's
+ * side of that.
+ */
 export function StepPriorities({
   draft,
   updatePriority,
@@ -36,7 +42,7 @@ export function StepPriorities({
 }: StepPrioritiesProps) {
   return (
     <div>
-      <div className={styles.title}>{"Next Week's Priorities"}</div>
+      <div className={styles.title}>{draft.kind === 'daily' ? 'Priorities' : "Next Week's Priorities"}</div>
 
       <ImportPanel
         kicker="Import Unfinished Priorities From a Prior Report"

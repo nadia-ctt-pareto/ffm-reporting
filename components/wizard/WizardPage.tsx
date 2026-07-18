@@ -4,28 +4,40 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { WizardScreen } from '@/components/wizard/WizardScreen';
+import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useReports } from '@/lib/hooks/useReports';
-import type { Report } from '@/lib/types';
+import type { AnyReport, ReportKind } from '@/lib/types';
 
 export interface WizardPageProps {
-  /** Absent for a brand-new blank draft (/reports/new); a report id to resume (/reports/:id/edit). */
+  /** Absent for a brand-new blank draft (/reports/new, /daily/new); a report id to resume (/reports/:id/edit, /daily/:id/edit). */
   reportId?: string;
+  /** Phase 4: which wizard this route mount is -- defaults to 'weekly' so every pre-Phase-4 call site (`/reports/new`, `/reports/:id/edit`) keeps working unchanged. */
+  kind?: ReportKind;
 }
 
 /**
- * Route-level orchestration for `/reports/new` and `/reports/[id]/edit`.
- * Loads reports itself (per-route, per the plan), resolves the initial
- * draft, and hosts the Share dialog used by the wizard's
+ * Route-level orchestration for `/reports/new`, `/reports/[id]/edit`,
+ * `/daily/new`, and `/daily/[id]/edit` (Phase 4 added the latter two via
+ * the `kind` prop). Loads reports itself (per-route, per the plan), resolves
+ * the initial draft, and hosts the Share dialog used by the wizard's
  * publish-confirmation screen ("Copy Share Link"). "Download PDF" on that
  * screen is the real print flow now -- it opens `/reports/[id]/present
- * ?print=1` in a new tab (see ReportDeck/PresentScreen, Phase 2) rather
- * than a mocked dialog. An unknown `reportId` redirects to `/` instead of
+ * ?print=1` (or `/daily/[id]/present?print=1`) in a new tab (see
+ * ReportDeck/PresentScreen, Phase 2) rather than a mocked dialog. An unknown
+ * `reportId` redirects to `/` (weekly) or `/daily` (daily) instead of
  * falling through to a blank wizard (parity with the prototype's
  * resumeDraft no-op-on-missing-id behavior).
+ *
+ * Both `useReports()` and `useDailyReports()` are always called (rules of
+ * hooks): the weekly wizard needs the full dailies list anyway, for its
+ * "Import This Week's Daily Reports" panel; the daily wizard only reads its
+ * own dailies list twice over (as `reports` for carry-forward AND as the
+ * one-daily-per-day uniqueness source), which is harmless.
  */
-export function WizardPage({ reportId }: WizardPageProps) {
+export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
   const router = useRouter();
-  const { reports, upsertReport } = useReports();
+  const { reports: weeklyReports, upsertReport: upsertWeekly } = useReports();
+  const { reports: dailyReports, upsertReport: upsertDaily } = useDailyReports();
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareReportId, setShareReportId] = useState<string | null>(null);
@@ -39,25 +51,32 @@ export function WizardPage({ reportId }: WizardPageProps) {
     []
   );
 
-  const found = reportId && reports ? (reports.find((r) => r.id === reportId) ?? null) : null;
-  const notFound = Boolean(reportId) && reports !== null && found === null;
+  const sameKindReports: AnyReport[] | null = kind === 'daily' ? dailyReports : weeklyReports;
+  const loaded = kind === 'weekly' ? weeklyReports !== null && dailyReports !== null : dailyReports !== null;
+
+  const found = reportId && sameKindReports ? (sameKindReports.find((r) => r.id === reportId) ?? null) : null;
+  const notFound = Boolean(reportId) && sameKindReports !== null && found === null;
+
+  const exitHref = kind === 'daily' ? '/daily' : '/';
 
   useEffect(() => {
-    if (notFound) router.replace('/');
-  }, [notFound, router]);
+    if (notFound) router.replace(exitHref);
+  }, [notFound, router, exitHref]);
 
-  const exitWizard = () => router.push('/');
+  const exitWizard = () => router.push(exitHref);
 
-  const handleSaveDraft = (report: Report) => {
-    upsertReport(report);
+  const handleSaveDraft = (report: AnyReport) => {
+    if (report.kind === 'weekly') upsertWeekly(report);
+    else upsertDaily(report);
     exitWizard();
   };
 
   // Publish stays on the wizard's confirmation screen; the user exits via
   // "Back to Dashboard". The report is upserted immediately so Share/PDF on
   // the confirmation screen can resolve it straight from `reports`.
-  const handlePublish = (report: Report) => {
-    upsertReport(report);
+  const handlePublish = (report: AnyReport) => {
+    if (report.kind === 'weekly') upsertWeekly(report);
+    else upsertDaily(report);
   };
 
   const openShare = (id: string) => {
@@ -67,7 +86,7 @@ export function WizardPage({ reportId }: WizardPageProps) {
   };
   const closeShare = () => setShareOpen(false);
   const copyShareLink = () => {
-    const link = shareLinkFor(shareReportId);
+    const link = shareLinkFor(shareReportId, kind);
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(link).catch(() => {});
     }
@@ -77,13 +96,14 @@ export function WizardPage({ reportId }: WizardPageProps) {
   };
 
   const openPdf = (id: string) => {
-    window.open(`/reports/${id}/present?print=1`, '_blank', 'noopener,noreferrer');
+    const base = kind === 'daily' ? '/daily' : '/reports';
+    window.open(`${base}/${id}/present?print=1`, '_blank', 'noopener,noreferrer');
   };
 
   // Reports haven't loaded yet, or a reportId lookup is still pending the
   // redirect effect above: render nothing rather than a flash of a blank
   // wizard.
-  if (reports === null || notFound) return null;
+  if (!loaded || notFound) return null;
 
   const initialReport = found ? structuredClone(found) : null;
 
@@ -91,7 +111,9 @@ export function WizardPage({ reportId }: WizardPageProps) {
     <>
       <WizardScreen
         key={reportId ?? 'new'}
-        reports={reports}
+        kind={kind}
+        reports={sameKindReports ?? []}
+        dailies={kind === 'weekly' ? (dailyReports ?? []) : undefined}
         initialReport={initialReport}
         onExit={exitWizard}
         onSaveDraft={handleSaveDraft}
@@ -103,6 +125,7 @@ export function WizardPage({ reportId }: WizardPageProps) {
       <ShareDialog
         open={shareOpen}
         reportId={shareReportId}
+        kind={kind}
         copied={shareCopied}
         onCopy={copyShareLink}
         onClose={closeShare}

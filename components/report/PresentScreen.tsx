@@ -4,22 +4,27 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
+import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useReports } from '@/lib/hooks/useReports';
+import type { ReportKind } from '@/lib/types';
 import { DECK_SLIDE_WIDTH, DECK_TOTAL_HEIGHT, ReportDeck } from './ReportDeck';
 import '@/styles/print.css';
 import styles from './PresentScreen.module.css';
 
 export interface PresentScreenProps {
   id: string;
+  /** Phase 4: which store to resolve `id` against and which route "Back to Report" points at. Defaults to 'weekly' -- the pre-Phase-4 call site (`/reports/[id]/present`) keeps working unchanged. */
+  kind?: ReportKind;
 }
 
 /** Screen-only vertical breathing room around the (possibly scaled) deck; zeroed by styles/print.css. */
 const STAGE_PADDING = 40;
 
 /**
- * `/reports/[id]/present` -- the bare, read-only, branded slide-deck route
- * (no sidebar; only the root layout applies -- see
- * app/reports/[id]/present/page.tsx). Renders `<ReportDeck>` at full size
+ * `/reports/[id]/present` (weekly) and `/daily/[id]/present` (Phase 4) --
+ * the bare, read-only, branded slide-deck route (no sidebar; only the root
+ * layout applies -- see app/reports/[id]/present/page.tsx and
+ * app/daily/[id]/present/page.tsx). Renders `<ReportDeck>` at full size
  * behind a screen-only toolbar (hidden in print via styles/print.css);
  * `?print=1` auto-triggers `window.print()` once the report has loaded,
  * fonts are ready, and one animation frame has passed (fonts must be
@@ -29,8 +34,10 @@ const STAGE_PADDING = 40;
  * `<Suspense>`, which Next.js requires for that hook, or `next build`
  * fails prerendering this route.
  */
-export function PresentScreen({ id }: PresentScreenProps) {
-  const { reports } = useReports();
+export function PresentScreen({ id, kind = 'weekly' }: PresentScreenProps) {
+  const weeklyHook = useReports();
+  const dailyHook = useDailyReports();
+  const reports = kind === 'daily' ? dailyHook.reports : weeklyHook.reports;
   const searchParams = useSearchParams();
   const autoPrint = searchParams.get('print') === '1';
   const printedRef = useRef(false);
@@ -88,8 +95,8 @@ export function PresentScreen({ id }: PresentScreenProps) {
             "This link doesn't resolve to a report in this browser. Shared links only resolve on a browser whose local storage has the report -- true cross-machine sharing arrives with Supabase."
           }
         </p>
-        <Link href="/" className={styles.notFoundLink}>
-          Back to Dashboard
+        <Link href={kind === 'daily' ? '/daily' : '/'} className={styles.notFoundLink}>
+          Back to {kind === 'daily' ? 'Daily Reports' : 'Dashboard'}
         </Link>
       </div>
     );
@@ -102,7 +109,7 @@ export function PresentScreen({ id }: PresentScreenProps) {
   return (
     <div className={styles.page}>
       <div className={`${styles.toolbar} presentToolbar`}>
-        <Link href={`/reports/${report.id}`} className={styles.backLink}>
+        <Link href={`${kind === 'daily' ? '/daily' : '/reports'}/${report.id}`} className={styles.backLink}>
           &larr; Back to Report
         </Link>
         <div className={styles.toolbarRight}>

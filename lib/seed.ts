@@ -3,10 +3,19 @@
 // risks, wins, touchpoints, and priorities are preserved as-authored,
 // including curly apostrophes (') and en/em dashes (– / —) where
 // the prototype used them.
+//
+// Phase 4 adds seedDailyReports(): 5 daily reports (Mon-Fri, 2026-07-13..17)
+// covering the same week as the last weekly seed (r7), so the wizard's
+// "import this week's daily reports" action is demoable out of the box.
+// These are new content (no prototype line reference) but deliberately
+// contain overlapping (client, task) / (client, description) pairs across
+// days -- with the status/nextStep progressing day to day -- so the
+// aggregator's "keep the latest daily's version" dedup logic has something
+// real to demonstrate.
 
 import { FF_CLIENTS } from './constants';
 import { uid } from './format';
-import type { Priority, Report, Risk, Task } from './types';
+import type { DailyReport, Priority, Report, Risk, Task, WeeklyReport } from './types';
 
 function mk(
   id: string,
@@ -19,9 +28,10 @@ function mk(
   touchpoints: Report['touchpoints'],
   priorities: Priority[],
   summaryNarrative: string
-): Report {
+): WeeklyReport {
   return {
     id,
+    kind: 'weekly',
     weekStart: ws,
     weekEnd: we,
     status,
@@ -29,6 +39,35 @@ function mk(
     preparedBy: 'Jordan Reyes, Project Manager',
     createdAt: we,
     updatedAt: we,
+    summaryNarrative,
+    tasks,
+    risks,
+    win,
+    touchpoints,
+    priorities,
+  };
+}
+
+function mkDaily(
+  id: string,
+  date: string,
+  status: Report['status'],
+  tasks: Task[],
+  risks: Risk[],
+  win: Report['win'],
+  touchpoints: Report['touchpoints'],
+  priorities: Priority[],
+  summaryNarrative: string
+): DailyReport {
+  return {
+    id,
+    kind: 'daily',
+    date,
+    status,
+    preparedFor: 'Christene, Founder',
+    preparedBy: 'Jordan Reyes, Project Manager',
+    createdAt: date,
+    updatedAt: date,
     summaryNarrative,
     tasks,
     risks,
@@ -51,7 +90,7 @@ function P(text: string): Priority {
 }
 
 /** Line 449-506 */
-export function seedReports(): Report[] {
+export function seedReports(): WeeklyReport[] {
   return [
     mk(
       'r1',
@@ -304,6 +343,154 @@ export function seedReports(): Report[] {
         P('Kick off Q3 planning call with Helitech Foundation & Waterproofing'),
       ],
       'All four active accounts stayed on schedule this week. Paid social and search work moved forward on pace, GoHighLevel automation build-out for Summit is midstream, and TerraFirm’s landing page is paused pending client assets.'
+    ),
+  ];
+}
+
+/**
+ * Phase 4: 5 daily reports (Mon-Fri, 2026-07-13..17) -- the same week as
+ * `r7` above -- so the weekly wizard's "import this week's daily reports"
+ * action has real data to aggregate out of the box. Friday (`d5`) is left
+ * in Draft with an empty win on purpose: it exercises the aggregator's
+ * "latest non-empty daily win" rule (falls back to Thursday's) and its
+ * "narratives from every daily, even a short one" touchpoints join.
+ */
+export function seedDailyReports(): DailyReport[] {
+  return [
+    mkDaily(
+      'd1',
+      '2026-07-13',
+      'Sent',
+      [
+        T(FF_CLIENTS[0], 'Paid social creative refresh', 'In Progress', '2026-07-17'),
+        T(FF_CLIENTS[1], 'Search campaign copy testing', 'In Progress', '2026-07-24'),
+        T(FF_CLIENTS[2], 'GoHighLevel pipeline automation', 'In Progress', '2026-07-24'),
+        T(FF_CLIENTS[3], 'Landing page conversion audit', 'Blocked', '2026-07-17'),
+      ],
+      [
+        R(
+          FF_CLIENTS[3],
+          'Blocked',
+          'Landing page work is paused. Waiting on updated project photos and testimonials, requested since June 30.',
+          'Following up with the client Monday morning.'
+        ),
+        R(
+          FF_CLIENTS[2],
+          'At Risk',
+          "The CRM export from Summit's previous platform is incomplete, delaying the full GoHighLevel data migration.",
+          'Automation build continues on test data.'
+        ),
+      ],
+      { stat: '4', label: 'Client touchpoints logged today', narrative: 'Kicked the week off with a check-in call on every active account.' },
+      { calls: 2, emails: 3, escalations: 0, narrative: 'Monday kickoff calls with Helitech and DryRoot; async check-ins with Summit and TerraFirm.' },
+      [P("Push Helitech's creative refresh live"), P("Keep pressure on TerraFirm's asset request")],
+      "Monday kickoff across all four accounts. TerraFirm's landing page work remains blocked on client assets."
+    ),
+    mkDaily(
+      'd2',
+      '2026-07-14',
+      'Sent',
+      [
+        T(FF_CLIENTS[0], 'Paid social creative refresh', 'Complete', '2026-07-17'),
+        T(FF_CLIENTS[1], 'Search campaign copy testing', 'In Progress', '2026-07-24'),
+        T(FF_CLIENTS[2], 'GoHighLevel pipeline automation', 'In Progress', '2026-07-24'),
+        T(FF_CLIENTS[3], 'Landing page conversion audit', 'Blocked', '2026-07-17'),
+      ],
+      [
+        R(
+          FF_CLIENTS[3],
+          'Blocked',
+          'Landing page work is paused. Waiting on updated project photos and testimonials, requested since June 30.',
+          'Follow-up sent Tuesday; no response yet.'
+        ),
+        R(
+          FF_CLIENTS[2],
+          'At Risk',
+          "The CRM export from Summit's previous platform is incomplete, delaying the full GoHighLevel data migration.",
+          'Automation build continues on test data.'
+        ),
+      ],
+      {
+        stat: '18%',
+        label: "Drop in Helitech's cost-per-lead",
+        narrative: "The refreshed creative went live this morning and cost-per-lead is already down 18% week over week.",
+      },
+      { calls: 1, emails: 2, escalations: 0, narrative: "Quick sync with Helitech on the creative launch." },
+      [P("Monitor Helitech's refreshed creative performance"), P('Escalate TerraFirm asset request if no response by Thursday')],
+      "Helitech's creative refresh launched and is already showing results. TerraFirm remains blocked."
+    ),
+    mkDaily(
+      'd3',
+      '2026-07-15',
+      'Sent',
+      [
+        T(FF_CLIENTS[2], 'GoHighLevel pipeline automation', 'Complete', '2026-07-17'),
+        T(FF_CLIENTS[0], 'Monthly performance dashboard', 'Complete', '2026-07-17'),
+        T(FF_CLIENTS[1], 'Search campaign copy testing', 'In Progress', '2026-07-24'),
+      ],
+      [
+        R(
+          FF_CLIENTS[3],
+          'Blocked',
+          'Landing page work is paused. Waiting on updated project photos and testimonials, requested since June 30.',
+          'Escalating directly with the client this week.'
+        ),
+      ],
+      {
+        stat: '3',
+        label: 'GoHighLevel automations shipped for Summit',
+        narrative: "Summit's pipeline automation build wrapped a day ahead of schedule.",
+      },
+      { calls: 2, emails: 2, escalations: 0, narrative: 'Summit automation review call; Helitech dashboard delivered by email.' },
+      [P("Kick off Q3 planning call with Helitech"), P("Finalize TerraFirm's landing page pending assets")],
+      "Summit's automation build wrapped early. Helitech's new dashboard shipped. TerraFirm remains the one open blocker."
+    ),
+    mkDaily(
+      'd4',
+      '2026-07-16',
+      'Sent',
+      [
+        T(FF_CLIENTS[1], 'Search campaign copy testing', 'Complete', '2026-07-17'),
+        T(FF_CLIENTS[3], 'Landing page conversion audit', 'Blocked', '2026-07-17'),
+      ],
+      [
+        R(
+          FF_CLIENTS[3],
+          'Blocked',
+          'Landing page work is paused. Waiting on updated project photos and testimonials, requested since June 30.',
+          'Follow-up sent Thursday; will escalate if no response by Monday.'
+        ),
+        R(
+          FF_CLIENTS[2],
+          'At Risk',
+          "The CRM export from Summit's previous platform is incomplete, delaying the full GoHighLevel data migration.",
+          'Automation build finished on test data; full migration expected early next week.'
+        ),
+      ],
+      {
+        stat: '9%',
+        label: "Lift in DryRoot's search click-through rate",
+        narrative: "The new ad copy variant tested this week is already outperforming the control by 9%.",
+      },
+      { calls: 1, emails: 1, escalations: 1, narrative: "One escalation: flagged TerraFirm's asset delay directly with the client on today's call." },
+      [P('Prep Helitech Q3 review'), P("Finalize TerraFirm's pending assets")],
+      "DryRoot's copy test wrapped with a clear winner. One escalation today on TerraFirm's asset delay."
+    ),
+    mkDaily(
+      'd5',
+      '2026-07-17',
+      'Draft',
+      [
+        T(FF_CLIENTS[0], 'Monthly performance dashboard', 'Complete', '2026-07-17'),
+        T(FF_CLIENTS[2], 'GoHighLevel pipeline automation', 'Complete', '2026-07-17'),
+        T(FF_CLIENTS[3], 'Landing page conversion audit', 'Blocked', '2026-07-17'),
+        T(FF_CLIENTS[1], 'Monthly recap prep', 'In Progress', '2026-07-24'),
+      ],
+      [],
+      { stat: '', label: '', narrative: '' },
+      { calls: 0, emails: 1, escalations: 0, narrative: 'Friday wrap-up email sent to Helitech.' },
+      [],
+      "Short Friday -- wrapping up the week's open items before end of day."
     ),
   ];
 }

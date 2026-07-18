@@ -13,14 +13,18 @@ import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
 import { STATUS_EDIT_OPTIONS } from '@/lib/constants';
-import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
-import { onSchedule, openBlockers, riskTone, taskTone } from '@/lib/report-utils';
-import type { Report, ReportStatus } from '@/lib/types';
+import { fmtDateShort } from '@/lib/format';
+import { onSchedule, openBlockers, reportPeriodLabel, riskTone, taskTone } from '@/lib/report-utils';
+import type { AnyReport, ReportFieldPatch, ReportKind, ReportStatus } from '@/lib/types';
 import styles from './ReportScreen.module.css';
 
 export interface ReportScreenProps {
-  report: Report | null;
-  onUpdateFields: (patch: Partial<Report>) => void;
+  report: AnyReport | null;
+  /** Which kind of report this screen mount is showing -- decides the editable period field(s) and every route it links out to, even while `report` is still null (see emptyReportFallback). */
+  kind: ReportKind;
+  onUpdateFields: (patch: ReportFieldPatch) => void;
+  /** Daily only: an inline message shown under the Date field when the caller rejected the last date edit (blank, or collides with another daily) instead of persisting it -- see app/(shell)/daily/[id]/page.tsx and invalidDailyDateEdit. */
+  dateError?: string;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -36,44 +40,49 @@ const PREVIEW_SCALE = 0.25;
 /**
  * Faithful-port null-guard so this can render safely even while `report` is
  * briefly null (mirrors the old ReportDetailDialog's `dSafe`), extended to
- * every `Report` field since this screen also feeds `<ReportDeck>` (which
- * needs the full shape) for the PDF preview.
+ * every field since this screen also feeds `<ReportDeck>` (which needs the
+ * full shape) for the PDF preview. Phase 4: a function of `kind` (not a
+ * static constant) so the fallback's own `kind`/period fields always match
+ * the route being viewed, even in that split-second before `report` loads.
  */
-const EMPTY_REPORT_FALLBACK: Report = {
-  id: '',
-  weekStart: '',
-  weekEnd: '',
-  status: 'Draft',
-  preparedFor: '',
-  preparedBy: '',
-  createdAt: '',
-  updatedAt: '',
-  summaryNarrative: '',
-  tasks: [],
-  risks: [],
-  win: { stat: '', label: '', narrative: '' },
-  touchpoints: { calls: 0, emails: 0, escalations: 0, narrative: '' },
-  priorities: [],
-};
+function emptyReportFallback(kind: ReportKind): AnyReport {
+  const core = {
+    id: '',
+    status: 'Draft' as const,
+    preparedFor: '',
+    preparedBy: '',
+    createdAt: '',
+    updatedAt: '',
+    summaryNarrative: '',
+    tasks: [],
+    risks: [],
+    win: { stat: '', label: '', narrative: '' },
+    touchpoints: { calls: 0, emails: 0, escalations: 0, narrative: '' },
+    priorities: [],
+  };
+  return kind === 'daily' ? { ...core, kind: 'daily', date: '' } : { ...core, kind: 'weekly', weekStart: '', weekEnd: '' };
+}
 
 /**
- * `/reports/[id]` -- the full report screen, promoted from the old
- * ReportDetailDialog (deleted, see CLAUDE.md). Editable
- * status/preparedFor/weekStart/weekEnd autosave via `onUpdateFields`
- * (optimistic + fresh `updatedAt`, see useReports); everything else
- * (stats, tasks, risks, priorities) stays read-only display, same scope as
- * the old Detail dialog. Adds an actions row (Copy Share Link, Download
- * PDF, Open Presentation) and a PDF preview -- the real `<ReportDeck>`
- * rendered scaled-down as a thumbnail filmstrip, so the preview and the
- * exported PDF can never drift apart.
+ * `/reports/[id]` (weekly) and `/daily/[id]` (Phase 4) -- the full report
+ * screen, promoted from the old ReportDetailDialog (deleted, see CLAUDE.md).
+ * Editable status/preparedFor/period autosave via `onUpdateFields`
+ * (optimistic + fresh `updatedAt`, see useReports/useDailyReports);
+ * everything else (stats, tasks, risks, priorities) stays read-only display,
+ * same scope as the old Detail dialog. Adds an actions row (Copy Share
+ * Link, Download PDF, Open Presentation) and a PDF preview -- the real
+ * `<ReportDeck>` rendered scaled-down as a thumbnail filmstrip, so the
+ * preview and the exported PDF can never drift apart.
  *
  * Owns its own (small) Share-dialog UI state directly -- this route is
  * simple enough (one param, one hook) that it doesn't need a separate
  * route-level orchestrator like DashboardPage/WizardPage.
  */
-export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
-  const dSafe = report ?? EMPTY_REPORT_FALLBACK;
+export function ReportScreen({ report, kind, onUpdateFields, dateError }: ReportScreenProps) {
+  const dSafe = report ?? emptyReportFallback(kind);
   const { onSched, total } = onSchedule(dSafe);
+  const backHref = kind === 'daily' ? '/daily' : '/';
+  const presentBase = kind === 'daily' ? '/daily' : '/reports';
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -87,7 +96,7 @@ export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
   );
 
   const copyShareLink = () => {
-    const link = shareLinkFor(dSafe.id || null);
+    const link = shareLinkFor(dSafe.id || null, kind);
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(link).catch(() => {});
     }
@@ -98,7 +107,7 @@ export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
 
   const openPresentation = (print: boolean) => {
     if (!dSafe.id) return;
-    const url = `/reports/${dSafe.id}/present${print ? '?print=1' : ''}`;
+    const url = `${presentBase}/${dSafe.id}/present${print ? '?print=1' : ''}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -115,10 +124,10 @@ export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
   return (
     <div>
       <div className={styles.header}>
-        <span className={styles.wordmark}>{report ? fmtWeekLabel(report.weekStart, report.weekEnd) : 'Report'}</span>
+        <span className={styles.wordmark}>{report ? reportPeriodLabel(report) : kind === 'daily' ? 'Daily Report' : 'Report'}</span>
         <div className={styles.headerActions}>
-          <Link href="/" className={styles.backLink}>
-            &larr; Back to Dashboard
+          <Link href={backHref} className={styles.backLink}>
+            &larr; Back to {kind === 'daily' ? 'Daily Reports' : 'Dashboard'}
           </Link>
         </div>
       </div>
@@ -140,22 +149,36 @@ export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ preparedFor: e.target.value })}
             />
           </div>
-          <div style={{ width: 150 }}>
-            <Input
-              type="date"
-              label="Week Start"
-              value={dSafe.weekStart}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekStart: e.target.value })}
-            />
-          </div>
-          <div style={{ width: 150 }}>
-            <Input
-              type="date"
-              label="Week End"
-              value={dSafe.weekEnd}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekEnd: e.target.value })}
-            />
-          </div>
+          {dSafe.kind === 'daily' ? (
+            <div style={{ width: 150 }}>
+              <Input
+                type="date"
+                label="Date"
+                value={dSafe.date}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ date: e.target.value })}
+              />
+              {dateError ? <div className={styles.fieldError}>{dateError}</div> : null}
+            </div>
+          ) : (
+            <>
+              <div style={{ width: 150 }}>
+                <Input
+                  type="date"
+                  label="Week Start"
+                  value={dSafe.weekStart}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekStart: e.target.value })}
+                />
+              </div>
+              <div style={{ width: 150 }}>
+                <Input
+                  type="date"
+                  label="Week End"
+                  value={dSafe.weekEnd}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekEnd: e.target.value })}
+                />
+              </div>
+            </>
+          )}
         </div>
         <div className={styles.autosaveNote}>Changes save automatically.</div>
 
@@ -213,7 +236,7 @@ export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
         )}
 
         <div className={styles.sectionKicker} style={{ marginTop: 26 }}>
-          {"Next Week's Priorities"}
+          {dSafe.kind === 'daily' ? 'Priorities' : "Next Week's Priorities"}
         </div>
         {dSafe.priorities.map((p) => (
           <div key={p.id} className={styles.priorityRow}>
@@ -225,6 +248,7 @@ export function ReportScreen({ report, onUpdateFields }: ReportScreenProps) {
       <ShareDialog
         open={shareOpen}
         reportId={dSafe.id || null}
+        kind={kind}
         copied={shareCopied}
         onCopy={copyShareLink}
         onClose={() => setShareOpen(false)}

@@ -33,6 +33,7 @@ export default function ReportDetailPage() {
   return (
     <ReportScreen
       report={report}
+      kind="weekly"
       onUpdateFields={(patch) => {
         if (id) updateReportFields(id, patch);
       }}

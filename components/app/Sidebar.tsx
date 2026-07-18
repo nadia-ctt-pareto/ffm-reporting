@@ -17,10 +17,11 @@ interface NavItem {
   label: string;
 }
 
-// Phase 3 scope: Dashboard, Tasks (List/Kanban), Calendar (Week/Month).
-// /daily/* is a later phase -- don't add a nav item for it yet.
+// Phase 3: Dashboard, Tasks (List/Kanban), Calendar (Week/Month).
+// Phase 4: Daily Reports (/daily).
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard' },
+  { href: '/daily', label: 'Daily Reports' },
   { href: '/tasks', label: 'Tasks' },
   { href: '/calendar', label: 'Calendar' },
 ];

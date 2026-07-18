@@ -9,16 +9,21 @@ import { StepTasks } from '@/components/wizard/steps/StepTasks';
 import { StepTouchpointsWin } from '@/components/wizard/steps/StepTouchpointsWin';
 import { useWizard } from '@/components/wizard/useWizard';
 import { WizardStepper } from '@/components/wizard/WizardStepper';
-import { fmtWeekLabel } from '@/lib/format';
-import type { Report } from '@/lib/types';
+import { draftPeriodLabel } from '@/lib/report-utils';
+import type { AnyReport, DailyReport, ReportKind } from '@/lib/types';
 import styles from './WizardScreen.module.css';
 
 export interface WizardScreenProps {
-  reports: Report[];
-  initialReport: Report | null;
+  /** Which kind of report this wizard mount drafts. Decides the blank-draft shape, step-1's fields, and header/confirmation copy. */
+  kind: ReportKind;
+  /** Same-kind prior reports (weeklies for the weekly wizard, dailies for the daily wizard) -- feeds the carry-forward Import panels (steps 2/4/5). */
+  reports: AnyReport[];
+  /** Weekly wizard only: ALL daily reports, for the "Import This Week's Daily Reports" panel on step 1. Omit for the daily wizard. */
+  dailies?: DailyReport[];
+  initialReport: AnyReport | null;
   onExit: () => void;
-  onSaveDraft: (report: Report) => void;
-  onPublish: (report: Report) => void;
+  onSaveDraft: (report: AnyReport) => void;
+  onPublish: (report: AnyReport) => void;
   onShareForPublished: (reportId: string) => void;
   onPdfForPublished: (reportId: string) => void;
 }
@@ -26,11 +31,17 @@ export interface WizardScreenProps {
 /**
  * The 6-step wizard shell. Ported from design-source lines 71-338 (template)
  * and 508-792 (behavior, via useWizard). Mount this with a `key` that
- * changes whenever `initialReport` changes (see WeeklyReportsApp) so a
- * fresh "New Report" or "Continue" never shows a stale draft.
+ * changes whenever `initialReport` changes (see WizardPage) so a fresh "New
+ * Report" or "Continue" never shows a stale draft.
+ *
+ * Phase 4: shared verbatim by both the weekly and daily wizards -- `kind`
+ * only changes step 1 (StepBasics) and this file's own header/confirmation
+ * copy; steps 2-6 are completely kind-agnostic.
  */
 export function WizardScreen({
+  kind,
   reports,
+  dailies,
   initialReport,
   onExit,
   onSaveDraft,
@@ -38,13 +49,22 @@ export function WizardScreen({
   onShareForPublished,
   onPdfForPublished,
 }: WizardScreenProps) {
-  const wizard = useWizard(reports, initialReport, { onSaveDraft, onPublish });
+  const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies });
   const { draft, step, error, published } = wizard;
+  const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
 
   const stepPanel = (() => {
     switch (step) {
       case 1:
-        return <StepBasics draft={draft} setDraftField={wizard.setDraftField} />;
+        return (
+          <StepBasics
+            draft={draft}
+            setDraftField={wizard.setDraftField}
+            weekDailyCount={kind === 'weekly' ? wizard.weekDailyCount : undefined}
+            weekDailiesImported={kind === 'weekly' ? wizard.weekDailiesImported : undefined}
+            onImportWeekDailies={kind === 'weekly' ? wizard.importWeekDailies : undefined}
+          />
+        );
       case 2:
         return (
           <StepTasks
@@ -106,7 +126,7 @@ export function WizardScreen({
           on the published-confirmation screen -- saveDraft always forces
           Draft status, a faithful-port quirk; see CLAUDE.md). */}
       <div className={styles.header}>
-        <span className={styles.wordmark}>{draft.id ? 'Editing Draft' : 'New Weekly Report'}</span>
+        <span className={styles.wordmark}>{draft.id ? 'Editing Draft' : `New ${kindLabel} Report`}</span>
         <div className={styles.headerActions}>
           <div className={styles.headerButtons}>
             <Button variant="ghost" size="sm" onClick={wizard.saveDraft}>
@@ -128,8 +148,8 @@ export function WizardScreen({
             <div className={styles.publishedWrap}>
               <div className={styles.publishedTitle}>Report Published</div>
               <p className={styles.publishedCopy}>
-                {fmtWeekLabel(draft.weekStart, draft.weekEnd)} is now in the historical record. Export it below, or
-                head back to the dashboard.
+                {draftPeriodLabel(draft)} is now in the historical record. Export it below, or head back to the
+                dashboard.
               </p>
               <div className={styles.publishedButtons}>
                 <Button variant="outline" size="md" onClick={() => draft.id && onShareForPublished(draft.id)}>

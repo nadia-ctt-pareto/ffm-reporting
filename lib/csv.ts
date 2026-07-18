@@ -1,8 +1,14 @@
 // Ported verbatim from design-source/original-dashboard.dc.html script block:
 // ffCsvEscape (444), exportAllTasksCSV (635-643).
+//
+// Phase 4: generalized to AnyReport (`reportPeriodLabel` resolves "Week of
+// ..." for weekly vs. a short date for daily) so the same builder serves
+// both the dashboard's weekly-only CSV export and the daily list's
+// daily-only CSV export. The "Week" column header became "Period" to stay
+// accurate for both callers.
 
-import type { Report } from './types';
-import { fmtWeekLabel } from './format';
+import type { AnyReport } from './types';
+import { reportPeriodLabel } from './report-utils';
 
 /** Line 444 */
 export function csvEscape(v: unknown): string {
@@ -11,13 +17,13 @@ export function csvEscape(v: unknown): string {
 }
 
 /** Lines 636-638 */
-export function buildAllTasksCsv(reports: Report[]): string {
+export function buildAllTasksCsv(reports: AnyReport[]): string {
   const rows: (string | number)[][] = [
-    ['Report ID', 'Week', 'Prepared For', 'Prepared By', 'Report Status', 'Client', 'Task', 'Task Status', 'Deadline'],
+    ['Report ID', 'Period', 'Prepared For', 'Prepared By', 'Report Status', 'Client', 'Task', 'Task Status', 'Deadline'],
   ];
   reports.forEach((r) => {
     r.tasks.forEach((t) => {
-      rows.push([r.id, fmtWeekLabel(r.weekStart, r.weekEnd), r.preparedFor, r.preparedBy, r.status, t.client, t.task, t.status, t.deadline]);
+      rows.push([r.id, reportPeriodLabel(r), r.preparedFor, r.preparedBy, r.status, t.client, t.task, t.status, t.deadline]);
     });
   });
   return rows.map((row) => row.map(csvEscape).join(',')).join('\n');

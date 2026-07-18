@@ -5,13 +5,13 @@ import { Badge } from '@/components/ui/Badge';
 import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
-import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
-import { onSchedule, openBlockers, riskTone, taskTone } from '@/lib/report-utils';
-import type { Report } from '@/lib/types';
+import { fmtDateShort } from '@/lib/format';
+import { onSchedule, openBlockers, reportPeriodLabel, riskTone, taskTone } from '@/lib/report-utils';
+import type { AnyReport } from '@/lib/types';
 import styles from './ReportDeck.module.css';
 
 export interface ReportDeckProps {
-  report: Report;
+  report: AnyReport;
 }
 
 // Fixed slide geometry -- the single source of truth for both the CSS (fed
@@ -56,11 +56,15 @@ const deckVars: CSSProperties = {
  * `.slide`/`.deck` also carry plain (unhashed) global classnames alongside
  * their CSS-Module classes -- see styles/print.css, which is a global
  * stylesheet and can't select CSS-Modules' hashed classnames.
+ *
+ * Phase 4: generalized to `AnyReport` -- `reportPeriodLabel` resolves the
+ * cover's period line ("Week of ..." vs. a single date) and the cover
+ * kicker text switches "Weekly Report" / "Daily Report" off `report.kind`.
  */
 export function ReportDeck({ report }: ReportDeckProps) {
   const { onSched, total } = onSchedule(report);
   const blockers = openBlockers(report);
-  const weekLabel = fmtWeekLabel(report.weekStart, report.weekEnd);
+  const periodLabel = reportPeriodLabel(report);
 
   const taskRows = report.tasks.map((t) => ({
     client: t.client,
@@ -75,8 +79,8 @@ export function ReportDeck({ report }: ReportDeckProps) {
       <section className={`${styles.slide} slide ${styles.cover}`}>
         <div className={styles.coverDiagonal} aria-hidden="true" />
         <div className={styles.coverTop}>
-          <div className={styles.coverKicker}>Weekly Report</div>
-          <h1 className={styles.coverWeek}>{weekLabel}</h1>
+          <div className={styles.coverKicker}>{report.kind === 'daily' ? 'Daily Report' : 'Weekly Report'}</div>
+          <h1 className={styles.coverWeek}>{periodLabel}</h1>
           <div className={styles.coverMeta}>
             <div className={styles.coverMetaItem}>
               <div className={styles.coverMetaLabel}>Prepared for</div>
@@ -102,7 +106,7 @@ export function ReportDeck({ report }: ReportDeckProps) {
 
       {/* Slide 2 -- Summary + touchpoints */}
       <section className={`${styles.slide} slide ${styles.padded}`}>
-        <div className={styles.kicker}>This Week</div>
+        <div className={styles.kicker}>{report.kind === 'daily' ? 'Today' : 'This Week'}</div>
         <p className={styles.narrative}>{report.summaryNarrative}</p>
         <div className={styles.statsGrid}>
           <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
@@ -146,7 +150,7 @@ export function ReportDeck({ report }: ReportDeckProps) {
 
       {/* Slide 5 -- Priorities */}
       <section className={`${styles.slide} slide ${styles.padded}`}>
-        <div className={styles.kicker}>{"Next Week's Priorities"}</div>
+        <div className={styles.kicker}>{report.kind === 'daily' ? 'Priorities' : "Next Week's Priorities"}</div>
         <ol className={styles.priorityList}>
           {report.priorities.map((p) => (
             <li key={p.id} className={styles.priorityItem}>

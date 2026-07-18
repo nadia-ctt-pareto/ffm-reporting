@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
-import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
-import { onSchedule, openBlockers, taskTone } from '@/lib/report-utils';
+import { fmtDateShort } from '@/lib/format';
+import { draftPeriodLabel, onSchedule, openBlockers, taskTone } from '@/lib/report-utils';
 import type { Draft } from '@/lib/types';
 import styles from './StepReview.module.css';
 
@@ -36,7 +36,7 @@ export function StepReview({ draft, onPublish }: StepReviewProps) {
     <div>
       <div className={styles.title}>{'Review & Export'}</div>
       <div className={styles.subtitle}>
-        {fmtWeekLabel(draft.weekStart, draft.weekEnd)} — for {draft.preparedFor}
+        {draftPeriodLabel(draft)} — for {draft.preparedFor}
       </div>
 
       <p className={styles.narrative}>{draft.summaryNarrative}</p>

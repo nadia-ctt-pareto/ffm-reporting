@@ -1,0 +1,79 @@
+/* Mirrors components/dashboard/DashboardScreen.module.css -- same visual
+   language (header/content/stats/filter-bar/table-action/empty-state), just
+   without the brand logo/wordmark divider (this route sits one level below
+   the dashboard, not at the app's root). */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 48px;
+  background: var(--surface-page);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.wordmark {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 19px;
+  color: var(--text-heading);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.headerButtons {
+  display: flex;
+  gap: 12px;
+}
+
+.content {
+  padding: 36px 48px 72px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 36px;
+}
+
+.filterBar {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.rowAction {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--text-heading);
+  padding: 7px 16px;
+  cursor: pointer;
+  color: var(--text-heading);
+}
+
+.rowAction:hover {
+  background: var(--text-heading);
+  color: var(--surface-page);
+}
+
+.emptyState {
+  padding: 64px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}

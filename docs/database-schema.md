@@ -5,15 +5,44 @@ Baseline schema for the eventual `SupabaseReportsRepository` (see
 schema yet** — MVP persistence is still `LocalStorageReportsRepository`.
 This document exists so the shape is reviewed and versioned ahead of the
 cutover. The migration itself lives at
-`supabase/migrations/20260717000001_initial_schema.sql`.
+`supabase/migrations/20260717000001_initial_schema.sql`, with a Phase 4
+delta at `supabase/migrations/20260717000002_daily_reports.sql`.
+
+## Discriminated union ↔ single table (Phase 4)
+
+`lib/types.ts` models a report as a discriminated union:
+
+```ts
+type AnyReport = WeeklyReport | DailyReport; // kind: 'weekly' | 'daily'
+```
+
+Both variants share every field except their period (`weekStart`/`weekEnd`
+vs. a single `date`) — see `ReportCore` in `lib/types.ts`. The schema mirrors
+this as **one `reports` table**, not two: a `kind` discriminant column plus
+a `reports_period_by_kind` CHECK constraint that enforces "exactly the
+period columns matching `kind` are set, the other pair is NULL" (mirroring
+the TS union's exhaustiveness — a row can never be both/neither). `tasks`,
+`risks`, and `priorities` already FK to `reports(id)` and are byte-identical
+in shape for both kinds, so splitting into a second `daily_reports` table
+would only duplicate every child-table FK and every read/write query path
+for no benefit.
+
+**One daily report per day, covering all clients** (not per-client) is
+enforced at the SQL layer by a partial unique index,
+`reports_one_daily_per_day on reports (report_date) where kind = 'daily'`
+— weekly rows' `report_date` is always NULL (per the CHECK constraint
+above), so they never participate in that uniqueness check. The app enforces
+the same rule at the wizard layer (`dailyDateConflict`/`validateStep` in
+`lib/report-utils.ts`) so a collision surfaces as an inline wizard error
+instead of a raw constraint violation.
 
 ## Design decisions
 
 - **Text ids, not `uuid`.** Existing localStorage data (`lib/seed.ts`, and
-  anything already persisted in a browser under `ff.weekly-reports.v1`) uses
-  ids like `"r1"` and `"t_abc123_4"` (see `lib/format.ts` `uid()`). Keeping
-  every primary key as `text` lets that JSON import verbatim at cutover —
-  zero id remapping.
+  anything already persisted in a browser under `ff.reports.v2` — or, pre-
+  Phase-4, `ff.weekly-reports.v1`) uses ids like `"r1"`/`"d1"` and
+  `"t_abc123_4"` (see `lib/format.ts` `uid()`). Keeping every primary key as
+  `text` lets that JSON import verbatim at cutover — zero id remapping.
 - **`tasks.client` / `risks.client` are free text, not a client FK.** The
   wizard currently edits both via a plain `Input` (`components/wizard/steps/
   StepTasks.tsx`, `StepRisks.tsx`), not a `Select` bound to a client list —
@@ -34,11 +63,18 @@ cutover. The migration itself lives at
 
 ## Field mapping: `reports`
 
-| TS field (`Report`)         | Column                    | Type      | Notes                                    |
+`WeeklyReport` and `DailyReport` (Phase 4) share one table — see
+"Discriminated union ↔ single table" above. `kind`/`report_date` are new in
+`supabase/migrations/20260717000002_daily_reports.sql`; every other column
+below predates Phase 4 and is unchanged.
+
+| TS field (`AnyReport`)      | Column                    | Type      | Notes                                    |
 | ---------------------------- | ------------------------- | --------- | ----------------------------------------- |
 | `id`                         | `id`                      | `text` PK |                                            |
-| `weekStart`                  | `week_start`               | `date`    |                                            |
-| `weekEnd`                    | `week_end`                 | `date`    | indexed `desc` (dashboard default sort)   |
+| `kind`                       | `kind`                    | `text`    | `check in ('weekly','daily')`, default `'weekly'`; see `reports_period_by_kind` |
+| `weekStart` (weekly only)    | `week_start`               | `date`    | nullable (NULL for `kind = 'daily'`)      |
+| `weekEnd` (weekly only)      | `week_end`                 | `date`    | nullable (NULL for `kind = 'daily'`); indexed `(kind, week_end desc)` |
+| `date` (daily only)          | `report_date`              | `date`    | nullable (NULL for `kind = 'weekly'`); unique where `kind = 'daily'` (`reports_one_daily_per_day`); indexed `(kind, report_date desc)` |
 | `status`                     | `status`                   | `text`    | `check in ('Draft','Final','Sent')`       |
 | `preparedFor`                | `prepared_for`             | `text`    |                                            |
 | `preparedBy`                 | `prepared_by`              | `text`    |                                            |
@@ -99,18 +135,24 @@ cutover. The migration itself lives at
 ## Cutover checklist
 
 1. Implement `SupabaseReportsRepository` in `lib/data/`, satisfying the
-   existing `ReportsRepository` interface (`getAll`/`getById`/`upsert`/
-   `update`) — UI code never changes, since it only ever calls
-   `getReportsRepository()` (`lib/data/index.ts`).
+   existing `ReportsRepository` interface (`getAll`/`getAllDaily`/`getById`/
+   `upsert`/`update`) — UI code never changes, since it only ever calls
+   `getReportsRepository()` (`lib/data/index.ts`). `getAll()` filters to
+   `kind = 'weekly'`, `getAllDaily()` to `kind = 'daily'` — both against the
+   same `reports` table (see "Discriminated union ↔ single table" above).
 2. Map camelCase (TS) ↔ snake_case (SQL) per the field-mapping tables above.
-   `getAll`/`getById` join `tasks`/`risks`/`priorities` (ordered by
-   `position`) back into each `Report` object; `upsert`/`update` write the
-   `reports` row plus replace its child rows (delete + reinsert by
+   `getAll`/`getAllDaily`/`getById` join `tasks`/`risks`/`priorities`
+   (ordered by `position`) back into each report object, and reconstruct
+   the TS union (`kind = 'weekly'` rows get `weekStart`/`weekEnd`, `kind =
+   'daily'` rows get `date`, per `reports_period_by_kind`); `upsert`/`update`
+   write the `reports` row plus replace its child rows (delete + reinsert by
    `report_id`, re-deriving `position` from array order, is the simplest
    correct strategy given these are small per-report lists).
-3. One-time import: read every existing browser's `ff.weekly-reports.v1`
-   localStorage payload and `upsert` each `Report` through the new
-   repository (ids import verbatim — see "Text ids" above).
+3. One-time import: read every existing browser's `ff.reports.v2`
+   localStorage payload (both kinds — the pre-Phase-4 `ff.weekly-reports.v1`
+   key is superseded by it, see `LocalStorageReportsRepository`'s v1→v2
+   migration) and `upsert` each `AnyReport` through the new repository (ids
+   import verbatim — see "Text ids" above).
 4. Swap the single switch point: `getReportsRepository()` in
    `lib/data/index.ts` returns `SupabaseReportsRepository` instead of
    `LocalStorageReportsRepository`.

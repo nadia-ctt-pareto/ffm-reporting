@@ -1,18 +1,27 @@
 // Ported verbatim from design-source/original-dashboard.dc.html script block:
 // ffOnSchedule/ffOpenBlockers (428-429), tone mappers (441-443),
 // ffBlankDraft (445-448), validateStep (530-536).
+//
+// Phase 4 additions: blankDailyDraft(), a kind-aware validateStep() (daily
+// step 1 also rejects a date that collides with an existing daily, see
+// dailyDateConflict), and reportPeriodLabel/draftPeriodLabel/reportPeriodEnd
+// -- the single place every screen (list, wizard, report, deck, CSV) goes to
+// turn an AnyReport/Draft's period into display text or a sort key, so
+// "weekly -> fmtWeekLabel" / "daily -> fmtDateShort" never has to be
+// re-decided at each call site.
 
-import type { BadgeTone, Draft, Report, RiskSeverity, Task, TaskStatus } from './types';
+import { fmtDateShort, fmtWeekLabel } from './format';
+import type { AnyReport, BadgeTone, DailyReport, Draft, ReportCore, RiskSeverity, ReportStatus, Task, TaskStatus } from './types';
 
 /** Line 428 */
-export function onSchedule(report: Pick<Report, 'tasks'>): { onSched: number; total: number } {
+export function onSchedule(report: Pick<ReportCore, 'tasks'>): { onSched: number; total: number } {
   const total = report.tasks.length;
   const onSched = report.tasks.filter((t) => t.status !== 'Blocked').length;
   return { onSched, total };
 }
 
 /** Line 429 */
-export function openBlockers(report: Pick<Report, 'tasks'>): number {
+export function openBlockers(report: Pick<ReportCore, 'tasks'>): number {
   return report.tasks.filter((t) => t.status === 'Blocked').length;
 }
 
@@ -21,7 +30,7 @@ export function openBlockers(report: Pick<Report, 'tasks'>): number {
  * Badge's style map, so "Final" badges render as 'neutral'. Faithful port of
  * a prototype quirk; see the BadgeTone comment in lib/types.ts.
  */
-export function statusTone(status: Report['status']): BadgeTone {
+export function statusTone(status: ReportStatus): BadgeTone {
   return status === 'Sent' ? 'dark' : status === 'Final' ? 'green' : 'sage';
 }
 
@@ -39,8 +48,10 @@ export function riskTone(severity: RiskSeverity): BadgeTone {
 export function blankDraft(): Draft {
   return {
     id: null,
+    kind: 'weekly',
     weekStart: '',
     weekEnd: '',
+    date: '',
     preparedFor: 'Christene, Founder',
     preparedBy: 'Jordan Reyes, Project Manager',
     summaryNarrative: '',
@@ -53,6 +64,11 @@ export function blankDraft(): Draft {
   };
 }
 
+/** Phase 4: the daily-report sibling of blankDraft() -- same defaults, `kind: 'daily'`, no week fields. */
+export function blankDailyDraft(): Draft {
+  return { ...blankDraft(), kind: 'daily', weekStart: '', weekEnd: '' };
+}
+
 /**
  * Phase 3 (Task view Kanban). Pure helper: returns a new `tasks` array with
  * the task matching `taskId` moved to `status` (no-op copy if not found).
@@ -60,24 +76,79 @@ export function blankDraft(): Draft {
  * (which stamps a fresh `updatedAt` and persists) -- this function never
  * touches storage itself.
  */
-export function withTaskStatus(report: Pick<Report, 'tasks'>, taskId: string, status: TaskStatus): Task[] {
+export function withTaskStatus(report: Pick<ReportCore, 'tasks'>, taskId: string, status: TaskStatus): Task[] {
   return report.tasks.map((t) => (t.id === taskId ? { ...t, status } : t));
+}
+
+/** Phase 4: the display label for an AnyReport's period -- "Week of ..." for weekly, a short date for daily. Used by lists, the wizard's import panels, the report screen/deck, and CSV export. */
+export function reportPeriodLabel(report: AnyReport): string {
+  return report.kind === 'weekly' ? fmtWeekLabel(report.weekStart, report.weekEnd) : fmtDateShort(report.date);
+}
+
+/** Phase 4: same as reportPeriodLabel, but for an in-progress Draft (which always carries both weekStart/weekEnd and date, using whichever the draft's `kind` calls for). */
+export function draftPeriodLabel(draft: Draft): string {
+  return draft.kind === 'weekly' ? fmtWeekLabel(draft.weekStart, draft.weekEnd) : fmtDateShort(draft.date);
+}
+
+/** Phase 4: the ISO string to sort/compare an AnyReport's period by (weekEnd for weekly, date for daily) -- both are ISO strings, so plain `localeCompare` stays correct (see CLAUDE.md "Conventions"). */
+export function reportPeriodEnd(report: AnyReport): string {
+  return report.kind === 'weekly' ? report.weekEnd : report.date;
+}
+
+/**
+ * Phase 4: true when `draft` is a daily report whose `date` matches an
+ * existing daily OTHER than itself (`id !== draft.id`, so editing an
+ * existing daily in place is never flagged against its own prior save).
+ * Enforces "one daily report per day, covering all clients" in the UI --
+ * mirrored in SQL by the `reports_one_daily_per_day` partial unique index
+ * (supabase/migrations/20260717000002_daily_reports.sql).
+ */
+export function dailyDateConflict(draft: Draft, existingDailies: DailyReport[]): boolean {
+  if (draft.kind !== 'daily' || !draft.date) return false;
+  return existingDailies.some((d) => d.date === draft.date && d.id !== draft.id);
+}
+
+/**
+ * Phase 4: the report-screen-edit cousin of dailyDateConflict, for
+ * `/daily/[id]`'s inline, autosaving Date field (which has no wizard-style
+ * "Next" gate to catch a bad value before it's persisted). True when `date`
+ * is blank OR collides with another daily's date (excluding `id` itself) --
+ * both cases must be rejected before the patch reaches
+ * `useDailyReports().updateReportFields`, or the one-daily-per-day
+ * invariant (`reports_one_daily_per_day` in SQL) can be silently violated
+ * via this edit path alone.
+ */
+export function invalidDailyDateEdit(existingDailies: DailyReport[], id: string, date: string): boolean {
+  return !date || existingDailies.some((d) => d.date === date && d.id !== id);
 }
 
 /**
  * Lines 530-536. Used by the wizard (Pass 2); defined now so the contract
- * exists for both passes.
+ * exists for both passes. Phase 4: step 1 branches on `draft.kind` (a
+ * single `date` for daily vs. `weekStart`/`weekEnd` for weekly) and, for
+ * daily drafts, also rejects a date collision via dailyDateConflict()
+ * (`existingDailies` is only consulted for that check -- pass `[]` from any
+ * weekly call site, it's a no-op there). Step 5's error copy is also
+ * kind-aware ("next week" only makes sense for a weekly draft) -- steps 2-4
+ * are identical for both kinds.
  */
-export function validateStep(step: number, draft: Draft): string {
+export function validateStep(step: number, draft: Draft, existingDailies: DailyReport[] = []): string {
   if (step === 1) {
-    if (!draft.weekStart || !draft.weekEnd) return 'Enter the week start and end dates.';
+    if (draft.kind === 'daily') {
+      if (!draft.date) return 'Enter the report date.';
+      if (dailyDateConflict(draft, existingDailies)) return 'A daily report for this date already exists.';
+    } else {
+      if (!draft.weekStart || !draft.weekEnd) return 'Enter the week start and end dates.';
+    }
     if (!draft.preparedFor.trim()) return 'Enter who this report is prepared for.';
   }
   if (step === 2) {
     if (draft.tasks.length === 0) return 'Add at least one task before continuing.';
   }
   if (step === 5) {
-    if (draft.priorities.length === 0) return "Add at least one priority for next week.";
+    if (draft.priorities.length === 0) {
+      return draft.kind === 'daily' ? 'Add at least one priority.' : "Add at least one priority for next week.";
+    }
   }
   return '';
 }

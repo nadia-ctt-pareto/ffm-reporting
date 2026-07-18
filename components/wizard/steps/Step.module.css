@@ -92,3 +92,23 @@
   color: var(--text-heading-accent);
   margin-bottom: 14px;
 }
+
+/* Phase 4: the weekly wizard's "Import This Week's Daily Reports" panel
+   (StepBasics) -- same visual treatment as ImportPanel.module.css's
+   .panel/.kicker, kept as its own class since this panel has no source
+   Select/candidate list, just a count + one button. */
+.dailyImportPanel {
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 20px 22px;
+  margin-bottom: 28px;
+  color: var(--text-body);
+}
+
+.dailyImportCopy {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+  max-width: 560px;
+}

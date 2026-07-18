@@ -1,21 +1,23 @@
 # Weekly Reports Dashboard — Foundation First Marketing
 
-Internal weekly-reporting tool for a boutique marketing agency. Project managers compose a structured weekly client report through a 6-step wizard, then browse and filter published reports on a dashboard. Started as a faithful Next.js/React port of a Claude Design prototype (kept in `design-source/`), now growing into a fuller internal app.
+Internal reporting tool for a boutique marketing agency. Project managers compose a structured weekly client report (or a daily report covering all clients) through a shared 6-step wizard, then browse and filter published reports on a dashboard/daily list. Started as a faithful Next.js/React port of a Claude Design prototype (kept in `design-source/`), now growing into a fuller internal app.
 
 ## Features
 
 - **Sidebar app shell** with route-per-screen navigation and a collapsible sidebar.
-- **Dashboard**: overview stats; filter by status/client/search; sort; **pagination** (page size 4 / 8 / 12 / All); export all tasks as CSV.
-- **6-Step New Report Wizard** (`/reports/new`, resume at `/reports/[id]/edit`): Basics → Task Status → Touchpoints & Win → Risks & Blockers → Priorities → Review & Export.
+- **Dashboard**: overview stats for the 7 weekly reports; filter by status/client/search; sort; **pagination** (page size 4 / 8 / 12 / All); export all tasks as CSV.
+- **Daily Reports** (`/daily`): one report per day, covering all clients (not per-client) — a list (Date, Status, Tasks On Sched., Blockers, Updated, Continue/View), a Status filter, pagination, CSV export, and "New Daily Report". One daily per calendar date is enforced (an inline wizard error on a duplicate date, plus a SQL partial unique index).
+- **6-Step Report Wizard**, shared by both weekly (`/reports/new`, resume at `/reports/[id]/edit`) and daily (`/daily/new`, resume at `/daily/[id]/edit`) reports: Basics → Task Status → Touchpoints & Win → Risks & Blockers → Priorities → Review & Export. Basics is the only step that differs (a single Date field for daily vs. Week Start/End for weekly).
   - Per-step validation; Save Draft / Publish.
-  - Import carry-forward panels on steps 2, 4, and 5 (re-use pending items from prior reports).
-- **Report screen** (`/reports/[id]`): the full report, with inline auto-save of status/prepared-for/week dates, read-only stats/tasks/risks/priorities, a PDF-preview filmstrip, and actions to copy the share link, download a PDF, or open the full presentation.
-- **Branded HTML slide-deck presentation** (`/reports/[id]/present`): a bare, read-only, 6-slide deck (Cover, Summary & Touchpoints, Task Status, Risks & Blockers, Priorities, The Win) — no sidebar, just the deck + a screen-only export toolbar. The exact same `ReportDeck` component powers both this route and the report screen's preview, so what you preview is what you export.
-- **Task view** (`/tasks`): every task across every report, in **List** mode (grouped by status: Blocked → In Progress → Complete, each row linking to its report) or **Kanban** mode (three drag-and-drop columns, powered by `@dnd-kit/core`; dragging a card to another column updates that task's status on its parent report and persists). A plain click on a Kanban card navigates to its report; dragging changes its status; keyboard drag (Space/arrows/Space) works too.
-- **Calendar view** (`/calendar`): reports placed on a calendar by their `weekStart`/`weekEnd`, in **This Week** (a single Mon–Sun row) or **This Month** (a Monday-start, 6-row grid) mode, with Prev/Next/Today navigation. Weekly reports render as spanning bars; a month row with more reports than fit collapses the rest into a "+N more" popover.
+  - Import carry-forward panels on steps 2, 4, and 5 (re-use pending items from prior reports of the same kind).
+  - **Weekly-only**: an "Import This Week's Daily Reports" panel on step 1 aggregates that week's daily reports into the draft — tasks/risks dedupe by client (keeping each one's latest status), touchpoints are summed, and the win carries over only if the draft doesn't already have one.
+- **Report screen** (`/reports/[id]` and `/daily/[id]`): the full report, with inline auto-save of status/prepared-for/period (week dates or a single date), read-only stats/tasks/risks/priorities, a PDF-preview filmstrip, and actions to copy the share link, download a PDF, or open the full presentation.
+- **Branded HTML slide-deck presentation** (`/reports/[id]/present` and `/daily/[id]/present`): a bare, read-only, 6-slide deck (Cover, Summary & Touchpoints, Task Status, Risks & Blockers, Priorities, The Win) — no sidebar, just the deck + a screen-only export toolbar. The exact same `ReportDeck` component powers both routes and the report screen's preview, so what you preview is what you export, for both report kinds.
+- **Task view** (`/tasks`): every WEEKLY report's tasks, in **List** mode (grouped by status: Blocked → In Progress → Complete, each row linking to its report) or **Kanban** mode (three drag-and-drop columns, powered by `@dnd-kit/core`; dragging a card to another column updates that task's status on its parent report and persists). A plain click on a Kanban card navigates to its report; dragging changes its status; keyboard drag (Space/arrows/Space) works too. (Daily-report tasks aren't surfaced here yet — documented follow-up, see CLAUDE.md.)
+- **Calendar view** (`/calendar`): WEEKLY reports placed on a calendar by their `weekStart`/`weekEnd`, in **This Week** (a single Mon–Sun row) or **This Month** (a Monday-start, 6-row grid) mode, with Prev/Next/Today navigation. Weekly reports render as spanning bars; a month row with more reports than fit collapses the rest into a "+N more" popover. (Daily reports as single-day chips are a documented follow-up.)
 - **Print-to-PDF**: "Download PDF" opens the presentation route and auto-triggers the browser's print dialog once fonts are ready; fixed 1280×720 slide pages print pixel-faithfully in Chrome/Edge (`@page` custom size + `print-color-adjust: exact` for the full-bleed black cover band and sage "Win" slide).
 - **Dark mode**: a real, uniform theme (`data-theme` + semantic tokens) with 1:1 parity to light mode; preference persists across reloads. The presentation deck itself always renders brand-light, regardless of the app's theme — it's the printed/shared artifact.
-- **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 sample reports). Share links only resolve in a browser whose local storage already has that report — true cross-machine sharing arrives with the Supabase cutover.
+- **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 weekly + 5 daily sample reports). Share links only resolve in a browser whose local storage already has that report — true cross-machine sharing arrives with the Supabase cutover.
 
 ## Getting Started
 
@@ -24,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On first load, the app seeds `localStorage` with 7 sample reports (key: `ff.weekly-reports.v1`). To reset, clear your browser's local storage for this origin.
+Open [http://localhost:3000](http://localhost:3000). On first load, the app seeds `localStorage` with 7 weekly + 5 daily sample reports (key: `ff.reports.v2`). To reset, clear your browser's local storage for this origin. If you have data from before Phase 4 (key `ff.weekly-reports.v1`), it's migrated to `ff.reports.v2` automatically on first load — the old `v1` key is left in place afterward as a backup, never deleted.
 
 ## Scripts
 
@@ -45,20 +47,26 @@ app/
   layout.tsx                       # Root layout: fonts, ThemeProvider, pre-hydration theme script
   (shell)/
     layout.tsx                     # AppShell (sidebar + content) wrapping every in-shell route
-    page.tsx                       # /                        Dashboard
+    page.tsx                       # /                        Dashboard (weeklies)
     reports/new/page.tsx           # /reports/new              Blank weekly wizard
-    reports/[id]/edit/page.tsx     # /reports/:id/edit         Resume a draft
-    reports/[id]/page.tsx          # /reports/:id              Report screen
-    tasks/page.tsx                 # /tasks                    Task view (List/Kanban)
-    calendar/page.tsx              # /calendar                 Calendar view (Week/Month)
-  reports/[id]/present/page.tsx    # /reports/:id/present      Bare slide-deck route (no sidebar)
+    reports/[id]/edit/page.tsx     # /reports/:id/edit         Resume a weekly draft
+    reports/[id]/page.tsx          # /reports/:id              Weekly report screen
+    daily/page.tsx                 # /daily                    Daily report list
+    daily/new/page.tsx             # /daily/new                Blank daily wizard
+    daily/[id]/edit/page.tsx       # /daily/:id/edit           Resume a daily draft
+    daily/[id]/page.tsx            # /daily/:id                Daily report screen
+    tasks/page.tsx                 # /tasks                    Task view (List/Kanban, weeklies)
+    calendar/page.tsx              # /calendar                 Calendar view (Week/Month, weeklies)
+  reports/[id]/present/page.tsx    # /reports/:id/present      Bare weekly slide-deck route (no sidebar)
+  daily/[id]/present/page.tsx      # /daily/:id/present        Bare daily slide-deck route (no sidebar)
 
 components/
   app/          AppShell.tsx, Sidebar.tsx           # navigation shell
   theme/        ThemeProvider.tsx                   # data-theme dark-mode source of truth
   dashboard/    DashboardPage.tsx (orchestration), DashboardScreen.tsx (presentational)
-  wizard/       WizardPage.tsx, WizardScreen.tsx, WizardStepper.tsx, ImportPanel.tsx, steps/, useWizard.ts
-  report/       ReportScreen.tsx, ReportDeck.tsx, PresentScreen.tsx
+  daily/        DailyPage.tsx (orchestration), DailyListScreen.tsx (presentational)
+  wizard/       WizardPage.tsx, WizardScreen.tsx (both kind-aware), WizardStepper.tsx, ImportPanel.tsx, steps/, useWizard.ts
+  report/       ReportScreen.tsx, ReportDeck.tsx, PresentScreen.tsx (all generalized to AnyReport/kind)
   tasks/        TaskViewScreen.tsx, TaskList.tsx, KanbanBoard.tsx, KanbanColumn.tsx, TaskCard.tsx
   calendar/     CalendarScreen.tsx, WeekGrid.tsx, MonthGrid.tsx
   dialogs/      ShareDialog.tsx
@@ -67,9 +75,10 @@ components/
 
 lib/
   types.ts, constants.ts, format.ts, report-utils.ts, csv.ts, seed.ts
+  aggregate.ts  # daily-reports-into-weekly-draft rollup (pure)
   view-utils.ts, calendar.ts   # Phase 3 derivation selectors (pure, no new storage)
   data/         reports-repository.ts (interface), local-storage-reports-repository.ts, index.ts (factory)
-  hooks/        useReports.ts
+  hooks/        useReports.ts, useDailyReports.ts
 
 styles/
   tokens/*.css                  # Brand tokens (verbatim from design-source)
@@ -91,7 +100,7 @@ design-source/                  # Claude Design prototype + tokens + NEXT_STEPS 
 
 ### Swappable repository pattern
 
-Data access is decoupled via the `ReportsRepository` interface (`lib/data/reports-repository.ts`). The **MVP** `LocalStorageReportsRepository` stores everything under the versioned key `ff.weekly-reports.v1` and auto-seeds 7 sample reports on first load.
+Data access is decoupled via the `ReportsRepository` interface (`lib/data/reports-repository.ts`). The **MVP** `LocalStorageReportsRepository` stores everything (both weekly and daily reports, discriminated by `kind`) under one versioned key, `ff.reports.v2`, and auto-seeds 7 weekly + 5 daily sample reports on first load. A pre-Phase-4 `ff.weekly-reports.v1` payload (weeklies only, no `kind` field) is migrated to `ff.reports.v2` automatically on first read — the `v1` key is kept in place afterward, forever, purely as a backup (see CLAUDE.md "Daily reports & the weekly import (Phase 4)" for the full migration-safety rationale).
 
 **UI code must never import a concrete repository** — everything calls `getReportsRepository()` from `lib/data/index.ts`. That single factory is where a future Supabase/Postgres implementation slots in with **zero UI changes**. The Postgres schema is already versioned under `supabase/migrations/` (see `docs/database-schema.md`) so the cutover is fast, even though no repository reads it yet.
 
@@ -118,8 +127,8 @@ Data access is decoupled via the `ReportsRepository` interface (`lib/data/report
 
 ## Roadmap
 
-**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination, full report screen, branded HTML slide-deck presentation, print-to-PDF, share links, Task view (List/Kanban) + Calendar view (Week/Month).
-**Next phase**: daily reports + roll-up into the weekly wizard (4).
+**Now**: everything local (`localStorage`), sidebar shell, real dark mode, pagination, full report screen, branded HTML slide-deck presentation, print-to-PDF, share links, Task view (List/Kanban) + Calendar view (Week/Month), daily reports (`/daily`) + weekly wizard roll-up.
+**Next**: surface daily reports in the Task view and Calendar (deliberately deferred out of Phase 4, see CLAUDE.md).
 **Later**: implement `SupabaseReportsRepository` against the versioned migrations, deploy on Vercel, true cross-machine share links.
 
 Post-MVP usability/design backlog: `design-source/NEXT_STEPS.md`. Design rationale and conventions: `CLAUDE.md`.
