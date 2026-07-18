@@ -2,9 +2,12 @@
 
 import type { ComponentType, SVGProps } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Tooltip } from 'radix-ui';
-import { IconCalendar, IconConsolidate, IconDaily, IconDashboard, IconSettings, IconTasks } from '@/components/ui/icons';
+import { IconCalendar, IconConsolidate, IconDaily, IconDashboard, IconSettings, IconSignOut, IconTasks } from '@/components/ui/icons';
+import { useSession } from '@/lib/hooks/useSession';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 import styles from './Sidebar.module.css';
 
 export interface SidebarProps {
@@ -33,6 +36,14 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading } = useSession();
+  const configured = isSupabaseConfigured();
+
+  const handleSignOut = async () => {
+    await getSupabaseBrowserClient().auth.signOut();
+    router.push('/login');
+  };
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
@@ -71,10 +82,43 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         })}
       </nav>
 
-      {/* Phase 5: theme control moved to /settings -- this footer is now
-          just the collapse toggle (the Dark Mode Switch/sun-moon button
-          that used to live here is gone, along with the useTheme import). */}
+      {/* Phase 5: theme control moved to /settings -- this footer was just
+          the collapse toggle (the Dark Mode Switch/sun-moon button that
+          used to live here is gone, along with the useTheme import). Phase
+          7a adds the signed-in session block below it, rendered only when
+          isSupabaseConfigured() -- demo mode's footer is unchanged.
+          `loading` (useSession) reserves this block's layout space with an
+          empty placeholder while `auth.getUser()` is still resolving, so
+          the session row doesn't visibly pop in a beat after first paint. */}
       <div className={styles.footer}>
+        {configured && loading ? <div className={styles.session} aria-hidden="true" /> : null}
+        {configured && !loading && user ? (
+          collapsed ? (
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button type="button" className={styles.footerAction} onClick={handleSignOut} aria-label={`Sign out (${user.email})`}>
+                  <IconSignOut className={styles.navIcon} aria-hidden="true" />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className={styles.tooltip} side="right" sideOffset={8}>
+                  Sign out ({user.email})
+                  <Tooltip.Arrow className={styles.tooltipArrow} />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          ) : (
+            <div className={styles.session}>
+              <span className={styles.sessionEmail} title={user.email}>
+                {user.email}
+              </span>
+              <button type="button" className={styles.footerAction} onClick={handleSignOut}>
+                <IconSignOut className={styles.navIcon} aria-hidden="true" />
+                Sign Out
+              </button>
+            </div>
+          )
+        ) : null}
         <button
           type="button"
           className={styles.collapseToggle}

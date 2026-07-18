@@ -1,0 +1,99 @@
+/* Bare, brand-styled auth screen -- same centered-card-on-full-viewport
+   idiom as PresentScreen.module.css's `.notFoundWrap` (see that file). No
+   sidebar applies here (outside the (shell) route group). */
+
+.wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 64px 24px;
+  background: var(--surface-page);
+}
+
+.mark {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 24px;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-weight: var(--weight-light);
+  font-size: 32px;
+  color: var(--text-heading);
+  margin: 0 0 12px;
+}
+
+.copy {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: var(--leading-body);
+  color: var(--text-muted);
+  max-width: 380px;
+  margin: 0 0 32px;
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  padding: 32px;
+  text-align: left;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.error {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--negative);
+  background: transparent;
+  border: 1px solid var(--negative);
+  padding: 10px 12px;
+  margin: 0 0 4px;
+}
+
+/* Post-review fix (S8): `--negative` (#8C2F22, a muted brick red) has no
+   dark-mode override -- against dark `--surface-card` (#141414) that's
+   2.23:1, failing WCAG AA for both text (needs 4.5:1) and this element's
+   own border (needs 3.0:1 as a non-text UI component). Scoped locally to
+   this component (not a `--negative` override in styles/theme-dark.css)
+   specifically to avoid an unreviewed, app-wide visual change to every
+   other `--negative` usage (e.g. Badge's negative tone) as a side effect
+   of a fix aimed at this one new element. #F0685C is a lighter, WCAG-AA
+   dark-mode-safe red (6.0:1 against #141414) that still reads clearly as
+   an error state. */
+[data-theme='dark'] .error {
+  color: #f0685c;
+  border-color: #f0685c;
+}
+
+.sentMark {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  margin: 0 0 8px;
+}
+
+.sentCopy {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: var(--leading-body);
+  color: var(--text-muted);
+  margin: 0;
+}

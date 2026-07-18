@@ -100,3 +100,14 @@ export function IconSettings(props: SVGProps<SVGSVGElement>) {
     </IconBase>
   );
 }
+
+/** Phase 7a: an open square door frame + an arrow exiting through it -- "sign out". Same square-cornered aesthetic as every other sidebar icon (was a bare "⎋" glyph, the only non-SVG sidebar icon; see Sidebar.tsx). */
+export function IconSignOut(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M7 1.5H2.5V14.5H7" />
+      <path d="M6 8H14.5" />
+      <path d="M11 4.5L14.5 8L11 11.5" />
+    </IconBase>
+  );
+}

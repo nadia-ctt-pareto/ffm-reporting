@@ -44,6 +44,90 @@ Open [http://localhost:3000](http://localhost:3000). On first load, the app seed
 
 All three gates (`build`, `lint`, `typecheck`) must pass before review.
 
+## Local Supabase stack (Phase 7a — optional, for Auth)
+
+The app runs fine with **no Supabase stack at all** — absence of
+`NEXT_PUBLIC_SUPABASE_URL` means demo mode: no auth, no middleware
+redirects, `localStorage` seeds, every Phase 1-6 flow unchanged. The local
+Supabase stack below is only needed to exercise Supabase Auth (magic-link
+sign-in, per-user ownership, RLS) during Phase 7 development.
+
+**Prerequisites**: Docker running, [Supabase CLI](https://supabase.com/docs/guides/cli) installed.
+
+```bash
+supabase start        # applies supabase/migrations/*.sql (in filename order), then supabase/seed.sql
+supabase status        # prints the API URL + anon/service keys -- source of .env.local's values
+supabase db reset       # wipe + re-apply every migration + supabase/seed.sql (the dev reset loop)
+supabase stop           # stop the local stack (data persists in a Docker volume)
+```
+
+Then create `.env.local` (copy `.env.example`) with the two values `supabase status` printed:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key from supabase status>
+```
+
+Restart `npm run dev` after adding/removing `.env.local` — Next.js only
+reads environment variables at process start.
+
+With the stack up and `.env.local` present: every route except `/login`,
+`/auth/*`, and the bare `/reports/[id]/present` / `/daily/[id]/present`
+share routes requires sign-in (magic link only — enter an email on
+`/login`, the link arrives in the local mail-testing server at
+[http://127.0.0.1:54324](http://127.0.0.1:54324), a.k.a. Mailpit). Two
+seed users exist for local testing (`supabase/seed.sql`), password
+`local-dev-password` for scripts that need password sign-in (the UI itself
+is magic-link-only):
+
+| Email | Role |
+|---|---|
+| `dev@foundationfirst.test` | admin (`app_metadata.role = 'admin'`) |
+| `member@foundationfirst.test` | plain member |
+
+Signup is restricted to an email-domain allowlist enforced server-side via
+a Postgres `before_user_created` Auth Hook (see `docs/database-schema.md`
+"Auth, ownership, and RLS (Phase 7a)"). To add an allowed domain: `insert
+into public.allowed_signup_domains (domain) values ('example.com')`
+(lowercase, no leading `@`) via a migration (production) or directly in
+psql/Studio (local dev).
+
+Studio (`http://127.0.0.1:54323`) is available for browsing the local
+database directly.
+
+**Production posture note**: `supabase/config.toml` only governs a
+*hosted* Supabase project once `supabase config push` (or the dashboard)
+applies it — a deployed project's actual auth settings (signup, email
+confirmations, redirect URLs, the domain allowlist) must be verified
+independently in the Supabase dashboard at Phase 9 deploy time, not assumed
+from this file alone.
+
+### Troubleshooting
+
+- **`supabase db reset` exits with `Error status 502: An invalid response
+  was received from the upstream server` after "Restarting containers".**
+  Harmless and specific to the (unused) Storage service: `db reset`
+  restarts the storage container (giving it a new internal Docker network
+  IP) but does NOT restart Kong, whose nginx layer caches the OLD IP for
+  the storage upstream until Kong itself restarts — so `/storage/v1/*`
+  502s for a while after a reset (verified: `/rest/v1/*` and `/auth/v1/*`,
+  everything this app actually uses, keep working the whole time). Fix:
+  `supabase stop && supabase start` (a full restart, not just `db reset`)
+  if you need Storage specifically; otherwise ignore it.
+- **The magic-link email arrives with the DEFAULT GoTrue template instead
+  of the branded one** (subject line isn't "Your Weekly Reports sign-in
+  link", or the link points at `/auth/v1/verify` instead of
+  `/auth/confirm`). GoTrue fetches custom email templates
+  (`supabase/templates/*.html`) over HTTP through Kong at container
+  startup; if Kong isn't fully up yet at that exact moment, the fetch fails
+  once and GoTrue falls back to its built-in default for the rest of that
+  container's lifetime (verified in the auth container's logs:
+  `templatemailer_template_body_http_error ... connection refused`). Fix:
+  `docker restart supabase_auth_<project-name>` once Kong is confirmed
+  healthy (`docker ps`) -- a plain `supabase start`/`stop` cycle can
+  trigger this same race, a `db reset` does not (Kong is already running by
+  then).
+
 ## Project Structure
 
 ```
