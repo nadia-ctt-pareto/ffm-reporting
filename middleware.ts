@@ -36,7 +36,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { isSupabaseConfigured } from './lib/supabase/config';
 
-const PUBLIC_EXACT_OR_PREFIX = [/^\/login$/, /^\/auth\//];
+// `/sw.js` must stay reachable while signed out. It is the self-destroying
+// service worker (see public/sw.js) whose whole job is to evict a foreign
+// worker left on this origin by another project; a foreign worker polls that
+// exact path for updates, and if the poll gets a 307 to /login it receives
+// HTML instead of JavaScript, rejects the update, and survives -- continuing
+// to serve this app stale chunks. Belt-and-braces alongside the matcher's
+// static-extension exclusion below.
+const PUBLIC_EXACT_OR_PREFIX = [/^\/login$/, /^\/auth\//, /^\/sw\.js$/];
 const PUBLIC_PRESENT = [/^\/reports\/[^/]+\/present$/, /^\/daily\/[^/]+\/present$/];
 
 function isPublicPath(pathname: string): boolean {
@@ -83,6 +90,15 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
+// The extension list must cover every static asset type served from `public/`,
+// not just images. It previously stopped at image formats, so `/sw.js` -- and
+// any other script, stylesheet, font, or manifest in `public/` -- was run
+// through auth and 307'd to /login while signed out. A static file answering
+// with a login page is never right, and for `/sw.js` specifically it defeats
+// the service-worker eviction described above. No application route ends in
+// one of these extensions, so excluding them cannot shadow a real page.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|js|mjs|css|map|txt|json|webmanifest|woff|woff2|ttf|otf)$).*)',
+  ],
 };
