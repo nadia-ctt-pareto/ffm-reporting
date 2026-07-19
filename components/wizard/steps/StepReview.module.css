@@ -27,6 +27,12 @@
   margin-bottom: 32px;
 }
 
+@media screen and (max-width: 767px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .kicker {
   font-family: var(--font-heading);
   font-weight: 600;

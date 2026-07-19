@@ -47,12 +47,18 @@ function readFlag(record: Record<string, boolean>, key: string, fallback: boolea
 }
 
 const SOURCE_COLUMNS: TableColumn[] = [
-  { key: 'include', label: '' },
+  // Mobile P3 follow-up: `label: ''` is kept for the desktop `<th>` (a
+  // visible "Include" header there would be redundant next to every other
+  // column's real header) -- `stackedLabel` supplies a real label for the
+  // mobile stacked layout only, so this cell pairs with a label instead of
+  // rendering detached (see Table.module.css's `[data-role='actions']` doc
+  // comment).
+  { key: 'include', label: '', stackedLabel: 'Include' },
   { key: 'period', label: 'Kind & Period' },
   { key: 'status', label: 'Status' },
   { key: 'tasks', label: 'Tasks', align: 'center' },
   { key: 'risks', label: 'Risks', align: 'center' },
-  { key: 'actions', label: '', align: 'right' },
+  { key: 'actions', label: '', align: 'right', isAction: true },
 ];
 
 const LOG_COLUMNS: TableColumn[] = [
@@ -197,6 +203,7 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
                 <div className={styles.sourceGroupHeading}>{bucketLabel(key, projects)}</div>
                 <Table
                   dense
+                  stacked
                   columns={SOURCE_COLUMNS}
                   rows={sources.map((source) => {
                     const sourceLabel = `${source.kind === 'weekly' ? 'Weekly' : 'Daily'} ${reportPeriodLabel(source)}`;
@@ -282,6 +289,7 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
                   </p>
                   <Table
                     dense
+                    scrollX
                     columns={LOG_COLUMNS}
                     rows={log.map((entry) => ({
                       type: entry.type,

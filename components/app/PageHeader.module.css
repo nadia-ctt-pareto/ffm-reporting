@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 48px;
+  padding: var(--header-pad-y) var(--page-pad-x);
   background: var(--surface-page);
   border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;

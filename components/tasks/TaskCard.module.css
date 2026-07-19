@@ -4,10 +4,35 @@
   border-left: 3px solid var(--border-strong);
   padding: 12px 14px;
   cursor: grab;
-  /* Recommended by dnd-kit for pointer-sensor drags on touch devices --
-     without it, the browser's own touch-scroll competes with the drag. */
-  touch-action: none;
+  /*
+   * Mobile P5: `manipulation` (not `none`) so the browser's native
+   * touch-scroll runs freely on a card until `TouchSensor`'s 250ms delay
+   * elapses (see KanbanBoard.tsx) -- `none` would block page scroll on
+   * ANY touch that starts on a card, and once columns stack to 1-up at
+   * <=767px, cards cover most of the viewport. `manipulation` still
+   * disables double-tap-to-zoom, which is what dnd-kit's touch docs
+   * actually need here (pinch-zoom was never in play). Unscoped (applies
+   * at every width) -- correct at all widths, unlike the two rules below.
+   */
+  touch-action: manipulation;
   outline: none;
+}
+
+/*
+ * Mobile P5: `user-select`/`-webkit-touch-callout` suppression is scoped to
+ * <=767px only. dnd-kit's `TouchSensor` only clears selection during an
+ * *active* drag -- these two properties existed purely to stop a touch's
+ * long-press text-selection callout from fighting the 250ms drag-activation
+ * delay on a touchscreen. Left unscoped, they silently regressed desktop:
+ * `PointerSensor`'s mouse path never needed them, so a 1440px user lost the
+ * ability to select-and-copy a task title or client name out of the Kanban
+ * board -- a behavior change from what should have been a mobile-only phase.
+ */
+@media screen and (max-width: 767px) {
+  .card {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
 }
 
 .card:hover {

@@ -13,6 +13,18 @@ import styles from './Sidebar.module.css';
 export interface SidebarProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
+  /** Mobile P2: invoked from each nav Link's onClick. MobileNav passes this
+      to close the drawer on navigation; the desktop rail leaves it unset. */
+  onNavigate?: () => void;
+  /** Mobile P2: MobileNav passes `false` -- collapsing is meaningless inside
+      an off-canvas drawer that's already only rendered when fully open.
+      Defaults to `true` so every existing (desktop) call site is unchanged. */
+  showCollapseToggle?: boolean;
+  /** Mobile P2 follow-up: MobileNav passes `'drawer'` so the sidebar fills
+      its off-canvas panel (`height: 100%`) instead of the viewport
+      (`min-height: 100vh`) -- see Sidebar.module.css's `.drawer` doc
+      comment. Defaults to `'rail'` so the desktop call site is unchanged. */
+  variant?: 'rail' | 'drawer';
 }
 
 interface NavItem {
@@ -34,7 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/settings', label: 'Settings', icon: IconSettings },
 ];
 
-export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
+export function Sidebar({ collapsed, onToggleCollapse, onNavigate, showCollapseToggle = true, variant = 'rail' }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading } = useSession();
@@ -46,7 +58,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   };
 
   return (
-    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
+    <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${variant === 'drawer' ? styles.drawer : ''}`}>
       <div className={styles.brand}>
         {/* eslint-disable-next-line @next/next/no-img-element -- fixed-size brand logo, next/image adds no value here */}
         <img src="/logo-horizontal.svg" alt="Foundation First Marketing" className={styles.logo} />
@@ -62,6 +74,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               className={`${styles.navItem} ${active ? styles.navItemActive : ''}`}
               aria-label={collapsed ? item.label : undefined}
               aria-current={active ? 'page' : undefined}
+              onClick={onNavigate}
             >
               <item.icon className={styles.navIcon} aria-hidden="true" />
               {!collapsed ? <span className={styles.navLabel}>{item.label}</span> : null}
@@ -119,14 +132,16 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             </div>
           )
         ) : null}
-        <button
-          type="button"
-          className={styles.collapseToggle}
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? '»' : '« Collapse'}
-        </button>
+        {showCollapseToggle ? (
+          <button
+            type="button"
+            className={styles.collapseToggle}
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? '»' : '« Collapse'}
+          </button>
+        ) : null}
       </div>
     </aside>
   );

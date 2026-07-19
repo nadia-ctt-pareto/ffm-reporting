@@ -18,7 +18,7 @@ const COLUMNS: TableColumn[] = [
   { key: 'client', label: 'Client' },
   { key: 'week', label: 'Report Week' },
   { key: 'deadline', label: 'Deadline' },
-  { key: 'actions', label: '', align: 'right' },
+  { key: 'actions', label: '', align: 'right', isAction: true },
 ];
 
 /** List mode: every task grouped by status, in `TASK_STATUS_ORDER` (Blocked -> In Progress -> Complete). Each row links to its parent report. */
@@ -38,6 +38,7 @@ export function TaskList({ grouped }: TaskListProps) {
             ) : (
               <Table
                 dense
+                stacked
                 columns={COLUMNS}
                 rows={entries.map(({ report, task }) => ({
                   task: task.task,

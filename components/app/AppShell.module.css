@@ -12,3 +12,102 @@
 .main {
   min-width: 0;
 }
+
+/* `display: contents` makes this wrapper invisible to the grid at >=768px --
+   Sidebar's own <aside> becomes the actual grid item directly, exactly as
+   it was before this wrapper existed (byte-for-byte the same desktop
+   layout). The mobile media query below turns this into a real `none`. */
+.desktopSidebar {
+  display: contents;
+}
+
+.topBar {
+  display: none;
+}
+
+/* Mobile P2: below 768px the desktop rail is hidden and the grid collapses
+   to a single column. Both selectors are repeated deliberately -- media
+   queries add no specificity of their own, so a bare `.shell` rule here
+   (0,1,0) would lose to `.shell.collapsed { ... 76px 1fr }` (0,2,0) declared
+   above, leaving a phantom 76px column even with the sidebar hidden.
+   `display: block` (not a 1-column grid) is deliberate: a grid item's
+   containing block is its grid area and it stretches to exactly fill that
+   area, which (a) splits `.shell`'s `min-height: 100vh` leftover space
+   evenly between `.topBar` and `.main` (implicit auto rows + default
+   `align-content: stretch`), stretching the top bar to ~half the viewport
+   on any short page, and (b) leaves `.topBar`'s `position: sticky` zero
+   travel to stick with, since it already fills its grid area exactly. Under
+   block flow the header's containing block becomes `.shell`'s own content
+   box (taller than the header), so sticky gets real scroll travel and no
+   track ever stretches. */
+@media screen and (max-width: 767px) {
+  .shell,
+  .shell.collapsed {
+    display: block;
+  }
+
+  .desktopSidebar {
+    display: none;
+  }
+
+  .topBar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: var(--header-pad-y) var(--page-pad-x);
+    background: var(--surface-page);
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky;
+    top: 0;
+    /* Below the drawer's overlay/panel (1000/1001, see MobileNav.module.css)
+       so the drawer always renders on top of this bar. */
+    z-index: 500;
+  }
+}
+
+.menuButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-heading);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.menuButton:hover {
+  background: var(--text-heading);
+  color: var(--surface-page);
+  border-color: var(--text-heading);
+}
+
+.menuIcon {
+  width: 18px;
+  height: 18px;
+}
+
+.topBarBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topBarLogo {
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.topBarWordmark {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

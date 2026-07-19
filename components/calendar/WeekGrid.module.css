@@ -99,3 +99,30 @@
   font-size: 13px;
   font-family: var(--font-body);
 }
+
+/*
+ * Mobile P5: compress in place, not horizontal scroll or an agenda
+ * restructure. A report bar spans `weekStart→weekEnd` -- typically 5-7 of
+ * the 7 columns -- so even at 375px a bar is ~250-340px wide; the 7-column
+ * layout itself was never the overflow risk here, only its paddings/type
+ * were oversized for the width.
+ */
+@media screen and (max-width: 767px) {
+  .dayHeader {
+    padding: 8px 4px;
+  }
+
+  .bars {
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .bar {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .barLabel {
+    font-size: 11.5px;
+  }
+}

@@ -144,3 +144,34 @@
 .overflowItem:hover {
   border-color: var(--text-heading);
 }
+
+/*
+ * Mobile P5: compress in place, keeping the 22px lanes (`.barLanes`'s
+ * `grid-template-rows: repeat(3, 22px)` is untouched -- a month is
+ * inherently 7 columns; horizontal scroll or a 42-row stack would both be
+ * worse than tighter padding/type here). Week-spanning bars stay readable
+ * at this width; the rare short (single-day) bar truncates with the
+ * existing `text-overflow: ellipsis` and stays tappable, and the "+N more"
+ * Popover already handles the rest.
+ */
+@media screen and (max-width: 767px) {
+  .dayLabelCell {
+    padding: 6px 4px;
+    font-size: 10px;
+  }
+
+  .dayCell {
+    padding: 5px 4px 0;
+    font-size: 11px;
+  }
+
+  .barLanes {
+    gap: 3px 4px;
+    padding: 3px 4px 8px;
+  }
+
+  .bar {
+    padding: 0 5px;
+    font-size: 10px;
+  }
+}

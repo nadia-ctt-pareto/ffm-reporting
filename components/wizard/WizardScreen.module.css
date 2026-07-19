@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 48px;
+  padding: var(--header-pad-y) var(--page-pad-x);
   background: var(--surface-page);
   border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
@@ -29,9 +29,21 @@
 
 /* Line 116 */
 .body {
-  padding: 36px 48px 24px;
+  /* Desktop bottom stays a literal 24px -- the wizard's own .nav (Prev/Next
+     row) supplies its own top border + spacing right below this, so this
+     screen doesn't want the shared --page-pad-bottom (72px) at desktop.
+     Mobile P7: the mobile override below still brings this in line with
+     every other screen's 48px at <=767px (the wizard's `.nav` row needs the
+     same breathing room on a phone as everywhere else). */
+  padding: var(--page-pad-top) var(--page-pad-x) 24px;
   max-width: 880px;
   margin: 0 auto;
+}
+
+@media screen and (max-width: 767px) {
+  .body {
+    padding-bottom: var(--page-pad-bottom);
+  }
 }
 
 /* Line 730 (superseded): the step content used to gain a white panel wrapper
@@ -83,5 +95,6 @@
   display: flex;
   gap: 12px;
   justify-content: center;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }

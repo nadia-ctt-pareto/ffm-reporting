@@ -49,7 +49,7 @@ const TABLE_COLUMNS: TableColumn[] = [
   { key: 'tasks', label: 'Tasks On Sched.', align: 'center' },
   { key: 'blockers', label: 'Blockers', align: 'center' },
   { key: 'updated', label: 'Updated' },
-  { key: 'actions', label: '', align: 'right' },
+  { key: 'actions', label: '', align: 'right', isAction: true },
 ];
 
 export function DashboardScreen({
@@ -165,13 +165,13 @@ export function DashboardScreen({
         </div>
 
         <div className={styles.filterBar}>
-          <div style={{ width: 170 }}>
+          <div className={styles.fieldStatus}>
             <Select label="Status" options={[...STATUS_FILTER_OPTIONS]} value={filterStatus} onChange={onFilterStatusChange} />
           </div>
-          <div style={{ width: 280 }}>
+          <div className={styles.fieldClient}>
             <Select label="Client" options={clientOptions} value={filterClient} onChange={onFilterClientChange} />
           </div>
-          <div style={{ width: 260 }}>
+          <div className={styles.fieldSearch}>
             <Input
               label="Search"
               placeholder="Week or contact"
@@ -179,7 +179,7 @@ export function DashboardScreen({
               onChange={(e: ChangeEvent<HTMLInputElement>) => onSearchChange(e.target.value)}
             />
           </div>
-          <div style={{ width: 260 }}>
+          <div className={styles.fieldSort}>
             <Select
               label="Sort By"
               options={SORT_OPTIONS}
@@ -187,7 +187,7 @@ export function DashboardScreen({
               onChange={(value) => onSortByChange(value as SortKey)}
             />
           </div>
-          <div style={{ width: 110 }}>
+          <div className={styles.fieldPageSize}>
             <Select label="Per Page" options={[...PAGE_SIZE_OPTIONS]} value={pageSize} onChange={onPageSizeChange} />
           </div>
         </div>
@@ -196,7 +196,7 @@ export function DashboardScreen({
           <div className={styles.emptyState}>No reports match these filters.</div>
         ) : (
           <>
-            <Table columns={TABLE_COLUMNS} rows={tableRows} />
+            <Table columns={TABLE_COLUMNS} rows={tableRows} stacked />
             {pageSize !== 'All' ? <Pagination page={safePage} totalPages={totalPages} onPageChange={onPageChange} /> : null}
           </>
         )}

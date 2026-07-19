@@ -11,6 +11,22 @@
   top: 0;
 }
 
+/* Mobile P2 follow-up: MobileNav.tsx passes `variant="drawer"` when this
+   renders inside the off-canvas panel (MobileNav.module.css's `.panel`,
+   `height: 100dvh`). `min-height: 100vh` is always >= `100dvh` (100vh
+   includes the mobile browser's address-bar strip; 100dvh doesn't), so the
+   sidebar was always at least slightly taller than its own drawer panel --
+   permanently overscrolled, pushing the footer (session email + Sign Out)
+   below the fold whenever the URL bar was visible. `height: 100%` (of the
+   drawer panel's own explicit 100dvh) replaces the viewport unit entirely
+   rather than layering another fixed unit on top of it, so this can never
+   be taller than its container again, regardless of URL-bar state. */
+.drawer {
+  min-height: 100%;
+  height: 100%;
+  position: static;
+}
+
 .collapsed {
   padding: 24px 14px;
   align-items: center;

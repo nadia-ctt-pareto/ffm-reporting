@@ -238,16 +238,20 @@ than assuming "week".
   optimistic update + fresh `updatedAt` + persist) -- no new mutation path.
   Columns derive their own order (report `weekEnd` desc, then task
   `deadline` asc); no intra-column order is persisted.
-- **Click vs. drag**: `PointerSensor` uses `activationConstraint: {distance:
-  8}`, so a plain click never moves the pointer 8px and dnd-kit never
-  starts a drag -- the card's own `onClick` (navigate to `/reports/[id]`)
-  fires normally; a real drag's trailing click is swallowed by dnd-kit
-  itself (a one-shot document `click` listener that stops propagation after
-  a drop), so `onClick` never double-fires post-drop. `KeyboardSensor` (its
-  default codes: Space/Enter to pick up and drop, arrow keys to move
+- **Click vs. drag**: Desktop uses `MouseSensor` with `activationConstraint:
+  {distance: 8}` (a plain click never moves the pointer 8px, so dnd-kit
+  never starts a drag and the card's `onClick` fires normally). Mobile touch
+  uses `TouchSensor` with `activationConstraint: {delay: 250, tolerance: 8}`
+  (touch-scroll works freely on a card; a deliberate 250ms press-and-hold
+  initiates a drag, paired with `TaskCard.module.css`'s `touch-action:
+  manipulation` which lets the browser's native scroll run even while a
+  pointer is down on a card). A real drag's trailing click is swallowed by
+  dnd-kit itself (a one-shot document `click` listener that stops propagation
+  after a drop), so `onClick` never double-fires post-drop. `KeyboardSensor`
+  (its default codes: Space/Enter to pick up and drop, arrow keys to move
   between droppables, Escape to cancel) gives the same interaction without
-  a pointer -- note this means a focused card's Enter key starts a
-  *drag*, not navigation, by dnd-kit's own default keyboard codes.
+  a pointer -- note this means a focused card's Enter key starts a *drag*,
+  not navigation, by dnd-kit's own default keyboard codes.
 - **`components/calendar/CalendarScreen.tsx`** (`/calendar`) owns a
   `mode: 'week' | 'month'` toggle (same `Tabs`) plus two independent
   anchors: `weekStart` (always Monday-anchored, `startOfWeekISO`) and
@@ -534,6 +538,117 @@ mode-specific panel wrapper anymore (`rootStyle`, `filterBarStyle`,
 `lightPanelStyle`, `panelStyle` were all deleted along with the `darkMode`
 prop on every component that only used it for that branching).
 
+## Responsive & mobile (mobile P1-P7)
+
+**Intent**: PMs consume/triage reports on a phone; long-form authoring stays desktop,
+so the wizard is *usable* on mobile, not optimized for it. The app was 100%
+desktop-only until this phase (only `@media` blocks were print-related). Now
+mobile-friendly at ≤767px primary breakpoint (secondary ≤1023px for stats layout,
+≤640px for present-route navigation).
+
+**Breakpoint & token strategy** (future work must follow this):
+- **Responsive spacing** via semantic tokens in `styles/theme.css` — `--page-pad-x`,
+  `--page-pad-top`, `--page-pad-bottom`, `--header-pad-y`, `--row-action-pad-mobile`
+  — overridden at `:root` inside `@media screen and (max-width: 767px)`. ~10 screen
+  modules consume these instead of hardcoding `36px 48px 72px`. Downside:
+  `grep 48px` no longer finds page padding; look in `theme.css` instead. This is
+  deliberate — it centralizes responsive scalars.
+- **Responsive structure** via per-module `@media` with literal px breakpoints. Every
+  media query **must be written `@media screen and (…)`.** The `screen and` prefix
+  is mandatory — it guarantees a print context can never match a mobile rule (the
+  sole exception is `prefers-reduced-motion: reduce`). Omitting `screen` silently
+  breaks print (the old all-media print.css rules almost failed for this reason).
+- **No CSS-variable media-query conditions**: CSS custom properties are illegal in
+  media-query predicates, and CSS Modules have no shared `@custom-media` without a
+  new PostCSS dependency (rejected for dependency-light ethos) — which is why
+  structural breakpoints stay literal per-module rather than tokenized.
+
+**Navigation & layout** (`components/app/AppShell.tsx`, `MobileNav.tsx`, `Sidebar.tsx`):
+- `AppShell` owns a `drawerOpen` client-only state (never persisted, client-only
+  interaction). Below 768px the desktop rail (`.desktopSidebar`, hidden by CSS) is
+  replaced by a sticky mobile top bar (hamburger `IconMenu` + brand) that opens the
+  same `<Sidebar>` in an off-canvas `MobileNav` drawer. `MobileNav` builds the drawer
+  directly from raw Radix `Dialog.Root/Portal/Overlay/Content` parts (NOT the higher-level
+  `components/ui/Dialog.tsx`, which is a centered fixed-width panel). The drawer renders
+  `Sidebar` verbatim so nav items never drift between rail and drawer. `Sidebar` gained
+  optional `onNavigate`, `showCollapseToggle`, and `variant` props (drawer mode hides the
+  collapse toggle and fills the panel's height).
+- `AppShell` closes the drawer on `usePathname()` change (e.g. back/forward navigation)
+  and via a `matchMedia('(min-width: 768px)')` listener when the viewport crosses to
+  desktop (belt-and-braces: Sidebar's own `onNavigate` already closes on nav click, but
+  this covers resize while open).
+- `.shell` becomes `display: block` (not a 1-column grid) at ≤767px because a grid
+  item's containing block is its grid area, which (a) split `.shell`'s `min-height: 100vh`
+  evenly between `.topBar` and `.main`, stretching the top bar to ~half the viewport on
+  short pages, and (b) left `.topBar`'s `position: sticky` zero travel. Under block flow,
+  the header's containing block becomes `.shell`'s content box, so sticky gets real
+  scroll travel. The mobile media query must repeat both `.shell` and `.shell.collapsed`
+  selectors because media queries add no specificity — a bare `.shell` rule (0,1,0) would
+  lose to `.shell.collapsed { ... 76px 1fr }` (0,2,0) declared above, leaving a phantom
+  76px column even with sidebar hidden.
+- `MobileNav.module.css` uses `@keyframes` animation (not `transition`) because Radix's
+  Presence exit-suspension checks `getComputedStyle(node).animationName` — a plain
+  transition would report `'none'` and unmount synchronously with zero exit-animation time.
+  Guarded by `@media (prefers-reduced-motion: reduce)` which drops animation outright.
+
+**Table primitive contract** (`components/ui/Table.tsx`, new opt-in props):
+- `stacked?: boolean` — opt-in card-stacking at ≤767px (header hidden, every `.tr` becomes
+  a bordered card, every `.td` shows its label via `data-label` + `::before`). Strictly
+  opt-in so `ReportDeck.tsx`'s `<Table>` calls (which pass neither `stacked` nor `scrollX`)
+  keep rendering exact pre-mobile DOM/CSS — **load-bearing for the 6-page print contract**.
+- `scrollX?: boolean` — opt-in horizontal-scroll container + a `min-width` floor on the
+  table (without it, an auto-layout `width: 100%` table just wraps instead of scrolling).
+  Used by Consolidate merge-log (a desktop-leaning audit table). Unconditional (not gated
+  to ≤767px) — a no-op if the table already fits.
+- `TableColumn.isAction` and `stackedLabel` — marks action columns (right-aligned,
+  no generated label) and overrides the label for stacked-mode display only.
+- **Critical invariant**: both props are strictly opt-in specifically so the deck's DOM
+  stays byte-identical — this protects the 6-page print contract. Per-view treatment:
+  Dashboard / Daily / TaskList / Consolidate-sources → `stacked` (triage surfaces, row
+  action must be visible without horizontal panning). Consolidate merge-log → `scrollX`
+  (audit table, stacking adds noise).
+
+**Kanban touch** (`components/tasks/KanbanBoard.tsx`):
+- Split `PointerSensor` into `MouseSensor{distance:8}` + `TouchSensor{delay:250,tolerance:8}`.
+  `KeyboardSensor` unchanged.
+- `TaskCard.module.css`'s `touch-action: none` → `manipulation` (the real bug fix: `none`
+  made the stacked Tasks page unscrollable on touch, since any touch starting on a card
+  was captured). `manipulation` disables double-tap-to-zoom only. Net behavior: touch-scroll
+  works over cards, a tap navigates, a ≥250ms press-and-hold drags. Pen/stylus still work
+  via compat mouse events.
+- `user-select: none` / `-webkit-touch-callout: none` scoped to ≤767px only (they existed
+  purely to suppress the 250ms long-press text-selection callout; left unscoped, they
+  regressed desktop copy-paste on Kanban cards).
+
+**Calendar & Week/Month grids** (`components/calendar/WeekGrid.tsx`, `MonthGrid.tsx`):
+- Compress in place at ≤767px (padding/typography only). Rationale: a month is inherently
+  7 columns (horizontal scroll breaks gestalt); a 42-row stack is worse. Week bars typically
+  span 5–7 columns, staying ~250–340px wide even at 375px viewport.
+
+**Present route** (`components/report/PresentScreen.module.css`):
+- `.toolbarHint` (Chromium-print hint) hidden at ≤640px. `.nav` edge-anchored/wrapping
+  (12px left/right margins + `bottom: calc(12px + env(safe-area-inset-bottom))` for notched
+  devices), larger dot/arrow hit areas (12px dots, 40px arrows). `?print=1` auto-print still
+  works.
+- `styles/print.css`, `ReportDeck.module.css`, `.page`/`.stage`/`.slideScaler` deliberately
+  NOT touched — existing two-axis fit-scaling already degrades correctly on phones
+  (≈0.29 portrait, ≈0.44 landscape).
+
+**Ergonomics at ≤767px**:
+- `.sm`/`.md` buttons → 44px height (touch target minimum).
+- `Input`/`Select`/`Textarea` → 16px font (prevents iOS zoom-on-focus; `maximum-scale=1`
+  rejected as a11y violation).
+- `Dialog` panel padding 32→20px.
+- Wizard stepper labels visually-hidden (clip-path), NOT `display: none`, so screen readers
+  still announce step names.
+
+**`app/layout.tsx` viewport export** (new):
+- `width: 'device-width'`, `initialScale: 1`, `viewportFit: 'cover'`. Defining ANY `viewport`
+  export **replaces** Next's default wholesale (not merged). `viewportFit: 'cover'` is what
+  makes `env(safe-area-inset-*)` resolve non-zero on notched/home-indicator devices (used by
+  present-route nav bottom offset); `width`/`initialScale` are repeated deliberately to
+  preserve Next's own defaults.
+
 ## Radix primitives
 
 `components/ui/Dialog.tsx`, `Select.tsx`, `Switch.tsx`, `Tabs.tsx`, and
@@ -607,12 +722,12 @@ directly, `app/(shell)/settings/page.tsx` is a thin thin wrapper.
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
   (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
-  (Phase 6b), `IconSettings`), deliberately NOT `lucide-react` (which is
-  stroke-based with round caps/joins, fighting this design system's "square
-  corners everywhere" rule). Every icon shares a 16×16 viewBox, uses
-  `currentColor` (so the active-nav chip's `--text-heading`/`--surface-page`
-  inversion works with zero extra CSS), and is marked `aria-hidden`. The
-  sidebar's `.navIcon` slot is now 18×18 (was 8×8).
+  (Phase 6b), `IconSettings`, `IconSignOut` (Phase 7a), `IconMenu` (mobile P2)),
+  deliberately NOT `lucide-react` (which is stroke-based with round caps/joins,
+  fighting this design system's "square corners everywhere" rule). Every icon
+  shares a 16×16 viewBox, uses `currentColor` (so the active-nav chip's
+  `--text-heading`/`--surface-page` inversion works with zero extra CSS), and
+  is marked `aria-hidden`. The sidebar's `.navIcon` slot is now 18×18 (was 8×8).
 - `components/app/Sidebar.tsx` gained a "Settings" nav item (Phase 5) and a
   "Consolidate" nav item (Phase 6b); the Dark Mode switch was removed from
   the footer (theme control moved to `/settings`).
@@ -670,7 +785,7 @@ domain shapes changed.
   plus `icons.tsx` (hand-authored SVG nav icons, Phase 5).
 - `components/theme/` — `ThemeProvider`/`useTheme`.
 - `components/app/` — `AppShell`, `Sidebar`, `PageHeader` (Phase 5, replaces
-  per-screen brand headers).
+  per-screen brand headers), `MobileNav` (mobile P2, off-canvas drawer).
 - `components/dashboard|daily|wizard|dialogs/` — screens + route-level
   orchestration (`DashboardPage`, `DailyPage` (Phase 4), `WizardPage`, now
   `kind`-aware) + `ShareDialog` (the only dialog left; Detail/Pdf dialogs

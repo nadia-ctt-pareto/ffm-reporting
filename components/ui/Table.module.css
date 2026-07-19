@@ -14,6 +14,7 @@
   color: var(--text-heading-accent);
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
 }
 
 .tr {
@@ -29,10 +30,113 @@
   font-size: 14px;
   color: var(--text-body);
   vertical-align: middle;
+  text-align: left;
+}
+
+.alignCenter {
+  text-align: center;
+}
+
+.alignRight {
+  text-align: right;
 }
 
 .dense .th,
 .dense .td {
   padding: 10px 14px;
   font-size: 13px;
+}
+
+/* Mobile P3: horizontal-scroll opt-in (scrollX prop) -- for tables that
+   should stay columnar instead of stacking (e.g. Consolidate's merge log).
+   Unconditional (not gated to a breakpoint): a no-op whenever the table
+   already fits its container. */
+.scrollWrap {
+  overflow-x: auto;
+}
+
+/* Mobile P3 follow-up: a floor for the inner table when wrapped by
+   .scrollWrap (scrollX prop). Without this, an auto-layout `width: 100%`
+   table only overflows once its min-content width exceeds the container --
+   and a table whose columns are all wrappable space-separated text (e.g.
+   Consolidate's merge log) never crosses that threshold, so it wraps to a
+   few characters per column instead of ever engaging the horizontal
+   scroll. Applied only when scrollX is set (via the scrollTable class from
+   Table.tsx), so non-scrollX tables (including ReportDeck's) are
+   unaffected. */
+.scrollTable {
+  min-width: 560px;
+}
+
+/*
+ * Mobile P3: card-stacking opt-in (stacked prop). Header row hidden; each
+ * `.tr` becomes a bordered square card; each `.td` becomes a label/value
+ * line via `data-label` (stamped by Table.tsx only when `stacked` is
+ * passed). Strictly opt-in and scoped to this breakpoint so `ReportDeck`'s
+ * un-stacked `<Table>` call sites (see components/report/ReportDeck.tsx)
+ * are completely unaffected -- the printed/present deck never sees this
+ * rule apply.
+ */
+@media screen and (max-width: 767px) {
+  .stacked thead {
+    display: none;
+  }
+
+  .stacked,
+  .stacked tbody,
+  .stacked .tr,
+  .stacked .td {
+    display: block;
+  }
+
+  .stacked .tr {
+    border: 1px solid var(--border-subtle);
+    margin-bottom: 12px;
+    padding: 4px 14px;
+  }
+
+  .stacked .tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .stacked .td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 8px 0;
+    text-align: left;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .stacked .td:last-child {
+    border-bottom: none;
+  }
+
+  .stacked .td::before {
+    content: attr(data-label);
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-heading-accent);
+    flex-shrink: 0;
+  }
+
+  /* The action column is explicitly marked via `TableColumn.isAction`
+     (stamped as `data-role="actions"` by Table.tsx) -- NOT inferred from an
+     empty label. Consolidate's SOURCE_COLUMNS has two columns with
+     `label: ''` (`include`, a checkbox, and `actions`, a View link); a
+     label-based selector matched both, right-aligning and de-labeling the
+     include checkbox too and leaving it flush against the card edge,
+     detached from the row it governs. Only genuine action columns drop the
+     pseudo-element and right-align. */
+  .stacked .td[data-role='actions'] {
+    justify-content: flex-end;
+  }
+
+  .stacked .td[data-role='actions']::before {
+    content: none;
+  }
 }

@@ -42,6 +42,20 @@
 }
 
 /*
+ * Mobile P7: `.sm`/`.md` bump to a 44px touch target at <=767px (`.lg` is
+ * already 50px, untouched). A single breakpoint axis (not `(pointer:
+ * coarse)`) keeps the test matrix DevTools-reproducible -- a coarse-pointer
+ * media query would also fire on touch-capable laptops with a mouse
+ * attached, which is a real device in this agency's fleet.
+ */
+@media screen and (max-width: 767px) {
+  .sm,
+  .md {
+    height: 44px;
+  }
+}
+
+/*
  * Variants. `--text-heading`/`--surface-page` are always each theme's
  * "ink"/"paper" pair (black-on-white in light, white-on-black in dark), so
  * pairing them for a solid fill+text combo guarantees contrast in both

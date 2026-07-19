@@ -36,7 +36,7 @@ const TABLE_COLUMNS: TableColumn[] = [
   { key: 'tasks', label: 'Tasks On Sched.', align: 'center' },
   { key: 'blockers', label: 'Blockers', align: 'center' },
   { key: 'updated', label: 'Updated' },
-  { key: 'actions', label: '', align: 'right' },
+  { key: 'actions', label: '', align: 'right', isAction: true },
 ];
 
 /**
@@ -132,10 +132,10 @@ export function DailyListScreen({
         </div>
 
         <div className={styles.filterBar}>
-          <div style={{ width: 170 }}>
+          <div className={styles.fieldStatus}>
             <Select label="Status" options={[...STATUS_FILTER_OPTIONS]} value={filterStatus} onChange={onFilterStatusChange} />
           </div>
-          <div style={{ width: 110 }}>
+          <div className={styles.fieldPageSize}>
             <Select label="Per Page" options={[...PAGE_SIZE_OPTIONS]} value={pageSize} onChange={onPageSizeChange} />
           </div>
         </div>
@@ -144,7 +144,7 @@ export function DailyListScreen({
           <div className={styles.emptyState}>No daily reports match these filters.</div>
         ) : (
           <>
-            <Table columns={TABLE_COLUMNS} rows={tableRows} />
+            <Table columns={TABLE_COLUMNS} rows={tableRows} stacked />
             {pageSize !== 'All' ? <Pagination page={safePage} totalPages={totalPages} onPageChange={onPageChange} /> : null}
           </>
         )}

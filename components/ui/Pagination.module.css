@@ -34,3 +34,11 @@
   font-size: 13px;
   color: var(--text-muted);
 }
+
+/* Mobile P7: bigger touch target, same rationale/value as the .rowAction
+   bump in DashboardScreen/TaskList/ConsolidateScreen.module.css. */
+@media screen and (max-width: 767px) {
+  .navButton {
+    padding: 10px 16px;
+  }
+}

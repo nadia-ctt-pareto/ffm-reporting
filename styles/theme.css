@@ -9,4 +9,36 @@
   --surface-field: var(--ff-white);
   --surface-panel-muted: var(--ff-off-white);
   --surface-overlay: rgba(10, 10, 10, 0.4);
+
+  /*
+   * Responsive page-padding scalars (mobile P1). These are viewport-
+   * dependent -- `grep 48px` will not find page padding anymore; look here
+   * instead. Deliberately NOT read by styles/print.css or
+   * components/report/ReportDeck.module.css (both use literal px and their
+   * own locally re-declared tokens), so the mobile override below can never
+   * leak into the printed/deck artifact.
+   */
+  --page-pad-x: 48px;
+  --page-pad-top: 36px;
+  --page-pad-bottom: 72px;
+  --header-pad-y: 24px;
+
+  /*
+   * Mobile P7: shared bigger touch-target padding for the `.rowAction`
+   * link/button that DashboardScreen, TaskList, DailyListScreen, and
+   * ConsolidateScreen each hand-roll (desktop padding stays distinct per
+   * file -- this token only covers the <=767px override, so it's a
+   * constant, not viewport-dependent like the tokens above). Add any future
+   * `.rowAction`-style mobile bump here instead of a fifth hand-copied rule.
+   */
+  --row-action-pad-mobile: 10px 16px;
+}
+
+@media screen and (max-width: 767px) {
+  :root {
+    --page-pad-x: 16px;
+    --page-pad-top: 20px;
+    --page-pad-bottom: 48px;
+    --header-pad-y: 16px;
+  }
 }

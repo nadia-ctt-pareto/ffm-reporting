@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 48px;
+  padding: var(--header-pad-y) var(--page-pad-x);
   background: var(--surface-page);
   border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
@@ -37,7 +37,7 @@
 }
 
 .content {
-  padding: 36px 48px 72px;
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
   max-width: 1040px;
   margin: 0 auto;
 }
@@ -98,6 +98,12 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
   margin-bottom: 28px;
+}
+
+@media screen and (max-width: 767px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .riskList {

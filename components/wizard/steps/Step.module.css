@@ -112,3 +112,21 @@
   margin: 0 0 14px;
   max-width: 560px;
 }
+
+/* Mobile P4: stack every multi-field row to one column. .priorityRow is
+   deliberately excluded -- it's just an Input + a Remove button (1fr auto),
+   which already fits at 375px without stacking. */
+@media screen and (max-width: 767px) {
+  .grid2,
+  .grid3,
+  .grid1x2,
+  .taskRow,
+  .riskRow {
+    grid-template-columns: 1fr;
+  }
+
+  .taskRow > *:last-child,
+  .riskRow > *:last-child {
+    justify-self: end;
+  }
+}

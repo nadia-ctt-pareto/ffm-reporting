@@ -36,3 +36,13 @@
   background: var(--surface-panel-muted);
   color: var(--text-muted);
 }
+
+/* Mobile P7: iOS Safari auto-zooms on focus into any text input computing
+   to <16px font-size -- fixed by bumping to 16px at <=767px, never by
+   `maximum-scale=1` (an a11y violation that disables user pinch-zoom
+   everywhere, not just on focus). */
+@media screen and (max-width: 767px) {
+  .input {
+    font-size: 16px;
+  }
+}

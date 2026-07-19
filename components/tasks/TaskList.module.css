@@ -47,3 +47,11 @@
   background: var(--text-heading);
   color: var(--surface-page);
 }
+
+/* Mobile P7: bigger touch target for this non-Button action element (see
+   --row-action-pad-mobile, styles/theme.css). */
+@media screen and (max-width: 767px) {
+  .rowAction {
+    padding: var(--row-action-pad-mobile);
+  }
+}

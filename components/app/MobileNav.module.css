@@ -1,0 +1,89 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--surface-overlay);
+  z-index: 1000;
+}
+
+.overlay[data-state='open'] {
+  animation: mobileNavOverlayIn var(--speed-med) var(--ease-brand);
+}
+
+.overlay[data-state='closed'] {
+  animation: mobileNavOverlayOut var(--speed-med) var(--ease-brand);
+}
+
+.panel {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(320px, 85vw);
+  height: 100dvh;
+  overflow-y: auto;
+  background: var(--surface-page);
+  box-shadow: var(--shadow-dialog);
+  box-sizing: border-box;
+  z-index: 1001;
+  /* Radix focuses the content programmatically on open; no visible ring
+     needed on the panel itself (matches components/ui/Dialog.tsx). */
+  outline: none;
+}
+
+.panel[data-state='open'] {
+  animation: mobileNavPanelIn var(--speed-med) var(--ease-brand);
+}
+
+.panel[data-state='closed'] {
+  animation: mobileNavPanelOut var(--speed-med) var(--ease-brand);
+}
+
+@keyframes mobileNavOverlayIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes mobileNavOverlayOut {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes mobileNavPanelIn {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes mobileNavPanelOut {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+/*
+ * Radix's exit-animation detection (`@radix-ui/react-presence`, which
+ * `Dialog.Root` uses under the hood) hooks into `animationend`, not
+ * `transitionend` -- it checks `getComputedStyle(node).animationName` to
+ * decide whether to hold the node mounted for an exit animation at all. A
+ * plain `transition` property would report `animationName: 'none'` and get
+ * unmounted synchronously on close, with zero time to visibly play. Keyframe
+ * `animation`s (used above) are what Radix's own docs recommend for this
+ * exact reason, and they run on mount too (unlike transitions, which need an
+ * actual prior value to animate from) -- so this single pair of rules covers
+ * both open and close for free.
+ *
+ * `prefers-reduced-motion` drops the animation outright (not just a shorter
+ * duration) so the drawer snaps open/closed instantly. This is also the
+ * *correct* input for Presence's own exit-suspension check above: with
+ * `animation: none`, `animationName` resolves to `'none'`, so Presence
+ * unmounts immediately on close instead of waiting on an `animationend`
+ * event that would otherwise never fire.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .overlay[data-state='open'],
+  .overlay[data-state='closed'],
+  .panel[data-state='open'],
+  .panel[data-state='closed'] {
+    animation: none;
+  }
+}

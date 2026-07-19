@@ -1,7 +1,19 @@
 .content {
-  padding: 36px 48px 96px;
+  /* Desktop bottom stays a literal 96px -- this screen wants more breathing
+     room below its content than the shared --page-pad-bottom (72px) token
+     provides at desktop; only top/horizontal are otherwise tokenized,
+     matching every other screen. Mobile P7: the mobile override below
+     brings this in line with every other screen's 48px at <=767px instead
+     of leaving 96px of dead space at the bottom of a phone. */
+  padding: var(--page-pad-top) var(--page-pad-x) 96px;
   max-width: 1440px;
   margin: 0 auto;
+}
+
+@media screen and (max-width: 767px) {
+  .content {
+    padding-bottom: var(--page-pad-bottom);
+  }
 }
 
 .toolbar {
@@ -73,6 +85,14 @@
   color: var(--surface-page);
 }
 
+/* Mobile P7: bigger touch target for this non-Button action element (see
+   --row-action-pad-mobile, styles/theme.css). */
+@media screen and (max-width: 767px) {
+  .rowAction {
+    padding: var(--row-action-pad-mobile);
+  }
+}
+
 .emptyState {
   padding: 40px 0;
   text-align: center;
@@ -115,6 +135,12 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   margin-bottom: 24px;
+}
+
+@media screen and (max-width: 1023px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .mergeLog {

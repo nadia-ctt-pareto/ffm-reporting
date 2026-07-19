@@ -4,3 +4,13 @@
   gap: 20px;
   align-items: start;
 }
+
+/* Mobile P5: stack the 3 status columns vertically -- 3-up would squeeze
+   each column under ~110px at 375px, both illegible and (per the touch-
+   action fix in TaskCard.module.css) not the point: mobile Kanban is a
+   scroll-and-triage surface, not a side-by-side board. */
+@media screen and (max-width: 767px) {
+  .board {
+    grid-template-columns: 1fr;
+  }
+}

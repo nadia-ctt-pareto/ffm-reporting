@@ -1,5 +1,5 @@
 .content {
-  padding: 36px 48px 72px;
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
   max-width: 1440px;
   margin: 0 auto;
 }
@@ -22,6 +22,43 @@
   flex-wrap: wrap;
 }
 
+/* Mobile P3: fixed desktop widths for each filter field, replacing the
+   inline `style={{ width }}` wrapper divs in DashboardScreen.tsx (same
+   pixel values as before -- purely a structural move so the ≤767px rule
+   below can flip them to full width). */
+.fieldStatus {
+  width: 170px;
+}
+
+.fieldClient {
+  width: 280px;
+}
+
+.fieldSearch,
+.fieldSort {
+  width: 260px;
+}
+
+.fieldPageSize {
+  width: 110px;
+}
+
+@media screen and (max-width: 1023px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .fieldStatus,
+  .fieldClient,
+  .fieldSearch,
+  .fieldSort,
+  .fieldPageSize {
+    width: 100%;
+  }
+}
+
 .rowAction {
   font-family: var(--font-heading);
   font-weight: 600;
@@ -38,6 +75,14 @@
 .rowAction:hover {
   background: var(--text-heading);
   color: var(--surface-page);
+}
+
+/* Mobile P7: bigger touch target for this non-Button action element (see
+   --row-action-pad-mobile, styles/theme.css). */
+@media screen and (max-width: 767px) {
+  .rowAction {
+    padding: var(--row-action-pad-mobile);
+  }
 }
 
 .emptyState {

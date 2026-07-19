@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Open_Sans, Poppins } from 'next/font/google';
 import Script from 'next/script';
 import type { ReactNode } from 'react';
@@ -19,6 +19,21 @@ const openSans = Open_Sans({
 
 export const metadata: Metadata = {
   title: 'Weekly Reports — Foundation First Marketing',
+};
+
+// Mobile P6/P7: `viewportFit: 'cover'` is what makes `env(safe-area-inset-*)`
+// resolve to a non-zero value on notched/home-indicator devices (see the
+// present route's `.nav` bottom offset, PresentScreen.module.css) -- without
+// it, those env() calls always resolve to their 0px fallback. `width`/
+// `initialScale` are repeated here (not omitted) to preserve Next's own
+// default viewport (`width=device-width, initial-scale=1`, see
+// next/dist/lib/metadata/default-metadata.js's `createDefaultViewport`) --
+// defining ANY `viewport` export replaces that default wholesale rather than
+// merging with it.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 // Sets `data-theme="dark"` on <html> before hydration so a stored dark-mode

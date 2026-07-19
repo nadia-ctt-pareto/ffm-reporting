@@ -71,3 +71,11 @@ a:hover {
 .ffr-textarea:focus {
   border-color: var(--ff-green);
 }
+
+/* Mobile P7: same iOS zoom-on-focus fix as components/ui/Input.module.css's
+   .input -- Textarea has no CSS module (this class is styled here). */
+@media screen and (max-width: 767px) {
+  .ffr-textarea {
+    font-size: 16px;
+  }
+}

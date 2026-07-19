@@ -31,3 +31,11 @@
   margin-bottom: 20px;
   margin-top: 0;
 }
+
+/* Mobile P7: less panel padding reclaims usable width at narrow viewports
+   (`.panel`'s `max-width: calc(100vw - 48px)` already caps overall width). */
+@media screen and (max-width: 767px) {
+  .panel {
+    padding: 20px;
+  }
+}

@@ -111,3 +111,14 @@ export function IconSignOut(props: SVGProps<SVGSVGElement>) {
     </IconBase>
   );
 }
+
+/** Mobile P2: three horizontal bars -- "menu", opens the off-canvas nav drawer (components/app/MobileNav.tsx) from the mobile top bar. */
+export function IconMenu(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M1.5 4H14.5" />
+      <path d="M1.5 8H14.5" />
+      <path d="M1.5 12H14.5" />
+    </IconBase>
+  );
+}

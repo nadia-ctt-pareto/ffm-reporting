@@ -1,5 +1,52 @@
 # Progress Log — Weekly Reports Dashboard
 
+## 2026-07-18: Mobile P1-P7 (Responsive design) — 767px and 640px breakpoints, off-canvas nav drawer, touch-friendly Kanban
+
+**Summary**: Made the app mobile-friendly at ≤767px primary breakpoint (≤1023px secondary, ≤640px for presentation nav). PMs can now consume/triage reports on phones; long-form authoring stays desktop. Every `@media` query is written `@media screen and (…)` — the `screen and` prefix is mandatory to prevent mobile rules from leaking into print.
+
+**What was built**:
+
+**Mobile navigation & layout** (mobile P1-P2):
+- **Responsive spacing tokens** (`styles/theme.css`): `--page-pad-x`, `--page-pad-top`, `--page-pad-bottom`, `--header-pad-y`, `--row-action-pad-mobile` — overridden at `:root` inside `@media screen and (max-width: 767px)`. ~10 screen modules consume these instead of hardcoding pixel values. Centralizes the mobile scalar scaling.
+- **Off-canvas drawer navigation** (`components/app/MobileNav.tsx`, `AppShell.tsx`, mobile P2): Below 768px, the desktop rail hides and a sticky mobile top bar (hamburger + brand) appears. Hamburger opens an off-canvas left drawer built from raw Radix `Dialog` parts (NOT the higher-level `components/ui/Dialog`, which is centered) that renders the same `Sidebar` verbatim — nav items never drift. `AppShell` owns `drawerOpen` state (client-only, never persisted); drawer auto-closes on nav-item click (via `Sidebar`'s `onNavigate` callback) and on `usePathname()` change (e.g. back button), plus via a `matchMedia('(min-width: 768px)')` listener if viewport resizes to desktop.
+- **Sidebar props** (`showCollapseToggle`, `onNavigate`, `variant='rail'|'drawer'`): MobileNav passes these to hide collapse (meaningless in a drawer) and use `height: 100%` instead of `min-height: 100vh`.
+- **Grid → block layout** (`AppShell.module.css`, mobile P2): `.shell` switches from `display: grid` (2 columns) to `display: block` at ≤767px, because grid items' containing block is the grid area (splits `min-height: 100vh` evenly, stretching short pages' header to ~50vp) and `position: sticky` on a grid item has zero travel. Under block flow, sticky gets real scroll travel. The media query repeats both `.shell` and `.shell.collapsed` selectors (media queries add no specificity; a bare rule would lose to the collapsed state's higher-specificity rule declared above, leaving a phantom column).
+- **Drawer animation** (`MobileNav.module.css`, mobile P2): CSS `@keyframes` (not `transition`) because Radix's exit-animation detection checks `animationName` — a transition would report `'none'` and unmount synchronously. Guarded by `prefers-reduced-motion: reduce`.
+
+**Mobile-friendly Tables** (mobile P3):
+- **`stacked` opt-in** (`components/ui/Table.tsx`, `Table.module.css`): Card-stacking at ≤767px — header hidden, `.tr` → bordered card, `.td` shows label via `data-label::before`. Used by Dashboard, Daily, TaskList, Consolidate-sources (triage surfaces where row action + status must be visible). Strictly opt-in so `ReportDeck.tsx`'s `<Table>` stays byte-identical — **load-bearing for 6-page print contract**.
+- **`scrollX` opt-in**: Horizontal scroll + table `min-width: 560px` floor. Used by Consolidate merge-log (audit table; stacking adds noise). Unconditional (no breakpoint gate) — harmless when table fits.
+- **`TableColumn.isAction` + `stackedLabel`**: Marks action columns (right-aligned, no generated label) and overrides label for stacked mode only (e.g. checkbox column can have empty desktop header but "Include" label in stacked mode).
+- **All props explicit ARIA roles** (`role="table/rowgroup/row/columnheader/cell"`): applied unconditionally because `display: block` strips implicit table semantics in Chrome/Safari.
+
+**Kanban on touch** (mobile P5):
+- **Sensor split** (`components/tasks/KanbanBoard.tsx`): split `PointerSensor` into `MouseSensor{distance:8}` + `TouchSensor{delay:250,tolerance:8}`. Touch-scroll now works freely over cards (delay gates 250ms press-and-hold as drag initiation); a normal swipe scroll never triggers drag. Desktop click/drag/keyboard flows unregressed.
+- **`touch-action: manipulation`** (`TaskCard.module.css`): fixed the real bug where `touch-action: none` blocked page scroll on any card touch (one card at ≤767px fills most viewport). `manipulation` disables double-tap-to-zoom only. `user-select: none` / `-webkit-touch-callout` scoped to ≤767px (suppress long-press text-selection callout on touch; left unscoped, regresses desktop copy-paste at desktop widths).
+
+**Presentation route** (mobile P6, ≤640px only):
+- `.toolbarHint` hidden (Chromium-print hint is desktop-only noise).
+- `.nav` anchors to left/right edges (12px margins, `bottom: calc(12px + env(safe-area-inset-bottom))` for notched devices), wraps content, bigger touch targets (12px dots, 40px arrows).
+- `styles/print.css`, `ReportDeck.module.css`, `.page`/`.stage` deliberately NOT touched — fit-scaling already degrades correctly (≈0.29 portrait, ≈0.44 landscape).
+
+**Ergonomics** (mobile P7):
+- Buttons → 44px height (touch minimum). `Input`/`Select`/`Textarea` → 16px font (prevents iOS zoom-on-focus). Dialog padding 32→20px. Wizard stepper labels clip-path (visually-hidden, not `display: none`, so screen readers still announce steps).
+- Calendar Week/Month grids compress padding/type only at ≤767px (don't reflow structure).
+
+**`app/layout.tsx` viewport export** (mobile P6/P7):
+- `width: 'device-width'`, `initialScale: 1`, `viewportFit: 'cover'`. Defining any `viewport` export replaces Next's default wholesale. `viewportFit: 'cover'` makes `env(safe-area-inset-*)` resolve non-zero on notched devices (needed for present-nav bottom offset).
+
+**Media query discipline** (universal):
+- **Every media query must be `@media screen and (…)`.** The `screen and` prefix is mandatory — it prevents mobile rules from leaking into print. The sole exception is `prefers-reduced-motion`. Omitting `screen` silently breaks print (almost tripped this on the printer's own `@media (prefers-reduced-motion)` rule, which is correctly unconditional).
+
+**Quality**:
+- All three gates (`npm run build`, `npm run lint`, `npm run typecheck`) pass.
+- Desktop ≥1280px pixel-identical (ImageMagick `compare -metric AE` = 0) across 9 routes (`/`, `/daily`, `/tasks` List+Kanban, `/calendar` Week+Month, `/consolidate`, `/reports/r7`, `/reports/r7/present`), production build.
+- Print contract intact: real Chromium PDF export of `/reports/r7/present?print=1` → `/Count` = 6, at both 1920px and 375px viewports.
+- Zero page-level horizontal overflow at 375px across `/`, `/daily`, `/tasks` (both tabs), `/calendar` (both tabs), `/consolidate`, `/settings`, `/reports/new` (all 6 steps).
+- Touch behavior verified via CDP `Input.dispatchTouchEvent`: swipe-scroll over a card scrolls the page; tap navigates; 350ms hold + move initiates a drag. Desktop click/drag/keyboard unregressed.
+
+**No schema changes** — Phase 6b's schema is sufficient. Migrations discipline applies to future phases only (no domain shapes changed in this mobile-responsive phase).
+
 ## 2026-07-18: Phase 6 (Schema & import) — Zod as source of truth, Projects entity, CSV import, report consolidation
 
 **Summary** (6a + 6b): Refactored the type system to Zod 4 schemas (`lib/schema/`) with `lib/types.ts` as a `z.infer` facade; added a Project entity for organizing imported reports; implemented CSV import with formula-injection safety; built report consolidation (`/consolidate`) for merging weeklies/dailies by week; generalized the aggregation logic; and added a batch-write path to the repository interface.

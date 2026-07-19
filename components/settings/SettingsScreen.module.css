@@ -1,5 +1,5 @@
 .content {
-  padding: 36px 48px 72px;
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
   max-width: 860px;
   margin: 0 auto;
 }

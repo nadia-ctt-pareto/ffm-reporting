@@ -81,3 +81,10 @@
 .item[data-state='checked'] {
   font-weight: 600;
 }
+
+/* Mobile P7: same iOS zoom-on-focus fix as Input.module.css's .input. */
+@media screen and (max-width: 767px) {
+  .trigger {
+    font-size: 16px;
+  }
+}
