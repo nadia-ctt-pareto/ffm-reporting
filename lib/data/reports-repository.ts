@@ -2,10 +2,10 @@ import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '
 
 /**
  * Swappable persistence contract for reports. The MVP implementation is
- * localStorage-backed (LocalStorageReportsRepository); a future
- * SupabaseReportsRepository will implement this same interface. UI code
- * must never import a concrete repository directly -- only
- * getReportsRepository() from ./index.
+ * localStorage-backed (LocalStorageReportsRepository); `HttpReportsRepository`
+ * (Phase 7b) is the Supabase-backed implementation. UI code must never
+ * import a concrete repository directly -- only getReportsRepository()
+ * from ./index.
  *
  * Phase 4: one unified store holds both weekly and daily reports (mirrors
  * the single `reports` SQL table, discriminated by `kind` -- see
@@ -13,11 +13,21 @@ import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '
  * its pre-Phase-4 semantics (weeklies only) so every existing caller
  * (dashboard, weekly wizard, CSV, task/calendar views) is unaffected;
  * `getAllDaily()` is the new daily-only accessor.
+ *
+ * Post-review fix (SHOULD-FIX 15): this doc comment previously described
+ * behavior only `LocalStorageReportsRepository` actually has (seed-on-
+ * first-read, replace-by-id project upserts) -- `HttpReportsRepository`
+ * does neither (Postgres is seeded once, out-of-band, by
+ * `supabase/seed.sql`; its `upsertProject` is insert-or-return-EXISTING,
+ * never a rename, see that class's own doc comment). The interface below
+ * is now worded implementation-agnostically; the localStorage-specific
+ * seeding/replace-by-id language lives on `LocalStorageReportsRepository`'s
+ * own method doc comments instead, where it belongs.
  */
 export interface ReportsRepository {
-  /** Returns all WEEKLY reports only, seeding on first call if none exist yet. */
+  /** Returns all WEEKLY reports. */
   getAll(): Promise<WeeklyReport[]>;
-  /** Returns all DAILY reports only, seeding on first call if none exist yet. */
+  /** Returns all DAILY reports. */
   getAllDaily(): Promise<DailyReport[]>;
   getById(id: string): Promise<AnyReport | null>;
   /** Insert if `report.id` is new, otherwise replace the existing report. */
@@ -48,14 +58,29 @@ export interface ReportsRepository {
   update(id: string, patch: Partial<ReportCore>): Promise<AnyReport | null>;
 
   /**
-   * Phase 6a: the Project entity. Returns all projects, seeding
-   * `ff.projects.v1` from `seedProjects()` on first read (mirrors the
-   * reports store's seed-on-first-read pattern). Additive, not a v1->v2
-   * style migration -- see the V2_KEY comment in
-   * local-storage-reports-repository.ts for why `ff.reports.v2` itself
-   * needed no key bump for `projectId`.
+   * Phase 6a: the Project entity. Returns all projects.
    */
   getProjects(): Promise<Project[]>;
-  /** Insert if `project.id` is new, otherwise replace the existing project. */
+  /** Ensures a project with this id exists; returns it. See each implementation's own doc comment for the exact insert-vs-replace semantics on an id collision -- they genuinely differ (`LocalStorageReportsRepository` replaces by id, i.e. supports rename; `HttpReportsRepository` returns the existing row unchanged, i.e. never renames). */
   upsertProject(project: Project): Promise<Project>;
+
+  /**
+   * Post-review addition (SHOULD-FIX 13, Phase 7b): resolves once every
+   * write this repository instance has queued SO FAR has settled (success
+   * or failure) -- a no-op, immediately-resolved `Promise<void>` for
+   * `LocalStorageReportsRepository` (every write there is already
+   * synchronous-under-the-hood; there is no queue to wait on).
+   * `HttpReportsRepository` resolves it against its own write-serialization
+   * queue (`enqueueWrite`, that class's header comment). Exists so a hook's
+   * rollback-by-refetch (`useReports.ts`/`useDailyReports.ts`/
+   * `useProjects.ts`'s `rollback()`) can wait for any IN-FLIGHT write to
+   * settle before reading "server truth" -- without this, a rollback
+   * triggered by write A's failure could read stale data while write B
+   * (queued right behind A) is still in flight, then overwrite B's
+   * optimistic UI state with that stale read even though B goes on to
+   * succeed. This is the exact "silently revert a task" bug class the
+   * write queue exists to prevent, reintroduced on the READ side -- see
+   * `rollback()`'s doc comment in useReports.ts for the full scenario.
+   */
+  whenIdle(): Promise<void>;
 }

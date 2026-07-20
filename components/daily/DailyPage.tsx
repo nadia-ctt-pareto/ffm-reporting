@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { DailyListScreen } from '@/components/daily/DailyListScreen';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
@@ -15,7 +16,7 @@ import { useDailyReports } from '@/lib/hooks/useDailyReports';
  */
 export function DailyPage() {
   const router = useRouter();
-  const { reports } = useDailyReports();
+  const { reports, loadError } = useDailyReports();
 
   const [filterStatus, setFilterStatus] = useState('All');
   const [pageSize, setPageSize] = useState<string>(DEFAULT_PAGE_SIZE);
@@ -29,7 +30,11 @@ export function DailyPage() {
 
   // Reports haven't loaded yet: server HTML and the first client render both
   // render nothing here, so there is no hydration mismatch (see useDailyReports).
-  if (reports === null) return null;
+  // Post-review fix (SHOULD-FIX 11) -- see DashboardPage.tsx's identical guard for the full rationale.
+  if (reports === null) {
+    if (loadError) return <LoadErrorState title="Daily Reports" message={loadError} />;
+    return null;
+  }
 
   return (
     <DailyListScreen

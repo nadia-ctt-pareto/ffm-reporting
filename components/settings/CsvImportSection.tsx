@@ -114,6 +114,22 @@ export function CsvImportSection() {
   const [importedCount, setImportedCount] = useState<number | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  /**
+   * BLOCKER B (post-review round 2): set when a commit fails AFTER at least
+   * one of the two kind-specific batches already landed (the documented
+   * two-transaction caveat -- weeklies commit, then dailies fail, or vice
+   * versa). Making the error VISIBLE (as the round-1 fix pass did) invites
+   * exactly the retry that duplicates data: `handleImport` re-runs
+   * `parseImportCsv`, which mints FRESH ids for every report (CLAUDE.md:
+   * "All ids are freshly generated") -- including the ones that already
+   * committed. Dailies are protected by `reports_one_daily_per_day`, but
+   * weeklies have NO uniqueness constraint at all, so a retry would
+   * silently duplicate them. Once set, `canImport` (below) is permanently
+   * `false` for THIS parsed file -- the user must choose a different file
+   * (which resets this via the `useEffect` below) rather than retry the
+   * exact one that partially committed.
+   */
+  const [partialCommit, setPartialCommit] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const projectOptions: SelectOption[] = useMemo(
@@ -149,10 +165,14 @@ export function CsvImportSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `target` is recomputed fresh every render from `projects`/`projectChoice`/`newProjectName`; including it directly (rather than those three primitives) keeps this in sync without an extra layer of memoization.
   }, [fileText, dailies, projectChoice, newProjectName, projects]);
 
-  // A file re-upload, or changing the project choice, invalidates any prior "Imported N reports" banner or commit error.
+  // A file re-upload, or changing the project choice, invalidates any prior
+  // "Imported N reports" banner or commit error -- including the BLOCKER B
+  // partial-commit lock (a genuinely NEW file/target is a fresh attempt,
+  // not a retry of the one that partially committed).
   useEffect(() => {
     setImportedCount(null);
     setCommitError(null);
+    setPartialCommit(false);
   }, [fileText, projectChoice, newProjectName]);
 
   function handleFile(e: ChangeEvent<HTMLInputElement>) {
@@ -176,13 +196,30 @@ export function CsvImportSection() {
     if (!fileText || !dailies || !target || isImporting) return;
     setIsImporting(true);
     setCommitError(null);
+    // BLOCKER B (post-review round 2): declared OUTSIDE the try block (not
+    // `let` inside it) specifically so the `catch` below can still read
+    // whichever batch(es) actually committed before the failure -- see the
+    // doc comment further down, at the point they're set.
+    let committedWeeklies = 0;
+    let committedDailies = 0;
     try {
       let finalTarget = target;
       if (projectChoice === NEW_PROJECT_VALUE) {
         if (!newProjectResolution || newProjectResolution.error) return;
         const project: Project = { id: newProjectResolution.id, name: newProjectResolution.name };
-        upsertProject(project);
         finalTarget = { targetProjectId: project.id, effectiveProjects: [...(projects ?? []), project] };
+        // Post-review fix (SHOULD-FIX 12): AWAITED, not fire-and-forget.
+        // `upsertProject` now rejects on a failed write (Supabase down, an
+        // RLS insert denial, a dropped network request) -- previously this
+        // was fire-and-forget, so ordering was "safe" only by accident (the
+        // repository's write queue serializes it ahead of the `upsertMany`
+        // calls below regardless), but a REJECTION was never caught: it
+        // became an unhandled promise rejection, and the report batch below
+        // still ran, then failed with a confusing FK-violation error naming
+        // a raw constraint instead of "the project couldn't be created."
+        // Caught by the single `catch` below now, same as everything else
+        // in this function.
+        await upsertProject(project);
       }
       const committed = parseImportCsv(fileText, finalTarget.targetProjectId, { dailies, projects: finalTarget.effectiveProjects });
       if (committed.issues.length > 0) {
@@ -200,9 +237,42 @@ export function CsvImportSection() {
       // loadAll() from reading a stale pre-first-batch snapshot, which
       // would silently drop the first batch entirely (see
       // ReportsRepository.upsertMany's doc comment).
-      if (weeklies.length > 0) await upsertManyWeekly(weeklies);
-      if (dailyReports.length > 0) await upsertManyDaily(dailyReports);
+      //
+      // Phase 7b: `upsertMany` now rejects on a failed write (Supabase
+      // down, RLS denial, an FK violation against a project that failed to
+      // create, ...) instead of silently no-op'ing -- caught by the single
+      // `catch` below (merged with the project-upsert catch, post-review
+      // fix) so a commit failure surfaces as a visible message instead of
+      // an unhandled rejection. `committedWeeklies`/`committedDailies` track
+      // which batch(es) actually landed BEFORE a failure, for BLOCKER B
+      // below (post-review round 2) -- a weeklies-succeeded/dailies-failed
+      // partial commit (this repo's existing documented two-transaction
+      // caveat, unchanged by Phase 7b) must not just be reported, but must
+      // also block a same-file retry from duplicating what already landed.
+      if (weeklies.length > 0) {
+        await upsertManyWeekly(weeklies);
+        committedWeeklies = weeklies.length;
+      }
+      if (dailyReports.length > 0) {
+        await upsertManyDaily(dailyReports);
+        committedDailies = dailyReports.length;
+      }
       setImportedCount(committed.reports.length);
+    } catch (err) {
+      // BLOCKER B (post-review round 2): distinguish "nothing committed,
+      // safe to retry" from "part of this file already committed, retrying
+      // would duplicate it" -- see `partialCommit`'s doc comment above.
+      // `committedWeeklies`/`committedDailies` are only non-zero here if
+      // their respective `upsertMany` call above actually resolved before
+      // the OTHER one (or the project upsert) threw.
+      if (committedWeeklies > 0 || committedDailies > 0) {
+        setPartialCommit(true);
+        setCommitError(
+          `${committedWeeklies} weekly and ${committedDailies} daily report${committedWeeklies + committedDailies === 1 ? '' : 's'} were saved before this failed. Re-importing this file would duplicate them (weekly reports have no way to detect a duplicate) -- choose a different file, or check with an admin before retrying this one.`
+        );
+      } else {
+        setCommitError(err instanceof Error ? err.message : 'Failed to save the import -- please try again.');
+      }
     } finally {
       setIsImporting(false);
     }
@@ -210,7 +280,16 @@ export function CsvImportSection() {
 
   const hasFile = fileText !== null;
   const canImport =
-    hasFile && target !== null && result.issues.length === 0 && result.reports.length > 0 && importedCount === null && !isImporting;
+    hasFile &&
+    target !== null &&
+    result.issues.length === 0 &&
+    result.reports.length > 0 &&
+    importedCount === null &&
+    !isImporting &&
+    // BLOCKER B (post-review round 2): permanently disabled once THIS
+    // file's commit has partially landed -- see `partialCommit`'s doc
+    // comment.
+    !partialCommit;
   const weeklyCount = result.reports.filter((r) => r.kind === 'weekly').length;
   const dailyCount = result.reports.filter((r) => r.kind === 'daily').length;
 

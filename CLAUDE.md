@@ -821,9 +821,29 @@ domain shapes changed.
   exception (`--radius-pill`).
 - Known faithful-port quirks (do not "fix" silently): "Final" status badge renders
   neutral (prototype's `statusTone` returns an undefined tone); `saveDraft`
-  always forces `Draft` status. (The two dark-mode quirks previously listed
-  here — "dark mode is partial by design" and "header/panel stays white in
-  dark" — were intentionally superseded in Phase 1; see "Dark mode" above.)
+  always forces `Draft` status and still skips full per-step validation
+  (tasks/risks/priorities/`preparedFor` may all be empty on a saved draft).
+  (The two dark-mode quirks previously listed here — "dark mode is partial
+  by design" and "header/panel stays white in dark" — were intentionally
+  superseded in Phase 1; see "Dark mode" above.)
+- **`saveDraft`'s validation-bypass quirk is narrowed, not absolute (Phase
+  7b)**: the period field(s) — Week Start/End for a weekly draft, Date for a
+  daily draft — are the one thing `saveDraft()` (`components/wizard/
+  useWizard.ts`) checks before calling `onSaveDraft`, with a real inline
+  message ("Add a week start and end date before saving a draft." / "Add a
+  report date before saving a draft."), rather than letting a period-less
+  draft reach the wire. This is NOT optional UX polish: Supabase mode's
+  `isoDate` schema (`lib/schema/api.ts`) and the `reports_period_by_kind`
+  CHECK constraint (`supabase/migrations/20260717000002_daily_reports.sql`)
+  both reject a blank period unconditionally, so a period-less draft used to
+  400 with the raw string `Invalid request body.` rendered in the wizard's
+  error banner and nothing persisted. Loosening the Zod schema to accept a
+  blank period was considered and rejected — the DB CHECK constraint would
+  still reject it, just moving the failure one layer deeper with a worse
+  error. Same class, same phase: clearing a weekly report's Week Start/Week
+  End `<input type="date">` on `ReportScreen` (`/reports/[id]`) is rejected
+  client-side too (`app/(shell)/reports/[id]/page.tsx`), mirroring the daily
+  report screen's pre-existing `invalidDailyDateEdit` blank/collision guard.
 - **Share/PDF are no longer mocked (Phase 2)** — superseding the Phase-1
   quirk "Share links and PDF export are UI-only mocked dialogs". Share
   links now resolve to a real route (`/reports/[id]/present`) and PDF

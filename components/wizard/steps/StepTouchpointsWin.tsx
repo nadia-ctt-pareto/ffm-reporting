@@ -12,6 +12,18 @@ export interface StepTouchpointsWinProps {
   setWinField: <K extends keyof Draft['win']>(field: K, value: Draft['win'][K]) => void;
 }
 
+/**
+ * Post-review nit: `Number(e.target.value) || 0` accepted `2.5` and `-3` --
+ * `TouchpointsSchema` (`lib/schema/report.ts`) is `int().nonnegative()`, so
+ * Publishing a report with a fractional/negative touchpoint count used to
+ * 400 at the wire, the same root cause as BLOCKER 2 (a client-side value
+ * the server schema can't accept, discovered only at publish time). Clamped
+ * at the input instead: truncate toward zero, then floor at 0.
+ */
+function nonNegativeInt(raw: string): number {
+  return Math.max(0, Math.trunc(Number(raw) || 0));
+}
+
 /** Ported from design-source lines 173-197. */
 export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: StepTouchpointsWinProps) {
   return (
@@ -22,19 +34,19 @@ export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: 
           type="number"
           label="Client Calls"
           value={draft.touchpoints.calls}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('calls', Number(e.target.value) || 0)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('calls', nonNegativeInt(e.target.value))}
         />
         <Input
           type="number"
           label="Email Threads"
           value={draft.touchpoints.emails}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('emails', Number(e.target.value) || 0)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('emails', nonNegativeInt(e.target.value))}
         />
         <Input
           type="number"
           label="Escalations"
           value={draft.touchpoints.escalations}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('escalations', Number(e.target.value) || 0)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('escalations', nonNegativeInt(e.target.value))}
         />
       </div>
       <div className={styles.textareaSpacer}>

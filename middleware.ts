@@ -82,6 +82,18 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (!user && !isPublicPath(pathname)) {
+    // Phase 7b: `/api/*` gets a 401 JSON body, not a 307 to `/login` -- a
+    // `fetch()` call (HttpReportsRepository, and every route handler's own
+    // client) follows a redirect transparently and would receive `/login`'s
+    // HTML instead of JSON, which then fails `response.json()` with a
+    // confusing parse error instead of a clean, catchable 401. Route
+    // handlers ALSO re-check `auth.getUser()` themselves (defense-in-depth,
+    // see app/api/reports/route.ts's header comment) -- this branch is what
+    // makes an anonymous `curl /api/reports` see `401` at all, since an
+    // unauthenticated request never even reaches those handlers.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
@@ -97,8 +109,30 @@ export async function middleware(request: NextRequest) {
 // with a login page is never right, and for `/sw.js` specifically it defeats
 // the service-worker eviction described above. No application route ends in
 // one of these extensions, so excluding them cannot shadow a real page.
+//
+// Post-review fix (SHOULD-FIX 6): the negative-lookahead pattern above
+// ALSO exempted `/api/**` paths that happen to end in one of these
+// extensions -- `GET /api/reports/r1.json` (a real, meaningful id +
+// route-handler dynamic segment, not a static file) matched the `.json$`
+// branch and skipped this middleware entirely, reaching
+// `app/api/reports/[id]/route.ts` with `id = "r1.json"` and NO 401 gate
+// ahead of that handler's own `auth.getUser()` check. That handler still
+// caught it (so this was never a live unauthenticated-read hole), but the
+// invariant every route handler's header comment asserts -- "middleware
+// already turns an unauthenticated /api/* request into a 401 before it
+// ever reaches this file" -- was silently false for that whole path shape,
+// which is exactly the kind of thing a future handler's author, trusting
+// that comment, could ship an unauthenticated hole on top of. A second,
+// explicit `/api/:path*` matcher entry below means EVERY `/api/*` request
+// matches at least one entry regardless of its trailing extension --
+// Next.js runs middleware if a request matches ANY entry in this array, so
+// this doesn't touch the static-asset exemption above, it just adds an
+// unconditional one for `/api/*`. Proof: `curl -i
+// http://localhost:3000/api/reports/r1.json` (no cookies) now returns 401
+// (previously reached the handler's own DB query with an unrecognized id).
 export const config = {
   matcher: [
     '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|js|mjs|css|map|txt|json|webmanifest|woff|woff2|ttf|otf)$).*)',
+    '/api/:path*',
   ],
 };

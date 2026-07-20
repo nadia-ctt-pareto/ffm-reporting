@@ -1,18 +1,25 @@
 # Database Schema — Weekly Reports Dashboard
 
-Baseline schema for the eventual `SupabaseReportsRepository` (see
-`lib/data/reports-repository.ts`). **No repository code reads/writes this
-schema yet (that's Phase 7b)** — MVP persistence is still
-`LocalStorageReportsRepository`. This document exists so the shape is
-reviewed and versioned ahead of the cutover. The migration itself lives at
+Baseline schema for `HttpReportsRepository` (see
+`lib/data/reports-repository.ts` / `lib/data/http-reports-repository.ts`,
+Phase 7b). The migration itself lives at
 `supabase/migrations/20260717000001_initial_schema.sql`, with a Phase 4
 delta at `supabase/migrations/20260717000002_daily_reports.sql`, a
 Phase 6a delta (the Project entity) at
-`supabase/migrations/20260718000003_projects.sql`, and a Phase 7a delta
+`supabase/migrations/20260718000003_projects.sql`, a Phase 7a delta
 (auth, ownership, real RLS, per-report share tokens, the transactional
 import RPC, and the `created_at`/`updated_at` type widening) at
 `supabase/migrations/20260719000004_auth_ownership.sql` — see "Auth,
-ownership, and RLS (Phase 7a)" below.
+ownership, and RLS (Phase 7a)" below — a Phase 7b post-review-hardening
+delta (closing a share-token read leak found in code review, plus
+server-stamping `updated_at`) at
+`supabase/migrations/20260720000005_post_review_hardening.sql` — see
+"Post-review hardening (Phase 7b)" below — and a Phase 7b round-2
+post-review-hardening delta (matching SQL CHECK constraints + a child-row
+count cap for the app's write-boundary length caps, plus `replace_reports`
+returning the real `updated_at` it wrote) at
+`supabase/migrations/20260720000006_post_review_hardening_round2.sql` — see
+"Post-review hardening, round 2 (Phase 7b)" below.
 
 ## Discriminated union ↔ single table (Phase 4)
 
@@ -122,11 +129,21 @@ below predates Phase 4 and is unchanged.
 | `createdAt`                  | `created_at`                | `timestamptz` | Phase 7a: widened from `date` (see "created_at / updated_at" below); default `now()` |
 | `updatedAt`                  | `updated_at`                | `timestamptz` | Phase 7a: widened from `date`, same note; default `now()` |
 | `projectId`                  | `project_id`                | `text`, nullable | Phase 6a. FK → `projects(id)`. NULL = house-authored, multi-client report; set only for reports imported into a specific project (Phase 6b). Part of the daily-uniqueness bucket key -- see "One daily report per day, PER PROJECT BUCKET" above. |
-| `ownerId`                    | `owner_id`                   | `uuid`, nullable | Phase 7a. FK → `auth.users(id)`. NULL = system/unclaimed (admin-editable only). See "Auth, ownership, and RLS (Phase 7a)" below. |
+| `ownerId`                    | `owner_id`                   | `uuid`, nullable | Phase 7a. FK → `auth.users(id)`. NULL = system/unclaimed (admin-editable only). See "Auth, ownership, and RLS (Phase 7a)" below. **Deliberately still broadcast to every authenticated user** (SHOULD-FIX I, "Post-review hardening, round 2" below) -- unlike `shareToken`, an opaque UUID among coworkers at one small agency isn't a live risk, and it's the natural column a future owner-aware affordance would already need selected. |
 | `shareToken`                 | `share_token`                | `text`, nullable, `unique` | Phase 7a. Opt-in public share token, NULL by default. Server-generated only, never client-supplied. See "Per-report share tokens (Phase 7a)" below. |
 | `tasks`                      | *(joined from `tasks`)*     | —         | `where report_id = reports.id order by position` |
 | `risks`                      | *(joined from `risks`)*     | —         | `where report_id = reports.id order by position` |
 | `priorities`                 | *(joined from `priorities`)*| —         | `where report_id = reports.id order by position` |
+
+**Length/range CHECK constraints** (Phase 7b round 2,
+`supabase/migrations/20260720000006_post_review_hardening_round2.sql`):
+`id` ≤ 200 chars; `prepared_for`/`prepared_by`/`win_stat`/`win_label` ≤ 500
+chars; `summary_narrative`/`win_narrative`/`touchpoints_narrative` ≤ 20,000
+chars; `touchpoint_calls`/`touchpoint_emails`/`touchpoint_escalations`
+between 0 and 100,000; `project_id` ≤ 200 chars where non-NULL. These mirror
+`lib/schema/report.ts`'s `*InputSchema` write-boundary bounds exactly (see
+"Post-review hardening, round 2" below for why they exist at the SQL layer
+too, not just in Zod).
 
 ## Field mapping: `tasks`
 
@@ -141,6 +158,14 @@ below predates Phase 4 and is unchanged.
 | `deadline`          | `deadline`  | `date`    | nullable — `''` ↔ `NULL`                            |
 | —                   | `position`  | `integer` | preserves array order                               |
 
+**Length CHECK constraints** (Phase 7b round 2, same migration as above):
+`id` ≤ 200 chars; `client` ≤ 500 chars; `task` ≤ 20,000 chars; `project_id`
+≤ 200 chars where non-NULL. **Row-count CHECK** (same migration): a trigger
+(`public.enforce_child_row_cap()`) rejects a report's 501st `tasks` row --
+see "Post-review hardening, round 2" below for why a plain array-length cap
+in Zod alone isn't sufficient (it only guards this app's own route
+handlers, not a direct PostgREST insert against this table).
+
 ## Field mapping: `risks`
 
 | TS field (`Risk`) | Column       | Type      | Notes                                         |
@@ -154,6 +179,11 @@ below predates Phase 4 and is unchanged.
 | `nextStep`          | `next_step`  | `text`    | default `''`                                    |
 | —                   | `position`   | `integer` | preserves array order                           |
 
+**Length CHECK constraints**: `id` ≤ 200 chars; `client` ≤ 500 chars;
+`description`/`next_step` ≤ 20,000 chars; `project_id` ≤ 200 chars where
+non-NULL. **Row-count CHECK**: same `enforce_child_row_cap()` trigger as
+`tasks` above, capped at 500 `risks` rows per report.
+
 ## Field mapping: `priorities`
 
 | TS field (`Priority`) | Column      | Type      | Notes                                     |
@@ -162,6 +192,10 @@ below predates Phase 4 and is unchanged.
 | —                        | `report_id` | `text`    | FK → `reports(id)`, `on delete cascade`    |
 | `text`                   | `text`      | `text`    |                                            |
 | —                        | `position`  | `integer` | preserves array order                      |
+
+**Length CHECK constraints**: `id` ≤ 200 chars; `text` ≤ 20,000 chars.
+**Row-count CHECK**: same `enforce_child_row_cap()` trigger as `tasks`/
+`risks` above, capped at 500 `priorities` rows per report.
 
 ## Field mapping: `projects`
 
@@ -246,6 +280,7 @@ statement) to confirm:
 | `replace_reports(jsonb, boolean)` | `authenticated` only | RLS already blocks an `anon` call (verified: `42501`), but `anon` has no legitimate reason to reach it at all — defense in depth, not the only gate. |
 | `enable_report_share(text)` / `revoke_report_share(text)` | `authenticated` only | Owner-or-admin-gated internally; `anon` has no account to own a report with. |
 | `before_user_created_hook(jsonb)` | `supabase_auth_admin` only | The auth hook oracle above — must NOT be reachable via `/rest/v1/rpc/*` by anyone, including `authenticated`. |
+| `get_report_share_token(text)` (Phase 7b, 20260720000005) | `authenticated` only | Same rationale as `enable_report_share`/`revoke_report_share` — owner-or-admin-gated internally, `anon` has no account to own a report with. See "Post-review hardening (Phase 7b)" below. |
 
 ```sql
 select p.proname, p.proacl from pg_proc p
@@ -448,6 +483,206 @@ of overwriting it — this is the mechanism that makes the eventual
 localStorage→Supabase import idempotent and safe to re-run (every browser's
 `localStorage` has the same seed ids like `r1`; an id already in Postgres is
 skipped, never clobbered). Returns `{"imported": [ids], "skipped": [ids]}`.
+
+## Post-review hardening (Phase 7b)
+
+`supabase/migrations/20260720000005_post_review_hardening.sql` closes two
+findings from code review of the (otherwise Phase-7a-complete) M1+M2 data
+plane. Neither changes `lib/types.ts`/`lib/schema/` domain shapes — this is
+a pure RLS/grant/function-body delta, landed as its own migration per
+CLAUDE.md's migrations-discipline rule regardless.
+
+### `reports.share_token` was readable by every authenticated user (BLOCKER)
+
+`reports_select` (Phase 7a) is `using (true)` with **no column
+restriction** — `lib/server/reports-service.ts`'s `reportsQuery` selected
+`'*'`, so `GET /api/reports` returned every report's `share_token`,
+including reports the caller doesn't own, to every signed-in user. Any
+authenticated user could mint a fully-working **anonymous** share link
+(`/reports/<id>/present?t=<token>`) for a report they don't own, without
+ever calling `enable_report_share()` — the whole point of that RPC being
+owner-or-admin-gated. Fixing the API layer alone is insufficient: the same
+caller can bypass this app entirely with the anon key + their own JWT
+(`GET /rest/v1/reports?select=id,share_token`), since `reports_select` has
+no column-level restriction of its own.
+
+Two layers, mirroring the `api_tokens.token_hash` column-grant precedent
+(20260719000004_auth_ownership.sql):
+
+1. **Column-level grant**: `authenticated`'s SELECT on `reports` is
+   revoked and re-granted for every column EXCEPT `share_token`. Postgres
+   treats `SELECT *` as equivalent to naming every column at the privilege
+   layer, so `lib/server/reports-service.ts`'s `reportsQuery` had to switch
+   from `select('*', ...)` to an explicit column list in the SAME commit
+   this migration landed in — `*` fails outright (42501) the moment the
+   grant is live. Verified: `curl
+   "$SUPABASE_URL/rest/v1/reports?select=id,share_token" -H "apikey: $ANON"
+   -H "Authorization: Bearer $MEMBER_JWT"` now returns
+   `42501`/"permission denied for table reports" instead of every report's
+   token; a control query (`select=id,status`) still succeeds, proving
+   legitimate reads are unaffected.
+2. **`public.get_report_share_token(report_id text) returns text`** — a
+   new owner-or-admin-gated `SECURITY DEFINER` function, hand-rolling the
+   identical ownership check `enable_report_share`/`revoke_report_share`
+   already use (SECURITY DEFINER bypasses RLS, so the check has to be
+   re-implemented here too). This is the ONLY read path left for
+   `share_token` — `GET /api/reports/[id]/share` (new route handler,
+   `app/api/reports/[id]/share/route.ts`) calls it, designed for Milestone
+   M3's ShareDialog (show/copy an already-enabled link without re-minting
+   one). `execute` granted to `authenticated` only, same rationale as the
+   sibling enable/revoke functions.
+
+`lib/server/db-mapping.ts`'s `ReportRow` interface no longer declares
+`share_token` at all (it's simply absent from every row `reportsQuery`
+returns now, not present-and-null) — `rowToReport` emits no `shareToken`
+key, which is a valid `AnyReport` since that field is `.nullish()`
+(optional key) on `AnyReportSchema`.
+
+### `POST /api/reports` let a client forge `reports.updated_at` (SHOULD-FIX)
+
+`replace_reports` used to take `updated_at` straight from the payload on
+both the insert branch (`coalesce((rec->>'updated_at')::timestamptz,
+now())`) and the on-conflict-update branch (`updated_at =
+excluded.updated_at`) — since `AnyReportInputSchema` includes `updatedAt`
+and `lib/server/db-mapping.ts`'s `reportToRow` forwards it verbatim, a
+client could backdate/forward-date its own reports' "Last Updated" (the
+only audit signal the UI shows) via a plain `POST /api/reports`, and could
+defeat `updateReport`'s `expectedUpdatedAt` optimistic-concurrency CAS
+(added in 7a for Phase 8's `update_report` MCP tool) by holding
+`updated_at` constant across writes through the POST path.
+
+Fix: `replace_reports` now stamps `updated_at = now()` itself on BOTH
+branches, unconditionally ignoring whatever the payload said. `created_at`
+is deliberately left payload-controlled on insert (unchanged) — a
+legitimate import (CSV, the eventual localStorage→Supabase import) needs to
+preserve a record's true original creation date, and creation-date forgery
+was not the vector this finding flagged. Verified directly against
+Postgres: `POST /api/reports` with a payload carrying `updatedAt:
+"1999-01-01T00:00:00Z"` persists a `created_at` matching the payload's
+(forgeable, by design) `createdAt`, but `updated_at` matching the actual
+wall-clock time of the write, not the forged value.
+
+## Post-review hardening, round 2 (Phase 7b)
+
+`supabase/migrations/20260720000006_post_review_hardening_round2.sql`
+closes findings from a SECOND round of code review, against the fixes the
+first round landed. Two independent reviewers re-verified round 1's fixes
+directly against the live database before this round started — those
+verifications are recorded in the round-1 section above and were not
+re-run here; this section covers only what round 1 itself introduced.
+
+### BLOCKER A — round 1's new `.max()` caps landed on the READ schema, over columns with no matching SQL constraint
+
+Round 1 (SHOULD-FIX 8, see `lib/schema/report.ts`) added `.max()`
+length/count caps to close an unbounded-request-body finding, but put them
+on `ReportCoreSchema` — the shared schema
+`lib/server/reports-service.ts`'s `listReports`/`getReport` parse every ROW
+against — rather than only the `*InputSchema` write-boundary variants.
+Postgres had no matching constraint at the time: every `reports`/`tasks`/
+`risks`/`priorities` text column was unbounded `text`. Because `mapRow`
+threw for the WHOLE request on a single failed parse, and `reports_select`
+is `using (true)` (every authenticated user can read every report), this
+turned a legitimate write into a cross-user outage:
+
+**Confirmed exploited end-to-end.** As `member@` (owner of their own
+report), `PATCH $SUPABASE_URL/rest/v1/reports?id=eq.<their-report>
+{"summary_narrative": "A"×25000}` — allowed by `reports_update` RLS, since
+they own the row, bypassing this app's own `POST`/`PATCH` handlers (and
+their now-bounded `*InputSchema` validation) entirely via the public anon
+key + their own JWT. `GET /api/reports` then 500'd for **every** signed-in
+user, including `dev@` (admin) — not just `member@` — with no in-app
+recovery (the poisoned report couldn't be listed, opened, or patched back
+through the API; only a direct DB fix could clear it).
+
+**Fix — three independent layers, not one:**
+
+1. **The `.max()` caps moved OFF the read schema** (`ReportCoreSchema` and
+   every nested Task/Risk/Priority/Win/Touchpoints read schema,
+   `lib/schema/report.ts`) **onto DEDICATED `*InputSchema` variants**
+   (`TaskInputSchema`, `RiskInputSchema`, `PriorityInputSchema`,
+   `WinInputSchema`, `TouchpointsInputSchema`, `ReportCoreInputSchema`) —
+   the actual write boundary SHOULD-FIX 8 meant them to land on. The read
+   schema is unconditionally permissive again (matching its pre-round-1
+   shape) — a read schema must stay satisfiable by construction; validation
+   that can reject data the database legitimately contains is an
+   availability bug, not a safety feature.
+2. **THIS migration**: SQL CHECK constraints matching every `*InputSchema`
+   bound exactly (see the field-mapping tables above for the full list) —
+   closes the gap layer (1) alone can't: a client hitting PostgREST
+   directly, bypassing this app's route handlers entirely, is now ALSO
+   capped at the database layer. **Verified**: the exact exploit payload
+   above (`update reports set summary_narrative = repeat('A', 25000) ...`)
+   now fails outright with `ERROR: new row for relation "reports" violates
+   check constraint "reports_summary_narrative_len"` — no row is written,
+   nothing to 500 on afterward.
+3. **`listReports` (`lib/server/reports-service.ts`) now skip-and-logs** a
+   single non-conforming row (via a new `safeMapRow` helper) instead of
+   throwing for the whole batch — `mapRow` (still throwing) is reserved for
+   single-row reads (`getReport`, `updateReport`'s own re-read), where "the
+   one report the caller asked for is unreadable" is the correct,
+   narrowly-scoped failure. This is a backstop for the case where the
+   schema and the database disagree DESPITE (1)/(2) — a future drift now
+   degrades to "one report silently missing from the list" (still logged
+   server-side) instead of "the whole list, for everyone, is down."
+
+**Child-row-count enforcement** ("if practical", per the review): the
+round-1 `MAX_CHILD_ROWS = 500` array-length cap only ever bounded what
+THIS app's own route handlers accept in one `tasks`/`risks`/`priorities`
+array — it can't stop a client from directly `INSERT`ing unlimited rows
+into those tables via PostgREST, since `tasks_insert` (and its risks/
+priorities siblings, Phase 7a) only check ownership of the parent report,
+not a row count. `public.enforce_child_row_cap()`, a per-row `AFTER INSERT`
+trigger attached to all three child tables, closes this: it raises a
+`23514` (check_violation, mapped to HTTP 400) once a report's count for
+that table exceeds 500. A per-row (not statement-level/transition-table)
+trigger was chosen deliberately for implementation simplicity and because
+`report_id` is already indexed on all three tables, so each check is a
+cheap indexed count; the app's own `.max(500)` array cap already bounds how
+many times this can fire per report per request in practice. **Verified**:
+inserting 501 task rows for one report in a single transaction raises
+`Report r1 already has the maximum of 500 tasks rows.` and rolls back; a
+normal single-row insert well under the cap still succeeds.
+
+### BLOCKER B, SHOULD-FIX D–I
+
+The remaining round-2 findings (a CSV-import partial-commit retry that
+could duplicate weekly reports; a dead-on-arrival `expectedUpdatedAt` CAS;
+`ServiceError` messages that weren't always curated before reaching the
+client; an overly permissive CSRF `Sec-Fetch-Site` check; a
+`Transfer-Encoding: chunked` body-size bypass; a discarded server error
+message on the report screen; `loadError` left unrendered on several
+routes; and a decision on whether to keep broadcasting `reports.owner_id`)
+are **app-layer fixes with no additional schema delta** — see
+`lib/server/reports-service.ts`, `lib/server/route-helpers.ts`,
+`lib/server/request-guards.ts`, `components/settings/CsvImportSection.tsx`,
+`components/report/ReportScreen.tsx`, and the five route-wrapper files each
+listed in their own doc comments. The one exception folded into THIS
+migration instead of a code-only fix: `replace_reports` (see below).
+
+### `replace_reports` now returns the real `updated_at` it wrote (SHOULD-FIX C, second half)
+
+Round 1 made `replace_reports` server-stamp `updated_at = now()` itself,
+but `updateReport` (`lib/server/reports-service.ts`) still computed its OWN
+`new Date().toISOString()` for the value it returned to its caller — a
+value from THIS NODE PROCESS'S clock, which can legitimately disagree with
+Postgres's (skew, or a request straddling a UTC-midnight boundary). That
+was harmless while the return value was discarded, but a same-phase fix
+(SHOULD-FIX 14, round 1) now writes it straight into React state, making it
+live, user-visible data. Fixed by having `replace_reports` report back what
+it ACTUALLY wrote: its jsonb result gained an `updatedAt` key — an object
+mapping every imported (non-skipped) id to the real `updated_at` it was
+just stamped with, captured via `INSERT ... ON CONFLICT DO UPDATE ...
+RETURNING updated_at INTO ...` inside the existing per-report loop, no
+extra round-trip. `updateReport` looks up its own single id in this map
+instead of guessing. **Verified**: calling `replace_reports` with a payload
+whose own `updated_at` is a forged `"1999-01-01T00:00:00Z"` (unchanged from
+round 1's own verification) returns the ACTUAL wall-clock write time in
+its `updatedAt` map, not the forged value and not a locally-computed one.
+
+The `expectedUpdatedAt` CAS half of SHOULD-FIX C (comparing against the
+DOMAIN-normalized, not raw, `updated_at`) is an app-layer-only change — see
+`lib/server/reports-service.ts`'s `updateReport` and `lib/schema/api.ts`'s
+`ReportPatchSchema` doc comment.
 
 ## Cutover checklist
 

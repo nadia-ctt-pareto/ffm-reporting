@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { DashboardScreen } from '@/components/dashboard/DashboardScreen';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { useProjects } from '@/lib/hooks/useProjects';
@@ -18,7 +19,7 @@ import type { SortKey } from '@/lib/types';
  */
 export function DashboardPage() {
   const router = useRouter();
-  const { reports } = useReports();
+  const { reports, loadError } = useReports();
   const { projects } = useProjects();
 
   const [filterStatus, setFilterStatus] = useState('All');
@@ -36,7 +37,14 @@ export function DashboardPage() {
 
   // Reports haven't loaded yet: server HTML and the first client render both
   // render nothing here, so there is no hydration mismatch (see useReports).
-  if (reports === null) return null;
+  // Post-review fix (SHOULD-FIX 11): a FAILED initial load also leaves
+  // `reports === null` forever -- `loadError` distinguishes "still loading"
+  // from "loading failed" and gets a real, actionable screen instead of a
+  // permanent blank pane.
+  if (reports === null) {
+    if (loadError) return <LoadErrorState title="Dashboard" message={loadError} />;
+    return null;
+  }
 
   // Phase 6a: dynamic client filter options, replacing the static
   // CLIENT_FILTER_OPTIONS (FF_CLIENTS remains the client-name source for

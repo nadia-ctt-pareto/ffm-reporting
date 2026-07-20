@@ -22,8 +22,20 @@ export interface ReportScreenProps {
   /** Which kind of report this screen mount is showing -- decides the editable period field(s) and every route it links out to, even while `report` is still null (see emptyReportFallback). */
   kind: ReportKind;
   onUpdateFields: (patch: ReportFieldPatch) => void;
-  /** Daily only: an inline message shown under the Date field when the caller rejected the last date edit (blank, or collides with another daily) instead of persisting it -- see app/(shell)/daily/[id]/page.tsx and invalidDailyDateEdit. */
-  dateError?: string;
+  /**
+   * An inline message shown under the period field(s) when the caller
+   * rejected the last edit (blank, or -- daily only -- collides with
+   * another daily) instead of persisting it. Daily: renders under the
+   * single Date field -- see app/(shell)/daily/[id]/page.tsx and
+   * invalidDailyDateEdit. Weekly (BLOCKER 2, Phase 7b): renders under the
+   * Week Start/Week End pair -- clearing either field used to send
+   * `{ weekStart: '' }`/`{ weekEnd: '' }` straight to `onUpdateFields`,
+   * which `ReportPatchSchema`'s `isoDate.optional()` rejects with a raw
+   * 400 in Supabase mode; see app/(shell)/reports/[id]/page.tsx.
+   */
+  periodError?: string;
+  /** Phase 7b: `useReports()`/`useDailyReports()`'s `mutationError` -- when set, the autosave note below swaps from "Changes save automatically." to a visible failure message, mirroring the `periodError` prop pattern. */
+  mutationError?: string | null;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -82,7 +94,7 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * simple enough (one param, one hook) that it doesn't need a separate
  * route-level orchestrator like DashboardPage/WizardPage.
  */
-export function ReportScreen({ report, kind, onUpdateFields, dateError }: ReportScreenProps) {
+export function ReportScreen({ report, kind, onUpdateFields, periodError, mutationError }: ReportScreenProps) {
   const dSafe = report ?? emptyReportFallback(kind);
   const { onSched, total } = onSchedule(dSafe);
   const backHref = kind === 'daily' ? '/daily' : '/';
@@ -158,7 +170,7 @@ export function ReportScreen({ report, kind, onUpdateFields, dateError }: Report
                 value={dSafe.date}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ date: e.target.value })}
               />
-              {dateError ? <div className={styles.fieldError}>{dateError}</div> : null}
+              {periodError ? <div className={styles.fieldError}>{periodError}</div> : null}
             </div>
           ) : (
             <>
@@ -178,10 +190,18 @@ export function ReportScreen({ report, kind, onUpdateFields, dateError }: Report
                   onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekEnd: e.target.value })}
                 />
               </div>
+              {periodError ? <div className={styles.fieldError}>{periodError}</div> : null}
             </>
           )}
         </div>
-        <div className={styles.autosaveNote}>Changes save automatically.</div>
+        <div className={mutationError ? styles.fieldError : styles.autosaveNote} role="status" aria-live="polite">
+          {/* Post-review hardening round 2 (SHOULD-FIX G): render the actual
+              curated server message (e.g. "You don't have permission to do
+              that.", "This was changed by someone else since you loaded it.
+              Reload and try again.") instead of a hardcoded generic string
+              that discarded it -- TaskViewScreen already does this. */}
+          {mutationError ?? 'Changes save automatically.'}
+        </div>
 
         <div className={styles.actionsRow}>
           <Button variant="dark" size="sm" onClick={() => openPresentation(false)}>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { invalidDailyDateEdit } from '@/lib/report-utils';
@@ -21,7 +22,10 @@ import type { ReportFieldPatch } from '@/lib/types';
  * colliding edit is rejected before it ever reaches `updateReportFields`
  * (the controlled Date input in ReportScreen then simply reverts to the
  * still-current `report.date` on the next render, since nothing changed);
- * `dateError` surfaces why.
+ * `periodError` surfaces why (ReportScreen's `dateError` prop was renamed
+ * `periodError` in Phase 7b so the weekly report screen's analogous
+ * blank-Week-Start/End guard, app/(shell)/reports/[id]/page.tsx, could
+ * reuse the same prop -- see that prop's doc comment).
  *
  * Phase 6a: the collision check is scoped per project bucket
  * (`report?.projectId ?? null` -- `sameProjectBucket` in lib/report-utils.ts),
@@ -32,8 +36,8 @@ import type { ReportFieldPatch } from '@/lib/types';
 export default function DailyReportDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { reports, updateReportFields } = useDailyReports();
-  const [dateError, setDateError] = useState('');
+  const { reports, loadError, updateReportFields, mutationError } = useDailyReports();
+  const [periodError, setPeriodError] = useState('');
 
   const id = params.id;
   const report = reports?.find((r) => r.id === id) ?? null;
@@ -46,16 +50,22 @@ export default function DailyReportDetailPage() {
   const handleUpdateFields = (patch: ReportFieldPatch) => {
     if (!id) return;
     if (patch.date !== undefined && invalidDailyDateEdit(reports ?? [], id, patch.date, report?.projectId ?? null)) {
-      setDateError(patch.date ? 'A daily report for this date already exists.' : 'Enter a report date.');
+      setPeriodError(patch.date ? 'A daily report for this date already exists.' : 'Enter a report date.');
       return;
     }
-    setDateError('');
-    updateReportFields(id, patch);
+    setPeriodError('');
+    updateReportFields(id, patch).catch(() => {});
   };
+
+  // Post-review hardening round 2 (SHOULD-FIX H): see DashboardPage.tsx's
+  // identical guard for the full rationale.
+  if (reports === null && loadError) return <LoadErrorState title="Daily Report" message={loadError} />;
 
   // Reports haven't loaded yet, or the not-found redirect above is pending:
   // render nothing rather than a flash of an empty report screen.
   if (reports === null || notFound) return null;
 
-  return <ReportScreen report={report} kind="daily" dateError={dateError} onUpdateFields={handleUpdateFields} />;
+  return (
+    <ReportScreen report={report} kind="daily" periodError={periodError} mutationError={mutationError} onUpdateFields={handleUpdateFields} />
+  );
 }

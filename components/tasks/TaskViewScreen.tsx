@@ -13,6 +13,8 @@ import styles from './TaskViewScreen.module.css';
 export interface TaskViewScreenProps {
   reports: Report[];
   onUpdateReportFields: (id: string, patch: Partial<Report>) => void;
+  /** Phase 7b (BLOCKER 3): `useReports().mutationError` -- surfaced here so a failed Kanban drag (e.g. PATCHing a report this user doesn't own under Supabase RLS) reads as a visible error, not "the app broke". The card itself already reverts (the hook's own rollback), this is just the explanation. */
+  mutationError?: string | null;
 }
 
 type TaskViewMode = 'list' | 'kanban';
@@ -24,7 +26,7 @@ type TaskViewMode = 'list' | 'kanban';
  * `useReports()` call already made by the thin page wrapper) that a
  * separate route-level orchestrator would be pure ceremony.
  */
-export function TaskViewScreen({ reports, onUpdateReportFields }: TaskViewScreenProps) {
+export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }: TaskViewScreenProps) {
   const router = useRouter();
   const [mode, setMode] = useState<TaskViewMode>('list');
 
@@ -47,6 +49,18 @@ export function TaskViewScreen({ reports, onUpdateReportFields }: TaskViewScreen
 
       <div className={styles.content}>
         <p className={styles.subtitle}>Every task across every report, grouped by status.</p>
+
+        {mutationError ? (
+          // NIT fix (post-review round 2): `role="alert"` (implicit
+          // `aria-live="assertive"`), not `role="status"` -- a dedicated
+          // failure block needing action shouldn't queue behind other
+          // polite announcements. `ReportScreen`'s save/failure TOGGLE
+          // stays `status` on purpose (see that component) -- this is a
+          // different pattern (a block that only appears on failure).
+          <div className={styles.mutationError} role="alert">
+            {mutationError}
+          </div>
+        ) : null}
 
         <Tabs
           aria-label="Task view mode"

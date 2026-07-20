@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { WizardScreen } from '@/components/wizard/WizardScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
@@ -45,8 +46,8 @@ export interface WizardPageProps {
  */
 export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
   const router = useRouter();
-  const { reports: weeklyReports, upsertReport: upsertWeekly } = useReports();
-  const { reports: dailyReports, upsertReport: upsertDaily } = useDailyReports();
+  const { reports: weeklyReports, upsertReport: upsertWeekly, loadError: weeklyLoadError } = useReports();
+  const { reports: dailyReports, upsertReport: upsertDaily, loadError: dailyLoadError } = useDailyReports();
   const { projects } = useProjects();
 
   const [shareOpen, setShareOpen] = useState(false);
@@ -63,6 +64,13 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
 
   const sameKindReports: AnyReport[] | null = kind === 'daily' ? dailyReports : weeklyReports;
   const loaded = kind === 'weekly' ? weeklyReports !== null && dailyReports !== null : dailyReports !== null;
+  // Post-review hardening round 2 (SHOULD-FIX H): mirrors `loaded`'s own
+  // kind-conditional shape -- the weekly wizard depends on BOTH hooks (the
+  // dailies list feeds "Import This Week's Daily Reports"), so either
+  // hook's load failure should block it; the daily wizard only depends on
+  // `useDailyReports()`, so a weekly-load failure elsewhere shouldn't block
+  // it here.
+  const loadError = kind === 'weekly' ? (weeklyLoadError ?? dailyLoadError) : dailyLoadError;
 
   const found = reportId && sameKindReports ? (sameKindReports.find((r) => r.id === reportId) ?? null) : null;
   const notFound = Boolean(reportId) && sameKindReports !== null && found === null;
@@ -75,18 +83,27 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
 
   const exitWizard = () => router.push(exitHref);
 
-  const handleSaveDraft = (report: AnyReport) => {
-    if (report.kind === 'weekly') upsertWeekly(report);
-    else upsertDaily(report);
+  // Phase 7b: returns the underlying hook promise -- useWizard's saveDraft()
+  // awaits it and surfaces a rejection through the wizard's `error` channel
+  // instead of exiting. Exiting only on success is the whole point: a
+  // failed save should leave the user on the wizard with the draft intact,
+  // not silently drop them back on the dashboard.
+  const handleSaveDraft = async (report: AnyReport) => {
+    if (report.kind === 'weekly') await upsertWeekly(report);
+    else await upsertDaily(report);
     exitWizard();
   };
 
   // Publish stays on the wizard's confirmation screen; the user exits via
   // "Back to Dashboard". The report is upserted immediately so Share/PDF on
-  // the confirmation screen can resolve it straight from `reports`.
-  const handlePublish = (report: AnyReport) => {
-    if (report.kind === 'weekly') upsertWeekly(report);
-    else upsertDaily(report);
+  // the confirmation screen can resolve it straight from `reports`. Phase
+  // 7b: returns the underlying hook promise -- useWizard's publish() only
+  // flips to the confirmation screen after this resolves (see that file's
+  // doc comment); a rejection propagates back up for the wizard's `error`
+  // channel to surface.
+  const handlePublish = async (report: AnyReport) => {
+    if (report.kind === 'weekly') await upsertWeekly(report);
+    else await upsertDaily(report);
   };
 
   const openShare = (id: string) => {
@@ -109,6 +126,12 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
     const base = kind === 'daily' ? '/daily' : '/reports';
     window.open(`${base}/${id}/present?print=1`, '_blank', 'noopener,noreferrer');
   };
+
+  // Post-review hardening round 2 (SHOULD-FIX H): see DashboardPage.tsx's
+  // identical guard for the full rationale.
+  if (!loaded && loadError) {
+    return <LoadErrorState title={kind === 'daily' ? 'Daily Report' : 'Report'} message={loadError} />;
+  }
 
   // Reports haven't loaded yet, or a reportId lookup is still pending the
   // redirect effect above: render nothing rather than a flash of a blank

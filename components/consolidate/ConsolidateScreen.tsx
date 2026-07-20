@@ -25,8 +25,8 @@ export interface ConsolidateScreenProps {
   weeklies: Report[];
   dailies: DailyReport[];
   projects: Project[];
-  /** Persists the newly-created consolidated draft (matches `useReports().upsertReport`). */
-  onCreateReport: (report: Report) => void;
+  /** Persists the newly-created consolidated draft (matches `useReports().upsertReport`). Phase 7b: `Promise<void>` -- `handleCreate` below awaits it before navigating (see that function's doc comment). */
+  onCreateReport: (report: Report) => Promise<void>;
 }
 
 const HOUSE_BUCKET_LABEL = 'Foundation First (this workspace)';
@@ -96,6 +96,12 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
   const [weekStart, setWeekStart] = useState(() => startOfWeekISO(nowDate()));
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [renameAccepted, setRenameAccepted] = useState<Record<string, boolean>>({});
+  // BLOCKER 4: `handleCreate` is async and `await`s `onCreateReport`, but was
+  // wired as a bare `onClick` with no error state -- on a rejection (Supabase
+  // down, an RLS denial) `router.push` simply never ran and nothing else
+  // happened, so the primary CTA silently did nothing. See `handleCreate`.
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   const weekEnd = endOfWeekISO(weekStart);
 
@@ -147,8 +153,22 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
   const handleNext = () => setWeekStart((v) => addWeeksISO(v, 1));
   const handleToday = () => setWeekStart(startOfWeekISO(nowDate()));
 
-  function handleCreate() {
-    if (includedSources.length === 0) return;
+  // Phase 7b: awaits `onCreateReport` before navigating -- with a
+  // `Promise<void>`-returning `onCreateReport` (see HttpReportsRepository),
+  // `router.push`ing immediately raced the write: `/reports/[id]/edit`
+  // resolves its `id` against `useReports().reports`, which the wizard's
+  // own route wrapper redirects away from `/` on an unrecognized id (see
+  // WizardPage's "unknown id" handling) -- a real risk the instant the
+  // repository is a network round-trip instead of a synchronous
+  // localStorage write.
+  //
+  // BLOCKER 4 fix: wrapped in try/catch/finally -- a rejection (Supabase
+  // down, an RLS denial) now sets `createError` (rendered next to the
+  // button below) instead of leaving the primary CTA looking like a dead
+  // button with zero feedback; `isCreating` disables it while the write is
+  // in flight so a slow round-trip can't be double-clicked into two drafts.
+  async function handleCreate() {
+    if (includedSources.length === 0 || isCreating) return;
     const id = uid('r');
     const now = nowDate();
     const newReport: WeeklyReport = {
@@ -169,8 +189,15 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
       priorities: draft.priorities,
       projectId: undefined,
     };
-    onCreateReport(newReport);
-    router.push(`/reports/${id}/edit`);
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      await onCreateReport(newReport);
+      router.push(`/reports/${id}/edit`);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create the consolidated draft. Please try again.');
+      setIsCreating(false);
+    }
   }
 
   return (
@@ -321,8 +348,16 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
             Creates a new Draft weekly report -- sources above are never edited or deleted. You&apos;ll finish editing in the
             familiar wizard.
           </p>
-          <Button variant="primary" size="md" onClick={handleCreate} disabled={includedSources.length === 0}>
-            Create Consolidated Weekly Draft
+          {createError ? (
+            // NIT fix (post-review round 2): `role="alert"`, not
+            // `role="status"` -- see TaskViewScreen.tsx's identical fix for
+            // the rationale.
+            <p className={styles.createError} role="alert">
+              {createError}
+            </p>
+          ) : null}
+          <Button variant="primary" size="md" onClick={handleCreate} disabled={includedSources.length === 0 || isCreating}>
+            {isCreating ? 'Creating…' : 'Create Consolidated Weekly Draft'}
           </Button>
         </div>
       </div>

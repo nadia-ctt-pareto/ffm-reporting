@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { Tooltip } from 'radix-ui';
+import { DemoModeBanner } from '@/components/app/DemoModeBanner';
 import { Sidebar } from '@/components/app/Sidebar';
 import { MobileNav } from '@/components/app/MobileNav';
 import { IconMenu } from '@/components/ui/icons';
@@ -98,7 +99,10 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </header>
         <MobileNav open={drawerOpen} onOpenChange={setDrawerOpen} />
-        <main className={styles.main}>{children}</main>
+        <main className={styles.main}>
+          <DemoModeBanner />
+          {children}
+        </main>
       </div>
     </Tooltip.Provider>
   );

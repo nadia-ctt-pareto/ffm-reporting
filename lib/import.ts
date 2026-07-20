@@ -45,7 +45,7 @@ import { IMPORT_COLUMNS } from './csv-templates';
 import { nowDate, uid } from './format';
 import { projectIdForClientName } from './projects';
 import { sameProjectBucket } from './report-utils';
-import { AnyReportSchema } from './schema';
+import { AnyReportInputSchema } from './schema';
 import {
   ImportPriorityRowSchema,
   ImportReportRowSchema,
@@ -365,9 +365,16 @@ export function parseImportCsv(
   });
 
   // ---- belt-and-braces (step 8) ----
+  // Post-review hardening round 2 (BLOCKER A): validated against
+  // `AnyReportInputSchema`, NOT `AnyReportSchema` -- an assembled report
+  // here is untrusted, file-derived content about to be PERSISTED (via
+  // `upsertMany`), exactly the write-boundary case `AnyReportInputSchema`'s
+  // `.max()` bounds exist for (see lib/schema/report.ts). `AnyReportSchema`
+  // is the permissive READ schema now (BLOCKER A) and would silently let an
+  // oversized cell (a single pathological CSV field) through this check.
   const assembledIssues: ImportIssue[] = [];
   reports.forEach((report, i) => {
-    const result = AnyReportSchema.safeParse(report);
+    const result = AnyReportInputSchema.safeParse(report);
     if (!result.success) {
       const rowNumber = reportRows[i]?.rowNumber ?? 1;
       for (const issue of result.error.issues) {

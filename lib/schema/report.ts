@@ -55,6 +55,18 @@ export const TaskStatusSchema = z.enum(['Complete', 'In Progress', 'Blocked']);
 /** Mirrors `risks.severity` CHECK. */
 export const RiskSeveritySchema = z.enum(['Blocked', 'At Risk']);
 
+// =============================================================================
+// READ (row) schemas -- PERMISSIVE BY DESIGN, see BLOCKER A (post-review
+// round 2) below. `AnyReportSchema`/`ReportCoreSchema` and every nested
+// Task/Risk/Priority/Win/Touchpoints schema in THIS section describe what a
+// TRUSTED source (Postgres, or the localStorage repository) can hand back --
+// `lib/server/reports-service.ts`'s `listReports`/`getReport` parse every
+// row against these. They intentionally impose NO length/count ceiling
+// beyond what a real SQL CHECK constraint enforces (enums, `isoDate`'s
+// calendar-validity `.refine()`) -- see the `*InputSchema` section further
+// down for the bounded, write-boundary variants.
+// =============================================================================
+
 export const TaskSchema = z.object({
   id: z.string().min(1),
   client: z.string(),
@@ -100,6 +112,37 @@ export const TouchpointsSchema = z.object({
  * legitimately uses `''`, and runtime validation only ever runs at the
  * import boundary (Phase 7), never on this fallback -- so nothing gains
  * from rejecting it here.
+ *
+ * BLOCKER A (post-review round 2): a prior pass (SHOULD-FIX 8) added
+ * `.max()` length/count caps directly on THIS schema, over Postgres columns
+ * that have no matching constraint at the time -- every `reports`/`tasks`/
+ * `risks`/`priorities` text column is unbounded `text`. Because
+ * `lib/server/reports-service.ts`'s `listReports`/`getReport` parse EVERY
+ * row against this schema (via `AnyReportSchema`, which extends this one)
+ * and `mapRow` THROWS on a failed parse, and `reports_select` is
+ * `using (true)` (every authenticated user can read every report), that
+ * turned a legitimate write -- any owner PATCHing an over-cap value into
+ * their OWN report through the public anon key, which RLS permits -- into a
+ * 500 for `GET /api/reports` for every user in the org, with no in-app
+ * recovery (the poisoned row can't be listed, opened, or patched back
+ * through the API). Confirmed exploited end-to-end.
+ *
+ * The fix is NOT "raise the caps" -- it's that a READ schema must stay
+ * satisfiable by construction: validation that can reject data the
+ * database legitimately contains is an availability bug, not a safety
+ * feature. So the caps moved OFF this schema entirely, onto the
+ * `*InputSchema` variants below (the actual write boundary, which is where
+ * SHOULD-FIX 8 meant them to land), a matching SQL CHECK constraint was
+ * added per-column (`supabase/migrations/20260720000006_post_review_hardening_round2.sql`)
+ * so a direct-PostgREST write is ALSO capped at the database layer (closing
+ * the gap `*InputSchema` alone can't -- it only guards this app's own
+ * `POST`/`PATCH` handlers, not a client hitting PostgREST directly with
+ * the anon key), and `listReports` now skip-and-logs a row that still
+ * somehow fails this permissive parse instead of throwing for the whole
+ * batch (see that function) -- three independent layers, not one, because
+ * any single one of them could in principle drift from the others in the
+ * future and this schema staying permissive is what keeps that drift from
+ * ever becoming an outage again.
  */
 export const ReportCoreSchema = z.object({
   id: z.string().min(1),
@@ -116,9 +159,9 @@ export const ReportCoreSchema = z.object({
   priorities: z.array(PrioritySchema),
   /** Phase 6a: the Project this report was imported into (undefined/null for house-authored, multi-client reports -- the "house" bucket). Pure metadata: drives consolidation grouping, the daily-uniqueness bucket (see sameProjectBucket in lib/report-utils.ts), and the SQL FK. */
   projectId: z.string().nullish(),
-  /** Phase 7a: mirrors `reports.owner_id` (supabase/migrations/20260719000004_auth_ownership.sql) -- the auth.users id of the report's owner, NULL/undefined for system/unclaimed rows. Additive only; no UI reads or writes this in Phase 7a (7b's reports-service stamps it server-side, never trusted from the client). */
+  /** Phase 7a: mirrors `reports.owner_id` (supabase/migrations/20260719000004_auth_ownership.sql) -- the auth.users id of the report's owner, NULL/undefined for system/unclaimed rows. Additive only; no UI reads or writes this in Phase 7a (7b's reports-service stamps it server-side, never trusted from the client). SHOULD-FIX I (post-review round 2): deliberately still selected/broadcast to every authenticated user (`REPORT_COLUMNS`, lib/server/reports-service.ts) even though nothing under components/ reads it today -- this is an internal-team app (a handful of PMs at one agency), an opaque `auth.users` UUID is low-sensitivity among coworkers, and a future owner-aware affordance (e.g. the Share dialog showing "shared by <owner>", or an admin-only "reassign owner" control) would want it already flowing through the same read path rather than needing a second, narrower one added later. Contrast `shareToken` (BLOCKER 1, same migration) -- that column grants ANONYMOUS access the instant it's known, an entirely different risk class, which is why it got a dedicated owner-gated RPC instead of this treatment. */
   ownerId: z.string().nullish(),
-  /** Phase 7a: mirrors `reports.share_token` (see the same migration) -- an opt-in public share token, NULL by default (sharing is per-report opt-in). Server-generated only, never client-supplied. Additive only; no UI reads or writes this in Phase 7a -- the Share dialog's Enable/Revoke UI and the token-aware present route are Phase 7b. */
+  /** Phase 7a: mirrors `reports.share_token` (see the same migration) -- an opt-in public share token, NULL by default (sharing is per-report opt-in). Server-generated only, never client-supplied. Additive only; no UI reads or writes this in Phase 7a (7b's reports-service stamps it server-side, never trusted from the client). */
   shareToken: z.string().nullish(),
 });
 
@@ -135,14 +178,82 @@ export const DailyReportSchema = ReportCoreSchema.extend({
 
 export const AnyReportSchema = z.discriminatedUnion('kind', [WeeklyReportSchema, DailyReportSchema]);
 
+// =============================================================================
+// INPUT (write-boundary) schemas -- BOUNDED, see BLOCKER A above.
+// `*InputSchema` is what every route handler validates a REQUEST BODY
+// against (never `ReportCoreSchema`/`AnyReportSchema` -- see the "Post-review
+// addition (Phase 7a)" comment further down), and what `lib/import.ts`'s
+// belt-and-braces check runs assembled CSV-derived reports through: both are
+// genuinely untrusted-input boundaries, unlike a value already sitting in
+// Postgres.
+// =============================================================================
+
 /**
- * Post-review addition (Phase 7a): the *_Schema exports above are the ROW
+ * Post-review hardening (SHOULD-FIX 8): unbounded strings/arrays at the
+ * write boundary -- `request.json()` buffers the WHOLE body before Zod ever
+ * gets a chance to reject it (Next 15 Route Handlers on the Node runtime
+ * have no default body-size limit), and a pathological payload could hold
+ * `replace_reports`' row locks for an unreasonably long transaction. These
+ * bounds don't change any INFERRED TS type (`.max()` on a `string`/array
+ * stays `string`/`T[]`) -- so per CLAUDE.md's migrations-discipline rule
+ * ("changes to lib/schema/... or the inferred lib/types.ts domain SHAPES"),
+ * no migration/docs delta was needed for THIS file alone; the round-2 fix
+ * that MOVED these here (rather than leaving them on the read schema too)
+ * does add one, because it also adds matching SQL CHECK constraints -- see
+ * `ReportCoreSchema`'s doc comment above. Every cap below is generous
+ * relative to any real weekly/daily report (a handful of tasks/risks/
+ * priorities, prose paragraphs) -- these exist to reject a pathological
+ * payload, not to constrain legitimate use.
+ */
+const MAX_ID_LEN = 200;
+const MAX_SHORT_TEXT = 500;
+const MAX_LONG_TEXT = 20_000;
+const MAX_CHILD_ROWS = 500;
+
+export const TaskInputSchema = z.object({
+  id: z.string().min(1).max(MAX_ID_LEN),
+  client: z.string().max(MAX_SHORT_TEXT),
+  projectId: z.string().max(MAX_ID_LEN).nullish(),
+  task: z.string().max(MAX_LONG_TEXT),
+  status: TaskStatusSchema,
+  deadline: isoDateOrEmpty,
+});
+
+export const RiskInputSchema = z.object({
+  id: z.string().min(1).max(MAX_ID_LEN),
+  client: z.string().max(MAX_SHORT_TEXT),
+  projectId: z.string().max(MAX_ID_LEN).nullish(),
+  severity: RiskSeveritySchema,
+  description: z.string().max(MAX_LONG_TEXT),
+  nextStep: z.string().max(MAX_LONG_TEXT),
+});
+
+export const PriorityInputSchema = z.object({
+  id: z.string().min(1).max(MAX_ID_LEN),
+  text: z.string().max(MAX_LONG_TEXT),
+});
+
+export const WinInputSchema = z.object({
+  stat: z.string().max(MAX_SHORT_TEXT),
+  label: z.string().max(MAX_SHORT_TEXT),
+  narrative: z.string().max(MAX_LONG_TEXT),
+});
+
+export const TouchpointsInputSchema = z.object({
+  calls: z.number().int().nonnegative().max(100_000),
+  emails: z.number().int().nonnegative().max(100_000),
+  escalations: z.number().int().nonnegative().max(100_000),
+  narrative: z.string().max(MAX_LONG_TEXT),
+});
+
+/**
+ * Post-review addition (Phase 7a): the READ schemas above are the ROW
  * shape (what comes back FROM a trusted source -- Postgres, or the
  * localStorage repository) -- `ownerId`/`shareToken` belong there because
  * `ReportCore`/`AnyReport` (lib/types.ts) need to type them. They are
  * DELIBERATELY WRONG for validating an incoming REQUEST BODY: Zod strips
  * only *unknown* keys, and `ownerId`/`shareToken` are now known keys on
- * these schemas, so `AnyReportSchema.parse(untrustedBody)` would pass a
+ * those schemas, so `AnyReportSchema.parse(untrustedBody)` would pass a
  * client-supplied `ownerId`/`shareToken` straight through unchallenged --
  * exactly the "never trusted from the client" property their own doc
  * comments assert, silently inverted by being reachable through the shared
@@ -152,11 +263,26 @@ export const AnyReportSchema = z.discriminatedUnion('kind', [WeeklyReportSchema,
  * by the client directly -- see `enable_report_share`/`revoke_report_share`,
  * supabase/migrations/20260719000004_auth_ownership.sql).
  *
- * Phase 7b's route handlers (and anything else parsing a request body) MUST
- * use the `*InputSchema` variants below, never `ReportCoreSchema`/
- * `AnyReportSchema` directly, for that purpose.
+ * Every route handler (and anything else parsing a request body) MUST use
+ * THIS schema (or `AnyReportInputSchema` below), never `ReportCoreSchema`/
+ * `AnyReportSchema` directly, for that purpose -- and, per BLOCKER A above,
+ * this is also the only place the `.max()` bounds apply at all.
  */
-export const ReportCoreInputSchema = ReportCoreSchema.omit({ ownerId: true, shareToken: true });
+export const ReportCoreInputSchema = z.object({
+  id: z.string().min(1).max(MAX_ID_LEN),
+  status: ReportStatusSchema,
+  preparedFor: z.string().max(MAX_SHORT_TEXT),
+  preparedBy: z.string().max(MAX_SHORT_TEXT),
+  createdAt: z.string().max(64),
+  updatedAt: z.string().max(64),
+  summaryNarrative: z.string().max(MAX_LONG_TEXT),
+  tasks: z.array(TaskInputSchema).max(MAX_CHILD_ROWS),
+  risks: z.array(RiskInputSchema).max(MAX_CHILD_ROWS),
+  win: WinInputSchema,
+  touchpoints: TouchpointsInputSchema,
+  priorities: z.array(PriorityInputSchema).max(MAX_CHILD_ROWS),
+  projectId: z.string().nullish(),
+});
 
 export const WeeklyReportInputSchema = ReportCoreInputSchema.extend({
   kind: z.literal('weekly'),

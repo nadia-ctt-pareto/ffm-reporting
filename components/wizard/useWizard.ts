@@ -66,8 +66,20 @@ function draftToReport(draft: Draft, id: string, status: ReportStatus, now: stri
 export interface UseWizardOptions {
   /** Which kind of report this wizard mount is drafting -- decides the blank-draft shape and which fields draftToReport emits. */
   kind: ReportKind;
-  onSaveDraft: (report: AnyReport) => void;
-  onPublish: (report: AnyReport) => void;
+  /**
+   * Phase 7b: returns the underlying `Promise<void>` from `useReports().
+   * upsertReport`/`useDailyReports().upsertReport` (via WizardPage) --
+   * `saveDraft()` below awaits it and surfaces a rejection through the
+   * wizard's existing `error` channel, same as a step-validation failure.
+   */
+  onSaveDraft: (report: AnyReport) => Promise<void>;
+  /**
+   * Phase 7b: same contract as `onSaveDraft`. `publish()` below only calls
+   * `setPublished(true)` AFTER this resolves -- a failed persist must never
+   * show the publish-confirmation screen for a report that doesn't exist
+   * server-side.
+   */
+  onPublish: (report: AnyReport) => Promise<void>;
   /**
    * ALL daily reports (used only by the weekly wizard's "Import This Week's
    * Daily Reports" action -- see weekDailyCount/importWeekDailies below).
@@ -109,8 +121,12 @@ export interface UseWizardResult {
   next: () => void;
   back: () => void;
 
-  saveDraft: () => void;
-  publish: () => void;
+  /** Phase 7b: `Promise<void>` -- resolves once the draft has actually persisted (or was rejected by client-side validation before ever calling `onSaveDraft`). Callers may `await` it (WizardScreen's "Save Draft" button doesn't need to) or fire-and-forget it, same as before. */
+  saveDraft: () => Promise<void>;
+  /** Phase 7b: `Promise<void>` -- `published` (below) only flips to `true` once this resolves; a rejection leaves the wizard on its current step with `error` set, per StepReview's `onPublish={wizard.publish}`. */
+  publish: () => Promise<void>;
+  /** Phase 7b (SHOULD-FIX 16): true while `saveDraft`/`publish` has an in-flight network write. `publish()` is now a real round-trip with no prior in-flight affordance -- on a slow link the buttons looked dead and invited a duplicate click (harmless, the write queue makes a duplicate POST idempotent, but still worth disabling). WizardScreen disables both "Save Draft" and "Publish Report" while this is true. */
+  isSubmitting: boolean;
 
   priorReportOptions: { value: string; label: string }[];
 
@@ -174,6 +190,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [published, setPublished] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [importSel, setImportSel] = useState<ImportSelState>(blankImportSel);
   // Phase 4: which `weekStart|weekEnd` keys have already been imported this
   // wizard session (see importWeekDailies below) -- a Set, not a single
@@ -282,11 +299,38 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
   }
 
   // ---- draft persistence (lines 542-553) ----
-  function saveDraft() {
-    // Save Draft otherwise bypasses per-step validation entirely (a
-    // faithful-port quirk, see CLAUDE.md) -- but the one-daily-per-day
-    // invariant is a hard data-integrity rule, not a step-gate, so it's
-    // checked here too, not just on `next()`/`publish()`.
+  /**
+   * Phase 7b: awaits `options.onSaveDraft` and surfaces a rejection through
+   * the SAME `error` channel step-validation already uses (rather than a
+   * separate error slice) -- the plan's explicit instruction ("a rejection
+   * lands in the wizard's existing error channel"), and it's what makes a
+   * failed autosave visible on whatever step the user is currently on.
+   *
+   * BLOCKER 2 fix: "Save Draft" otherwise bypasses per-step validation
+   * entirely (`blankDraft()` returns `weekStart: ''`/`weekEnd: ''`/
+   * `date: ''` -- a documented faithful-port quirk, see CLAUDE.md
+   * "Conventions") -- but the Supabase schema's `isoDate` fields AND the
+   * `reports_period_by_kind` CHECK constraint both REQUIRE a report's
+   * period field(s) to be non-empty, so a period-less draft used to reach
+   * the wire and come back as a raw `Invalid request body.` 400. The
+   * period check below narrows that quirk explicitly, client-side, with a
+   * real message -- everything else (tasks/risks/priorities/preparedFor
+   * can still be empty) stays exactly as loose as before; this is NOT full
+   * step-1 validation (`validateStep`), just the one thing the schema/DB
+   * genuinely can't accept.
+   */
+  async function saveDraft() {
+    if (draft.kind === 'daily') {
+      if (!draft.date) {
+        setError('Add a report date before saving a draft.');
+        return;
+      }
+    } else if (!draft.weekStart || !draft.weekEnd) {
+      setError('Add a week start and end date before saving a draft.');
+      return;
+    }
+    // The one-daily-per-day invariant is a hard data-integrity rule, not a
+    // step-gate, so it's checked here too, not just on `next()`/`publish()`.
     if (dailyDateConflict(draft, dailySiblings)) {
       setError('A daily report for this date already exists.');
       return;
@@ -294,7 +338,15 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     const id = draft.id || uid(draft.kind === 'daily' ? 'd' : 'r');
     const now = nowDate();
     const report = draftToReport(draft, id, 'Draft', now);
-    options.onSaveDraft(report);
+    setIsSubmitting(true);
+    try {
+      await options.onSaveDraft(report);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save draft. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   /**
@@ -303,8 +355,16 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * line 549) -- identical behavior: validate steps 1, 2, 5 in order,
    * short-circuiting exactly like the original `||` chain (an empty-string
    * error is falsy), and jump to whichever step produced the first error.
+   *
+   * Phase 7b: `setPublished(true)` moved to AFTER `options.onPublish`
+   * resolves -- a failed persist must never show the publish-confirmation
+   * screen for a report that doesn't exist server-side (the exact failure
+   * class this milestone exists to prevent, see the Phase 7b plan's
+   * "Risks"). `draft.id` is still stamped BEFORE the await either way, so a
+   * retry after a failure reuses the same id rather than minting a new one
+   * on every attempt.
    */
-  function publish() {
+  async function publish() {
     const err1 = validateStep(1, draft, dailySiblings);
     const err2 = err1 ? '' : validateStep(2, draft);
     const err5 = err1 || err2 ? '' : validateStep(5, draft);
@@ -318,8 +378,16 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     const now = nowDate();
     const report = draftToReport(draft, id, 'Final', now);
     setDraft((d) => ({ ...d, id }));
-    setPublished(true);
-    options.onPublish(report);
+    setIsSubmitting(true);
+    try {
+      await options.onPublish(report);
+      setPublished(true);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to publish report. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   // ---- import machinery (lines 576-604, derived candidates 688-699) ----
@@ -455,6 +523,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     step,
     error,
     published,
+    isSubmitting,
 
     setDraftField,
     setTouchpointsField,

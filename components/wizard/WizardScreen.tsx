@@ -24,8 +24,10 @@ export interface WizardScreenProps {
   projects?: Project[];
   initialReport: AnyReport | null;
   onExit: () => void;
-  onSaveDraft: (report: AnyReport) => void;
-  onPublish: (report: AnyReport) => void;
+  /** Phase 7b: `Promise<void>` -- see `useWizard`'s `UseWizardOptions.onSaveDraft` doc comment (`saveDraft()` awaits this and surfaces a rejection through the wizard's `error` channel). */
+  onSaveDraft: (report: AnyReport) => Promise<void>;
+  /** Phase 7b: `Promise<void>` -- see `useWizard`'s `UseWizardOptions.onPublish` doc comment (`publish()` only shows the confirmation screen after this resolves). */
+  onPublish: (report: AnyReport) => Promise<void>;
   onShareForPublished: (reportId: string) => void;
   onPdfForPublished: (reportId: string) => void;
 }
@@ -58,7 +60,7 @@ export function WizardScreen({
   onPdfForPublished,
 }: WizardScreenProps) {
   const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies, projects });
-  const { draft, step, error, published } = wizard;
+  const { draft, step, error, published, isSubmitting } = wizard;
   const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
   const clientSuggestions = (projects ?? []).map((p) => p.name);
 
@@ -127,7 +129,7 @@ export function WizardScreen({
         );
       case 6:
       default:
-        return <StepReview draft={draft} onPublish={wizard.publish} />;
+        return <StepReview draft={draft} onPublish={wizard.publish} isSubmitting={isSubmitting} />;
     }
   })();
 
@@ -140,8 +142,8 @@ export function WizardScreen({
         <span className={styles.wordmark}>{draft.id ? 'Editing Draft' : `New ${kindLabel} Report`}</span>
         <div className={styles.headerActions}>
           <div className={styles.headerButtons}>
-            <Button variant="ghost" size="sm" onClick={wizard.saveDraft}>
-              Save Draft
+            <Button variant="ghost" size="sm" onClick={wizard.saveDraft} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Save Draft'}
             </Button>
             <Button variant="ghost" size="sm" onClick={onExit}>
               Exit

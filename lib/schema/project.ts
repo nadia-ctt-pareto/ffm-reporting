@@ -7,7 +7,10 @@
 
 import { z } from 'zod';
 
+// Post-review hardening (SHOULD-FIX 8, same rationale as lib/schema/report.ts's
+// MAX_ID_LEN/MAX_SHORT_TEXT constants -- `.max()` doesn't change the inferred
+// TS type, so no migration/docs delta is needed).
 export const ProjectSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(500),
 });

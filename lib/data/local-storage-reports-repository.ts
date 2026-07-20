@@ -39,11 +39,20 @@ const PROJECTS_KEY = 'ff.projects.v1';
  * resort, only when neither a valid v2 nor a valid v1 payload exists.
  */
 export class LocalStorageReportsRepository implements ReportsRepository {
+  // NIT fix (post-review round 2): `window.localStorage.getItem(...)` used
+  // to sit OUTSIDE this method's `try` -- harmless on every browser except
+  // a Safari private-mode tab, where even `getItem` (not just `setItem`)
+  // throws a `SecurityError`, which propagated straight up as an
+  // unhandled-looking exception instead of the null/reseed fallback path
+  // every OTHER failure mode here already gets. `getItem` now shares the
+  // same `try` as the `JSON.parse`/shape check below, so every failure mode
+  // degrades identically (see loadAll()'s v1-first-recovery-then-reseed
+  // fallback, which is what actually runs once this returns `null`).
   private readV2(): AnyReport[] | null {
     if (typeof window === 'undefined') return null;
-    const raw = window.localStorage.getItem(V2_KEY);
-    if (raw == null) return null;
     try {
+      const raw = window.localStorage.getItem(V2_KEY);
+      if (raw == null) return null;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error('Stored v2 reports payload is not an array.');
       return parsed as AnyReport[];
@@ -54,9 +63,9 @@ export class LocalStorageReportsRepository implements ReportsRepository {
 
   private readV1(): WeeklyReport[] | null {
     if (typeof window === 'undefined') return null;
-    const raw = window.localStorage.getItem(V1_KEY);
-    if (raw == null) return null;
     try {
+      const raw = window.localStorage.getItem(V1_KEY);
+      if (raw == null) return null;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error('Stored v1 reports payload is not an array.');
       return parsed as WeeklyReport[];
@@ -84,9 +93,9 @@ export class LocalStorageReportsRepository implements ReportsRepository {
 
   private readProjects(): Project[] | null {
     if (typeof window === 'undefined') return null;
-    const raw = window.localStorage.getItem(PROJECTS_KEY);
-    if (raw == null) return null;
     try {
+      const raw = window.localStorage.getItem(PROJECTS_KEY);
+      if (raw == null) return null;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) throw new Error('Stored projects payload is not an array.');
       return parsed as Project[];
@@ -152,11 +161,13 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     return backfilled.reports;
   }
 
+  /** Returns all WEEKLY reports, seeding `ff.reports.v2` (or migrating `ff.weekly-reports.v1`) on first call if neither exists yet -- see `loadAll()`. */
   async getAll(): Promise<WeeklyReport[]> {
     const all = await this.loadAll();
     return all.filter((r): r is WeeklyReport => r.kind === 'weekly');
   }
 
+  /** Returns all DAILY reports -- same seed-on-first-call behavior as `getAll()`. */
   async getAllDaily(): Promise<DailyReport[]> {
     const all = await this.loadAll();
     return all.filter((r): r is DailyReport => r.kind === 'daily');
@@ -206,15 +217,22 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     return updated;
   }
 
+  /** Returns all projects, seeding `ff.projects.v1` from `seedProjects()` on first read -- see `loadProjects()`. */
   async getProjects(): Promise<Project[]> {
     return this.loadProjects();
   }
 
+  /** Insert if `project.id` is new, otherwise REPLACE the existing project by id (a rename is possible this way -- genuinely different from `HttpReportsRepository.upsertProject`, see that class's doc comment). */
   async upsertProject(project: Project): Promise<Project> {
     const all = await this.loadProjects();
     const exists = all.some((p) => p.id === project.id);
     const next = exists ? all.map((p) => (p.id === project.id ? project : p)) : [...all, project];
     this.writeProjects(next);
     return project;
+  }
+
+  /** No write queue in this implementation -- every write above already resolves (or rejects, on a `localStorage` quota/serialization error) before its own promise settles, so there is nothing async left to wait on. Always resolves immediately. */
+  async whenIdle(): Promise<void> {
+    return;
   }
 }

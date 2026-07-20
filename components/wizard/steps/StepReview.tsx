@@ -13,6 +13,8 @@ import styles from './StepReview.module.css';
 export interface StepReviewProps {
   draft: Draft;
   onPublish: () => void;
+  /** Phase 7b (SHOULD-FIX 16): true while a publish write is in flight -- disables the button so a slow network round-trip doesn't read as a dead one and invite a duplicate click. */
+  isSubmitting?: boolean;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -23,7 +25,7 @@ const TASK_COLUMNS: TableColumn[] = [
 ];
 
 /** Ported from design-source lines 266-309 (wizardNotPublished branch). */
-export function StepReview({ draft, onPublish }: StepReviewProps) {
+export function StepReview({ draft, onPublish, isSubmitting }: StepReviewProps) {
   const { onSched, total } = onSchedule(draft);
   const taskRows = draft.tasks.map((t) => ({
     client: t.client,
@@ -78,8 +80,8 @@ export function StepReview({ draft, onPublish }: StepReviewProps) {
       ))}
 
       <div className={styles.publishRow}>
-        <Button variant="primary" size="lg" onClick={onPublish}>
-          Publish Report
+        <Button variant="primary" size="lg" onClick={onPublish} disabled={isSubmitting}>
+          {isSubmitting ? 'Publishing…' : 'Publish Report'}
         </Button>
       </div>
     </div>
