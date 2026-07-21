@@ -5,22 +5,36 @@
   border-right: 1px solid var(--border-subtle);
   padding: 24px 20px;
   gap: 32px;
-  min-height: 100vh;
   box-sizing: border-box;
+  /* Desktop rail: pin to the viewport so the nav stays put while the page
+     content scrolls underneath it, and never scrolls away with it. A definite
+     `height: 100vh` (NOT `min-height`) is load-bearing: as a grid item the
+     <aside> otherwise stretches to the full content height (default grid
+     `align-items: stretch` on an auto height), which leaves `position: sticky`
+     no travel room -- so on any tall page the whole rail scrolled off with the
+     content. A definite height disables the stretch and gives sticky a
+     viewport-tall box to stick to. `align-self: start` is belt-and-braces so
+     the item is never asked to stretch. If the rail's own content ever exceeds
+     the viewport (short screen, many nav items), it scrolls internally rather
+     than clipping or dragging the page. */
+  height: 100vh;
+  align-self: start;
+  overflow-y: auto;
   position: sticky;
   top: 0;
 }
 
 /* Mobile P2 follow-up: MobileNav.tsx passes `variant="drawer"` when this
    renders inside the off-canvas panel (MobileNav.module.css's `.panel`,
-   `height: 100dvh`). `min-height: 100vh` is always >= `100dvh` (100vh
-   includes the mobile browser's address-bar strip; 100dvh doesn't), so the
-   sidebar was always at least slightly taller than its own drawer panel --
-   permanently overscrolled, pushing the footer (session email + Sign Out)
+   `height: 100dvh`). The rail's base `height: 100vh` is always >= `100dvh`
+   (100vh includes the mobile browser's address-bar strip; 100dvh doesn't),
+   so the sidebar would be at least slightly taller than its own drawer panel
+   -- permanently overscrolled, pushing the footer (session email + Sign Out)
    below the fold whenever the URL bar was visible. `height: 100%` (of the
    drawer panel's own explicit 100dvh) replaces the viewport unit entirely
    rather than layering another fixed unit on top of it, so this can never
-   be taller than its container again, regardless of URL-bar state. */
+   be taller than its container again, regardless of URL-bar state. `position:
+   static` drops the rail's `sticky` (irrelevant inside the fixed drawer). */
 .drawer {
   min-height: 100%;
   height: 100%;
