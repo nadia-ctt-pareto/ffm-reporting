@@ -13,7 +13,8 @@ import type { ReportFieldPatch } from '@/lib/types';
  * small enough (one param, one hook, no dialog hosting -- ReportScreen owns
  * its own tiny Share-dialog state) that it doesn't need a separate
  * route-level orchestrator like DashboardPage/WizardPage. An unknown id
- * redirects to `/`, matching WizardPage's resumeDraft parity.
+ * redirects to `/reports` (the weekly list), matching WizardPage's
+ * resumeDraft parity.
  *
  * BLOCKER 2 fix (second half, Phase 7b): a weekly report's Week Start/Week
  * End are non-nullable `isoDate` fields in the Supabase schema
@@ -37,7 +38,7 @@ export default function ReportDetailPage() {
   const notFound = reports !== null && report === null;
 
   useEffect(() => {
-    if (notFound) router.replace('/');
+    if (notFound) router.replace('/reports');
   }, [notFound, router]);
 
   const handleUpdateFields = (patch: ReportFieldPatch) => {

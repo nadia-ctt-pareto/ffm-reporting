@@ -66,7 +66,8 @@ app/
   layout.tsx                          # html/body, fonts, ThemeProvider, pre-hydration theme script
   (shell)/
     layout.tsx                        # 'use client' -- <AppShell> (sidebar + main)
-    page.tsx                          # /                       Dashboard (weeklies only)
+    page.tsx                          # /                       Home overview (weekly + daily counts, recent, quick actions)
+    reports/page.tsx                  # /reports                 Weekly report list (was /)
     reports/new/page.tsx              # /reports/new             Weekly wizard (blank)
     reports/[id]/edit/page.tsx        # /reports/:id/edit        Weekly wizard (resume draft)
     reports/[id]/page.tsx             # /reports/:id             Report screen (Phase 2)
@@ -76,10 +77,10 @@ app/
     daily/[id]/page.tsx              # /daily/:id                Daily report screen (Phase 4)
     tasks/page.tsx                    # /tasks                   Task view: List/Kanban (Phase 3)
     calendar/page.tsx                 # /calendar                Calendar view: Week/Month (Phase 3)
-    projects/page.tsx                 # /projects                Project list + create (Phase 8c)
-    projects/[id]/page.tsx            # /projects/:id             Project detail: rename/delete (admin-only), rollup (Phase 8c)
     consolidate/page.tsx              # /consolidate             Consolidate weeklies/dailies (Phase 6b)
-    settings/page.tsx                 # /settings                Settings (theme, prompts, CSV templates, Phase 5; CSV import, Phase 6b)
+    projects/page.tsx                 # /projects                Project list + detail (admin-only rename/delete) (Phase 8c)
+    projects/[id]/page.tsx            # /projects/:id             Project detail: rename/delete (admin-only), rollup (Phase 8c)
+    settings/page.tsx                 # /settings                Settings (Appearance, Projects, Import, Claude & AI tabs; Theme, Prompts, CSV, MCP, AI polish; Phase 5+)
   reports/[id]/present/page.tsx       # /reports/:id/present     Interactive slide-deck route (Phase 2; made interactive Phase 5, outside (shell))
   daily/[id]/present/page.tsx        # /daily/:id/present        Interactive slide-deck route (Phase 4; made interactive Phase 5, outside (shell))
 ```
@@ -105,7 +106,8 @@ Route-level orchestration (filter/sort/pagination state, dialog hosting,
 and `components/wizard/WizardPage.tsx`; `app/(shell)/**/page.tsx` files are
 thin wrappers around those. `DashboardScreen`/`DailyListScreen`/
 `WizardScreen` stay presentational (prop-driven), matching the pre-Phase-1
-convention. `app/(shell)/reports/[id]/page.tsx`, `app/(shell)/daily/
+convention. `app/(shell)/page.tsx` (Home), `app/(shell)/reports/page.tsx`
+(weekly list), `app/(shell)/reports/[id]/page.tsx`, `app/(shell)/daily/
 [id]/page.tsx`, `app/(shell)/tasks/page.tsx`, `app/(shell)/calendar/
 page.tsx`, `app/(shell)/consolidate/page.tsx`, `app/(shell)/settings/page.tsx`,
 `app/(shell)/projects/page.tsx`, and `app/(shell)/projects/[id]/page.tsx`
@@ -114,11 +116,15 @@ break from that split on purpose (see "Report screen & presentation deck",
 "Project (client) management (Phase 8c)" below) -- each is small enough (one
 or a few hooks, no filter/pagination state, no dialog hosting beyond what
 the screen itself owns) that a dedicated orchestrator would be pure
-ceremony; `TaskViewScreen`/`CalendarScreen`/`ConsolidateScreen`/
-`SettingsScreen`/`ProjectsScreen`/`ProjectDetailScreen` own their own small
-toggle/picker/dialog state directly, the same way `ReportScreen` owns its
-Share-dialog state.
+ceremony; `HomeScreen`/`DashboardScreen`/`TaskViewScreen`/`CalendarScreen`/
+`ConsolidateScreen`/`SettingsScreen`/`ProjectsScreen`/`ProjectDetailScreen`
+own their own small toggle/picker/dialog state directly, the same way
+`ReportScreen` owns its Share-dialog state.
 
+- `HomeScreen` (`app/(shell)/page.tsx`) loads `useReports()` and
+  `useDailyReports()` once on mount to display stat cards (weekly count,
+  daily count, open tasks, blocked) and a recent-reports table linking to
+  individual reports.
 - `DashboardPage`/`DailyPage` own filter/sort/search/pagination state
   locally — it resets on navigation away and back (acceptable; not
   persisted). "View" navigates to `/reports/[id]` or `/daily/[id]` (a real
@@ -131,14 +137,14 @@ Share-dialog state.
   matching same-kind report on `/reports/:id/edit` or `/daily/:id/edit`,
   exactly like the old `resumeDraft`), and renders `<WizardScreen key={id}>`
   so a fresh "New Report" or "Continue" always remounts with clean internal
-  state. An unknown `id` redirects to `/` (weekly) or `/daily` (daily) — it
-  never falls through to a blank wizard. The publish-confirmation screen's
+  state. An unknown `id` redirects to `/reports` (weekly) or `/daily` (daily) —
+  it never falls through to a blank wizard. The publish-confirmation screen's
   "Download PDF" opens `/reports/[id]/present?print=1` (or
   `/daily/[id]/present?print=1`) in a new tab (real print flow, not a
   dialog); "Copy Share Link" still goes through `ShareDialog` (now
-  `kind`-aware too, see `shareLinkFor`).
-- The sidebar's Dark Mode switch lives in `components/app/Sidebar.tsx`
-  (footer) — it was removed from the dashboard/wizard headers.
+  `kind`-aware too, see `shareLinkFor`). The confirmation screen's copy changed
+  from "Back to Dashboard" to "Back to {kindLabel} Reports" (e.g. "Back to
+  Weekly Reports").
 
 ## Report screen & presentation deck (Phase 2; interactive deck Phase 5)
 
@@ -461,19 +467,23 @@ assembled gets the same `projectId` (`targetProjectId`, resolved by the caller
 BEFORE parsing).
 
 **Report consolidation** (`/consolidate`, `components/consolidate/ConsolidateScreen.tsx`,
-`lib/consolidate.ts`): Three-stage flow — (1) pick a Mon-Sun week (same anchor
-pattern as `CalendarScreen`); (2) every weekly/daily report touching that week,
-grouped by project bucket, each with an include checkbox (all checked by default);
-(3) live merged preview of the checked sources. **"Sanitization" means exactly**:
-dedupe disclosure, client-name normalization (exact-after-trim+casefold against
-project names, no fuzzy), and empty-row drops. Sources themselves are never
-mutated, never re-persisted, never deleted. **"Create Consolidated Weekly Draft"
-always CREATES a new `WeeklyReport`** (never edits one) and pushes to
-`/reports/[id]/edit` for further editing. Verified sources are byte-unchanged
-and no output object shares identity with any source object. Route is
-no-orchestrator pattern (like `TaskViewScreen`/`CalendarScreen`/`SettingsScreen`)
-because it owns only small state (`weekStart`, checked-source checkboxes,
-rename-acceptance toggles); `app/(shell)/consolidate/page.tsx` is a thin wrapper.
+`lib/consolidate.ts`, Navigation IA restructure): Four-step guided wizard —
+reuses `components/wizard/WizardStepper.tsx` with custom labels `['Week','Reports','Review','Create']`.
+Steps: (1) Pick a week (intro + week toolbar); (2) Choose reports to include (source tables
+grouped by project bucket, each with an include checkbox, all checked by default);
+(3) Review & clean up (merged stat cards + client-name/empty-row sanitization options +
+collapsible "How duplicates were merged" details); (4) Create draft (summary + Create button).
+Back/Next footer navigates between steps. **"Sanitization" means exactly**: dedupe disclosure,
+client-name normalization (exact-after-trim+casefold against project names, no fuzzy), and
+empty-row drops. Sources themselves are never mutated, never re-persisted, never deleted.
+**"Create Consolidated Weekly Draft"** button always CREATES a new `WeeklyReport` (never edits
+one) and pushes to `/reports/[id]/edit` for further editing. Verified sources are byte-unchanged
+and no output object shares identity with any source object. The merge logic (`aggregateReportsIntoDraft`
+in `lib/aggregate.ts` and consolidation state in `lib/consolidate.ts`) is unchanged; only the
+JSX/UI flow and step partitioning changed. Route is no-orchestrator pattern (like
+`TaskViewScreen`/`CalendarScreen`/`SettingsScreen`) because it owns only small state (`weekStart`,
+checked-source checkboxes, rename-acceptance toggles); `app/(shell)/consolidate/page.tsx` is
+a thin wrapper.
 
 **Aggregation generalization** (`lib/aggregate.ts` — `aggregateReportsIntoDraft(sources, draft):
 {draft, log}`): Inverted the old `aggregateDailiesIntoDraft` logic: now accepts
@@ -812,44 +822,40 @@ installing it against React 19 / Next 15.
 - **`Popover`** (Phase 3): a `{trigger, children, align?}` wrapper, used by
   the Calendar month grid's "+N more" day-overflow disclosure.
 
-## Settings (Phase 5; CSV import Phase 6b; MCP Phase 8a; AI polish Phase 7c)
+## Settings (Phase 5; CSV import Phase 6b; MCP Phase 8a; AI polish Phase 7c; Projects tab Navigation IA restructure)
 
-`/settings` (`components/settings/SettingsScreen.tsx`) provides six sections:
+`/settings` (`components/settings/SettingsScreen.tsx`) is now a tab-navigable panel with four tabs
+(value/label pairs via `components/ui/Tabs`), supporting `?tab=<value>` deep-linking via
+`useSearchParams()` and `history.replaceState`. The route wraps `SettingsScreen` in `<Suspense>`.
+Inactive tab panels unmount (Radix `Tabs` default), so per-tab mount-time fetches (Projects data,
+MCP tokens, AI-key status) defer to first open.
 
 - **Appearance**: a theme picker with three mutually-exclusive buttons (Light /
   Dark / System), wired to `useTheme().setPreference` (replaces the Dark Mode
   switch that used to live in the sidebar footer).
-- **Prompt Library**: a static, copy-to-clipboard card list of prompt templates
-  for driving reports through Claude via MCP (Phase 8a's `/api/mcp`). Tool names
-  referenced here (`list_reports`, `get_report`, `list_projects`, `get_week_rollup`,
-  `create_report`, `update_report`, `create_project`, `create_weekly_from_dailies`)
-  are the locked contract that Phase 8a and the skills/ directory must match
-  exactly (see `lib/prompts.ts` for the full list).
-- **CSV Import Templates** (Phase 6b): downloadable example CSVs for both weekly and
-  daily imports, exercising all four `row_type`s (report, task, risk, priority).
-  `lib/csv-templates.ts` exports `IMPORT_COLUMNS` (the exact column order +
-  semantics), `buildWeeklyImportTemplateCsv()`, and `buildDailyImportTemplateCsv()`.
-  This is a **contract**: Phase 6b's CSV importer must import `IMPORT_COLUMNS`
-  from this same module so the contract cannot drift at parse time.
-- **CSV Import** (Phase 6b): `CsvImportSection.tsx` — file upload with drag-drop,
-  target project picker (existing / new / house), and an async importer UI
-  displaying any import issues (accumulated per-file, not abort-on-first) or
-  success confirmation. `lib/import.ts`'s `parseImportCsv` is pure (no storage,
-  no React); the component reads the file via `FileReader`, resolves/creates the
-  target project, persists via `useReports().upsertMany()` if `issues` is empty.
-- **MCP Access** (Phase 8a): `McpAccessSection.tsx` — bearer-token create (show-once),
-  list (hash-only), revoke. Warns when `SUPABASE_JWT_SECRET` is unset (endpoint
-  not yet ready). Setup instructions and a link to the Prompt Library above.
-- **AI Polish** (Phase 7c): `AiKeySection.tsx` — BYOK Anthropic key entry (plaintext,
-  validated against Anthropic before storage, never persisted plaintext). Displays
-  a fingerprint + `validatedAt`/`lastUsedAt` timestamps. Muted note if
-  `isAiPolishConfigured()` is false (no Supabase or `AI_BYOK_ENCRYPTION_KEY` unset).
+- **Projects** (Navigation IA restructure): `ProjectsManager` — self-contained UI to manage
+  projects (create, rename, delete). Extracted from the old sidebar nav item and full
+  `/projects` route into a Settings tab for project-scoped (vs. report-scoped) workflow.
+  The full `/projects` route is retained (no longer in sidebar) for admin deeper inspection.
+- **Import**: Supabase-only `LocalDataImportSection` (Phase 7b) ensures local reports migrate
+  to Postgres on the first run, plus two Phase 6b subsections: **CSV Import Templates**
+  (downloadable example CSVs for both weekly and daily imports, exercising all four `row_type`s
+  (report, task, risk, priority); `lib/csv-templates.ts` exports `IMPORT_COLUMNS` (the exact
+  column order + semantics), `buildWeeklyImportTemplateCsv()`, `buildDailyImportTemplateCsv()`;
+  this is a **contract**: the CSV importer must import `IMPORT_COLUMNS` from this same module
+  so the contract cannot drift) and **CSV Import** (`CsvImportSection.tsx` — file upload with
+  drag-drop, target project picker (existing / new / house), async importer UI displaying
+  accumulated issues or success confirmation; `lib/import.ts`'s `parseImportCsv` is pure).
+- **Claude & AI** (grouping Phase 8a + 7c): **Prompt Library** (static, copy-to-clipboard card
+  list of prompt templates for driving reports through Claude via MCP; tool names are the
+  locked contract with Phase 8a's `lib/prompts.ts`), plus Supabase-only **MCP Access**
+  (`McpAccessSection.tsx` — bearer-token create/list/revoke, warns when `SUPABASE_JWT_SECRET`
+  unset) and **AI Polish** (`AiKeySection.tsx` — BYOK Anthropic key entry, fingerprint +
+  timestamps).
 
 Follows the same pattern as `ReportScreen`/`TaskViewScreen`/`CalendarScreen`: no
-separate route-level orchestrator (no filter/sort/pagination state, no hooks),
-`SettingsScreen` owns its own small state directly, `app/(shell)/settings/page.tsx`
-is a thin thin wrapper. Supabase mode only: `LocalDataImportSection` (Phase 7b)
-ensures local reports migrate to Postgres on the first run.
+separate route-level orchestrator, `SettingsScreen` owns its own tab state directly,
+`app/(shell)/settings/page.tsx` is a thin wrapper.
 
 ## Remote MCP server (Phase 8a)
 
@@ -1130,21 +1136,36 @@ admin-gated write tools to a bearer-token-authenticated surface (where
 every token is a plain `authenticated` member, never admin — see "Remote
 MCP server (Phase 8a)" above) was out of scope for this phase and deferred.
 
-## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Phase 8c adds Projects)
+## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
-  (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
-  (Phase 6b), `IconProjects` (Phase 8c), `IconSettings`, `IconSignOut`
-  (Phase 7a), `IconMenu` (mobile P2)), deliberately NOT `lucide-react` (which
-  is stroke-based with round caps/joins, fighting this design system's
-  "square corners everywhere" rule). Every icon shares a 16×16 viewBox, uses
-  `currentColor` (so the active-nav chip's `--text-heading`/`--surface-page`
-  inversion works with zero extra CSS), and is marked `aria-hidden`. The
-  sidebar's `.navIcon` slot is now 18×18 (was 8×8).
-- `components/app/Sidebar.tsx` gained a "Settings" nav item (Phase 5), a
-  "Consolidate" nav item (Phase 6b), and a "Projects" nav item between
-  Calendar and Consolidate (Phase 8c); the Dark Mode switch was removed from
-  the footer (theme control moved to `/settings`).
+  (`IconHome` (new, Navigation IA restructure), `IconDashboard` (reused for Weekly), `IconChevron` (new, disclosure
+  toggle for Reports group), `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
+  (Phase 6b), `IconSettings`, `IconSignOut` (Phase 7a), `IconMenu` (mobile P2)),
+  deliberately NOT `lucide-react` (which is stroke-based with round caps/joins, fighting this
+  design system's "square corners everywhere" rule). Every icon shares a 16×16 viewBox, uses
+  `currentColor` (so the active-nav chip's `--text-heading`/`--surface-page` inversion works
+  with zero extra CSS), and is marked `aria-hidden`. The sidebar's `.navIcon` slot is now
+  18×18 (was 8×8). `IconProjects` was removed (no longer in sidebar nav).
+- **Navigation structure** (Navigation IA restructure): Reorganized from a flat list to a hierarchical tree with
+  a collapsible "Reports" group: Home (`/`), **Reports** [Weekly (`/reports`), Daily (`/daily`),
+  Tasks (`/tasks`)], Calendar (`/calendar`), Consolidate (`/consolidate`), Settings (`/settings`).
+  Projects is no longer in the sidebar; it's now managed via Settings → Projects tab.
+- **Disclosure toggle** (Navigation IA restructure): The Reports group is a button with `aria-expanded` +
+  `aria-controls="nav-group-reports"` that toggles a persistent `reportsOpen` preference in
+  `localStorage['ff.nav-reports-open']` (default open). The DISPLAYED state is `showReports =
+  reportsOpen || reportsActive` — auto-reveals the group when any child route is active WITHOUT
+  persisting that reveal, so an intentional collapse survives navigating in and out of the
+  Reports routes. In the icon-collapsed rail mode, the group FLATTENS to its child icons
+  (`.navGroupFlat { display: contents }`) so the disclosure toggle doesn't appear.
+- **Active route matching** (Navigation IA restructure): New `isActive(pathname, href)` helper determines nav-item
+  highlighting: EXACT match for `/` (Home), prefix-match `href === pathname || pathname.startsWith(href + '/')` for all
+  others. The weekly-list route `/reports` now lights the "Weekly" nav item, and `/reports/[id]`
+  lights both "Weekly" and its parent "Reports" group.
+- `components/app/Sidebar.tsx` gained a "Settings" nav item (Phase 5). The Dark Mode switch was
+  removed from the footer (theme control moved to `/settings`). Navigation IA restructure adds the collapsible
+  group, new nav data model (`NavLeaf | NavGroup`, with `isGroup` narrowing), and the disclosure
+  toggle.
 
 ## PageHeader (Phase 5)
 
@@ -1230,7 +1251,7 @@ earlier draft plan that considered loosening them).
   (Phase 8c: `projectRollup`/`projectIsReferenced` derivation selectors), `import`
   (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic), `projects` (Phase 6a
   project backfill; Phase 8c: `resolveNewProjectName`, shared by the CSV importer and the
-  Projects screen's create dialog), `data/` (repository interface + localStorage impl + HTTP impl
+  Settings Projects tab), `data/` (repository interface + localStorage impl + HTTP impl
   (Phase 7b) + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
   (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `schema/` (Zod 4, Phase 6a),
   `server/` (Phase 7b: `reports-service`, `db-mapping`, `route-helpers`, `request-guards`;
@@ -1239,10 +1260,12 @@ earlier draft plan that considered loosening them).
   factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
-  plus `icons.tsx` (hand-authored SVG nav icons, Phase 5; `IconProjects` Phase 8c).
+  plus `icons.tsx` (hand-authored SVG nav icons, Phase 5; `IconHome`/`IconChevron` Navigation IA restructure).
 - `components/theme/` — `ThemeProvider`/`useTheme`.
 - `components/app/` — `AppShell`, `Sidebar`, `PageHeader` (Phase 5, replaces
   per-screen brand headers), `MobileNav` (mobile P2, off-canvas drawer).
+- `components/home/` — `HomePage` (orchestrator, Navigation IA restructure), `HomeScreen` (presentational,
+  Navigation IA restructure; stat cards + recent reports table).
 - `components/dashboard|daily|wizard|dialogs/` — screens + route-level
   orchestration (`DashboardPage`, `DailyPage` (Phase 4), `WizardPage`, now
   `kind`-aware) + `ShareDialog` (the only dialog left; Detail/Pdf dialogs
@@ -1256,12 +1279,15 @@ earlier draft plan that considered loosening them).
   views").
 - `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
   (Phase 3; see "Task and Calendar views").
-- `components/consolidate/` — `ConsolidateScreen` (Phase 6b; consolidation UI).
-- `components/projects/` — `ProjectsScreen` (list + create), `ProjectDetailScreen`
-  (rename/delete, admin-gated; rollup) (Phase 8c; see "Project (client) management").
-- `components/settings/` — `SettingsScreen` (Phase 5; theme picker, prompt library, CSV templates),
-  `CsvImportSection` (Phase 6b; upload + importer UI), `McpAccessSection` (Phase 8a; token
-  create/list/revoke), `AiKeySection` (Phase 7c; key upload), `LocalDataImportSection` (Phase 7b).
+- `components/consolidate/` — `ConsolidateScreen` (Phase 6b; now a 4-step wizard,
+  Navigation IA restructure; consolidation UI).
+- `components/projects/` — `ProjectsScreen` (list + create, still at `/projects`),
+  `ProjectDetailScreen` (rename/delete, admin-gated; rollup, still at `/projects/[id]`),
+  `ProjectsManager` (self-contained tab-based manager, Navigation IA restructure; Settings → Projects tab).
+- `components/settings/` — `SettingsScreen` (Phase 5, now 4-tab layout Navigation IA restructure; tab state +
+  `?tab=` deep-linking), `ProjectsManager` (Navigation IA restructure; Projects tab), `CsvImportSection`
+  (Phase 6b; Import tab), `McpAccessSection` (Phase 8a; Claude & AI tab), `AiKeySection`
+  (Phase 7c; Claude & AI tab), `LocalDataImportSection` (Phase 7b; Import tab).
 - `components/ai/` — `PolishButton` (Phase 7c; prose field rewrite button).
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.

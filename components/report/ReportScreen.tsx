@@ -97,7 +97,7 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
 export function ReportScreen({ report, kind, onUpdateFields, periodError, mutationError }: ReportScreenProps) {
   const dSafe = report ?? emptyReportFallback(kind);
   const { onSched, total } = onSchedule(dSafe);
-  const backHref = kind === 'daily' ? '/daily' : '/';
+  const backHref = kind === 'daily' ? '/daily' : '/reports';
   const presentBase = kind === 'daily' ? '/daily' : '/reports';
 
   const [shareOpen, setShareOpen] = useState(false);
@@ -140,7 +140,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
         <span className={styles.wordmark}>{report ? reportPeriodLabel(report) : kind === 'daily' ? 'Daily Report' : 'Report'}</span>
         <div className={styles.headerActions}>
           <Link href={backHref} className={styles.backLink}>
-            &larr; Back to {kind === 'daily' ? 'Daily Reports' : 'Dashboard'}
+            &larr; Back to {kind === 'daily' ? 'Daily Reports' : 'Weekly Reports'}
           </Link>
         </div>
       </div>

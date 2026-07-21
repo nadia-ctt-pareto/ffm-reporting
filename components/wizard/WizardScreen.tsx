@@ -161,8 +161,8 @@ export function WizardScreen({
             <div className={styles.publishedWrap}>
               <div className={styles.publishedTitle}>Report Published</div>
               <p className={styles.publishedCopy}>
-                {draftPeriodLabel(draft)} is now in the historical record. Export it below, or head back to the
-                dashboard.
+                {draftPeriodLabel(draft)} is now in the historical record. Export it below, or head back to your
+                reports.
               </p>
               <div className={styles.publishedButtons}>
                 <Button variant="outline" size="md" onClick={() => draft.id && onShareForPublished(draft.id)}>
@@ -173,7 +173,7 @@ export function WizardScreen({
                 </Button>
               </div>
               <Button variant="dark" size="md" onClick={onExit}>
-                Back to Dashboard
+                Back to {kindLabel} Reports
               </Button>
             </div>
           ) : (

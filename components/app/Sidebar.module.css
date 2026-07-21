@@ -115,6 +115,77 @@
   white-space: nowrap;
 }
 
+/* Nav IA restructure: collapsible "Reports" nav group. `.navGroup` wraps the
+   toggle + its children in the expanded rail; `.navGroupFlat` (icon-collapsed
+   rail) is `display: contents` so the child icon links become direct flex
+   children of `.nav` and inherit the exact centering/spacing of every other
+   rail icon. */
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navGroupFlat {
+  display: contents;
+}
+
+/* The disclosure row -- a button styled to match `.navItem` (an <a>), plus a
+   trailing chevron pushed to the far end by the flexed label. */
+.navGroupToggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--text-body);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition:
+    background var(--speed-fast) var(--ease-brand),
+    color var(--speed-fast) var(--ease-brand),
+    border-color var(--speed-fast) var(--ease-brand);
+}
+
+.navGroupToggle:hover {
+  border-color: var(--border-subtle);
+}
+
+.navGroupToggle .navLabel {
+  flex: 1;
+}
+
+.navChevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform var(--speed-fast) var(--ease-brand);
+}
+
+.navChevronOpen {
+  transform: rotate(90deg);
+}
+
+.navGroupChildren {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Indents a group child under its parent toggle (must follow `.navItem` in
+   source so this `padding-left` longhand wins over the shorthand). */
+.navChild {
+  padding-left: 30px;
+}
+
 .footer {
   display: flex;
   flex-direction: column;

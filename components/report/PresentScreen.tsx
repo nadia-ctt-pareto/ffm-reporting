@@ -357,14 +357,14 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
         <h1 className={styles.notFoundTitle}>Report Not Found</h1>
         <p className={styles.notFoundCopy}>{notFoundCopy(usingToken)}</p>
         {/* Post-review fix: an anonymous tokened visitor has no account in
-            this app -- `/`/`/daily` are NOT in middleware.ts's public path
-            list (only the present routes themselves are), so this link was
-            a login dead-end for exactly the person this route exists to
+            this app -- `/reports`/`/daily` are NOT in middleware.ts's public
+            path list (only the present routes themselves are), so this link
+            was a login dead-end for exactly the person this route exists to
             serve. There is nowhere sensible to send them, so the session
             path keeps the link and the token path shows nothing. */}
         {!usingToken ? (
-          <Link href={kind === 'daily' ? '/daily' : '/'} className={styles.notFoundLink}>
-            Back to {kind === 'daily' ? 'Daily Reports' : 'Dashboard'}
+          <Link href={kind === 'daily' ? '/daily' : '/reports'} className={styles.notFoundLink}>
+            Back to {kind === 'daily' ? 'Daily Reports' : 'Weekly Reports'}
           </Link>
         ) : null}
       </div>

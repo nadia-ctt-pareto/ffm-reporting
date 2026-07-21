@@ -123,21 +123,43 @@ export function IconMenu(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Phase 8c: a filled square nested inside an outlined square -- "projects": a client/project as a distinct container, echoing IconConsolidate's "several boxes" vocabulary without reusing its exact composition. */
-export function IconProjects(props: SVGProps<SVGSVGElement>) {
-  return (
-    <IconBase {...props}>
-      <rect x="1.5" y="1.5" width="13" height="13" />
-      <rect x="5" y="5" width="6" height="6" fill="currentColor" stroke="none" />
-    </IconBase>
-  );
-}
-
 /** Phase 7c: a 4-point sparkle -- "AI polish" (components/ai/PolishButton.tsx). A single filled straight-edged star, not the rounded/curved sparkle glyph most "AI" affordances use elsewhere -- straight line segments stay on-brand with this design system's square-corner rule even though the shape itself is a star, not a rectangle. */
 export function IconPolish(props: SVGProps<SVGSVGElement>) {
   return (
     <IconBase {...props}>
       <path d="M8 1L9.8 6.2L15 8L9.8 9.8L8 15L6.2 9.8L1 8L6.2 6.2Z" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
+/** Nav IA restructure: a peaked-roof house over a square body with a door -- "Home". Diagonal roof segments (like IconTasks' check / IconConsolidate) stay on-brand with square caps; distinct from IconDashboard, which now labels the Weekly list. */
+export function IconHome(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M1.8 8L8 2.5L14.2 8" />
+      <path d="M3.6 8V14.2H12.4V8" />
+      <rect x="6.6" y="10.4" width="2.8" height="3.8" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
+/** Nav IA restructure: a plain document with three text lines (last one short) -- the "Reports" nav group parent. Deliberately no folded corner (that's IconDaily) and no 2x2 grid (that's IconDashboard / Weekly), so the group reads distinct from its own children. */
+export function IconReports(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <rect x="2.5" y="1.5" width="11" height="13" />
+      <path d="M5 5H11" />
+      <path d="M5 7.75H11" />
+      <path d="M5 10.5H8.5" />
+    </IconBase>
+  );
+}
+
+/** Nav IA restructure: a right-pointing caret for the collapsible "Reports" nav group; CSS rotates it 90deg (`.navChevronOpen`) when the group is expanded. Diagonal strokes with square caps, on-brand. */
+export function IconChevron(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M6 3.5L10.5 8L6 12.5" />
     </IconBase>
   );
 }

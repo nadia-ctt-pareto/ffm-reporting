@@ -1,0 +1,66 @@
+.content {
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-bottom: 36px;
+}
+
+@media screen and (max-width: 1023px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.section {
+  margin-bottom: 40px;
+}
+
+.sectionKicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 14px;
+}
+
+.rowAction {
+  display: inline-block;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--text-heading);
+  padding: 7px 16px;
+  cursor: pointer;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.rowAction:hover {
+  background: var(--text-heading);
+  color: var(--surface-page);
+}
+
+/* Mobile P7 parity: bigger touch target for this non-Button action element. */
+@media screen and (max-width: 767px) {
+  .rowAction {
+    padding: var(--row-action-pad-mobile);
+  }
+}
+
+.emptyState {
+  padding: 64px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}

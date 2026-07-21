@@ -75,7 +75,9 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
   const found = reportId && sameKindReports ? (sameKindReports.find((r) => r.id === reportId) ?? null) : null;
   const notFound = Boolean(reportId) && sameKindReports !== null && found === null;
 
-  const exitHref = kind === 'daily' ? '/daily' : '/';
+  // Nav IA restructure: the weekly list moved from `/` to `/reports`, so the
+  // weekly wizard's Exit / unknown-id redirect targets the list, not Home.
+  const exitHref = kind === 'daily' ? '/daily' : '/reports';
 
   useEffect(() => {
     if (notFound) router.replace(exitHref);

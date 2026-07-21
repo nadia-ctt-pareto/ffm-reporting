@@ -1,19 +1,25 @@
 import type { ReactNode } from 'react';
 import styles from './WizardStepper.module.css';
 
-const STEP_LABELS = ['Basics', 'Task Status', 'Touchpoints & Win', 'Risks & Blockers', 'Priorities', 'Review & Export'];
+/** The report wizard's six steps (design-source lines 84-114). The default so
+    every existing `<WizardStepper step ... />` call site is unchanged. */
+const DEFAULT_STEP_LABELS = ['Basics', 'Task Status', 'Touchpoints & Win', 'Risks & Blockers', 'Priorities', 'Review & Export'];
 
 export interface WizardStepperProps {
   step: number;
   onStepClick: (n: number) => void;
+  /** Nav IA restructure: the Consolidate wizard reuses this stepper with its own
+      4 labels. Count and the divider cutoff derive from this array's length, so
+      an N-step flow just passes N labels. Defaults to the report wizard's six. */
+  labels?: string[];
 }
 
 /** Ported from design-source lines 84-114 (template) and 713-717 (styles). */
-export function WizardStepper({ step, onStepClick }: WizardStepperProps) {
+export function WizardStepper({ step, onStepClick, labels = DEFAULT_STEP_LABELS }: WizardStepperProps) {
   const stepReached = (n: number) => step >= n;
   const elements: ReactNode[] = [];
 
-  STEP_LABELS.forEach((label, i) => {
+  labels.forEach((label, i) => {
     const n = i + 1;
     const reached = stepReached(n);
     elements.push(
@@ -22,7 +28,7 @@ export function WizardStepper({ step, onStepClick }: WizardStepperProps) {
         <span className={`${styles.label} ${step === n ? styles.labelActive : ''}`}>{label}</span>
       </div>
     );
-    if (n < 6) {
+    if (n < labels.length) {
       elements.push(
         <div
           key={`divider-${n}`}

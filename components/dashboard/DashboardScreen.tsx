@@ -161,7 +161,7 @@ export function DashboardScreen({
   return (
     <div>
       <PageHeader
-        title="Dashboard"
+        title="Weekly Reports"
         actions={
           <>
             <Button variant="outline" size="md" onClick={handleExportCsv}>

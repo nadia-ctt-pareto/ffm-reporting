@@ -1,10 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { PageHeader } from '@/components/app/PageHeader';
+import { ProjectsManager } from '@/components/projects/ProjectsManager';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import type { ThemePreference } from '@/components/theme/ThemeProvider';
 import { Button } from '@/components/ui/Button';
+import { Tabs } from '@/components/ui/Tabs';
+import type { TabItem } from '@/components/ui/Tabs';
 import { downloadCsv } from '@/lib/csv';
 import { buildDailyImportTemplateCsv, buildWeeklyImportTemplateCsv } from '@/lib/csv-templates';
 import { PROMPT_TEMPLATES } from '@/lib/prompts';
@@ -21,28 +25,37 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'system', label: 'System' },
 ];
 
+const TABS = ['appearance', 'projects', 'import', 'claude'] as const;
+type SettingsTab = (typeof TABS)[number];
+
+function isTab(value: string | null): value is SettingsTab {
+  return value !== null && (TABS as readonly string[]).includes(value);
+}
+
 /**
- * `/settings` -- four sections, plus two more in Supabase mode: (a) an
- * Appearance theme picker (Light/Dark/System, built from existing `Button`s
- * with `aria-pressed` -- no new Radix wrapper needed, `Tabs` implies content
- * panels and `Select` is overkill for 3 mutually-exclusive options), (b) a
- * static prompt library for the Claude connector (copy-to-clipboard,
- * reusing `ReportScreen`'s clipboard + 1800ms copied-state pattern), (c) two
- * CSV import template downloads (the import contract, see
- * lib/csv-templates.ts), (d) the live CSV importer (Phase 6b) directly below
- * the templates, (e, Phase 7b M4) `LocalDataImportSection`, (f, Phase 8a)
- * `McpAccessSection`, and (g, Phase 7c) `AiKeySection` -- the latter three
- * rendered only when `isSupabaseConfigured()`, since all three are
- * meaningless without per-user ownership to scope against (no "elsewhere"
- * for demo mode's own localStorage data to move to; no user to own an MCP
- * bearer token or a BYOK Anthropic key). `CsvImportSection`/
- * `LocalDataImportSection`/`McpAccessSection`/`AiKeySection` are their own
- * components (not inlined here) so this screen stays thin; each owns all of
- * its own upload/preview/project-choice, import-progress, token-CRUD, or
- * key-CRUD state.
+ * `/settings` -- the sections regrouped (nav IA restructure) into four
+ * tab-navigable panels, deep-linkable via `?tab=<value>`:
+ *  - **Appearance**: the theme picker (Light/Dark/System).
+ *  - **Projects**: the self-contained `ProjectsManager` (also the `/projects`
+ *    route). This is where Projects lives now that it left the sidebar.
+ *  - **Import**: CSV import templates + the live CSV importer + (Supabase)
+ *    Local Data Import.
+ *  - **Claude & AI**: the MCP prompt library + (Supabase) MCP Access + AI Polish.
+ *
+ * Tab grouping is chosen so no tab is empty in demo mode (Appearance, Projects,
+ * a template/importer, and the always-on prompt library each carry their tab).
+ * `Tabs` unmounts inactive panels, so each section's mount-time fetch (MCP
+ * tokens, AI-key status) is deferred until its tab is first opened -- fine.
+ * `?tab=` is synced with `window.history.replaceState` (shallow, same idiom as
+ * PresentScreen's `?slide=`); reading `useSearchParams()` is why the route wraps
+ * this in `<Suspense>`.
  */
 export function SettingsScreen() {
   const { preference, setPreference } = useTheme();
+  const searchParams = useSearchParams();
+  const paramTab = searchParams.get('tab');
+
+  const [tab, setTab] = useState<SettingsTab>(isTab(paramTab) ? paramTab : 'appearance');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -53,6 +66,14 @@ export function SettingsScreen() {
     []
   );
 
+  const handleTabChange = (value: string) => {
+    const next = isTab(value) ? value : 'appearance';
+    setTab(next);
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', next);
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  };
+
   const handleCopy = (id: string, body: string) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(body).catch(() => {});
@@ -62,78 +83,115 @@ export function SettingsScreen() {
     copyTimeoutRef.current = setTimeout(() => setCopiedId(null), 1800);
   };
 
+  const supabase = isSupabaseConfigured();
+
+  const items: TabItem[] = [
+    {
+      value: 'appearance',
+      label: 'Appearance',
+      content: (
+        <div className={styles.tabPanel}>
+          <section className={styles.section}>
+            <div className={styles.sectionKicker}>Theme</div>
+            <p className={styles.sectionCopy}>Choose a light or dark appearance, or follow your system setting.</p>
+            <div className={styles.themeRow} role="group" aria-label="Theme">
+              {THEME_OPTIONS.map((opt) => (
+                <Button
+                  key={opt.value}
+                  variant={preference === opt.value ? 'dark' : 'outline'}
+                  size="sm"
+                  aria-pressed={preference === opt.value}
+                  onClick={() => setPreference(opt.value)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ),
+    },
+    {
+      value: 'projects',
+      label: 'Projects',
+      content: (
+        <div className={styles.tabPanel}>
+          <section className={styles.section}>
+            <p className={styles.sectionCopy}>
+              Projects group related reports and power consolidation buckets. Renaming and deleting a project live on its own
+              page.
+            </p>
+            <ProjectsManager />
+          </section>
+        </div>
+      ),
+    },
+    {
+      value: 'import',
+      label: 'Import',
+      content: (
+        <div className={styles.tabPanel}>
+          <section className={styles.section}>
+            <div className={styles.sectionKicker}>CSV Import Templates</div>
+            <p className={styles.sectionCopy}>
+              The column contract the importer below parses -- one row per report/task/risk/priority, discriminated by
+              row_type.
+            </p>
+            <div className={styles.templateRow}>
+              <Button variant="outline" size="sm" onClick={() => downloadCsv('weekly-import-template.csv', buildWeeklyImportTemplateCsv())}>
+                Download Weekly Template
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => downloadCsv('daily-import-template.csv', buildDailyImportTemplateCsv())}>
+                Download Daily Template
+              </Button>
+            </div>
+          </section>
+
+          <CsvImportSection />
+
+          {supabase ? <LocalDataImportSection /> : null}
+        </div>
+      ),
+    },
+    {
+      value: 'claude',
+      label: 'Claude & AI',
+      content: (
+        <div className={styles.tabPanel}>
+          <section className={styles.section}>
+            <div className={styles.sectionKicker}>Prompt Library</div>
+            <p className={styles.sectionCopy}>
+              For use with the Claude connector -- create a token below (Supabase mode) and paste one of these into Claude.
+            </p>
+            <div className={styles.promptList}>
+              {PROMPT_TEMPLATES.map((prompt) => (
+                <div key={prompt.id} className={styles.promptCard}>
+                  <div className={styles.promptHeading}>
+                    <span className={styles.promptTitle}>{prompt.title}</span>
+                    <Button variant="outline" size="sm" onClick={() => handleCopy(prompt.id, prompt.body)}>
+                      {copiedId === prompt.id ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                  <p className={styles.promptDescription}>{prompt.description}</p>
+                  <pre className={styles.promptBody}>{prompt.body}</pre>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {supabase ? <McpAccessSection /> : null}
+          {supabase ? <AiKeySection /> : null}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       <PageHeader title="Settings" />
 
       <div className={styles.content}>
-        <section className={styles.section}>
-          <div className={styles.sectionKicker}>Appearance</div>
-          <div className={styles.themeRow} role="group" aria-label="Theme">
-            {THEME_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                variant={preference === opt.value ? 'dark' : 'outline'}
-                size="sm"
-                aria-pressed={preference === opt.value}
-                onClick={() => setPreference(opt.value)}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionKicker}>Prompt Library</div>
-          <p className={styles.sectionCopy}>
-            For use with the Claude connector -- create a token below (Supabase mode) and paste one of these into Claude.
-          </p>
-          <div className={styles.promptList}>
-            {PROMPT_TEMPLATES.map((prompt) => (
-              <div key={prompt.id} className={styles.promptCard}>
-                <div className={styles.promptHeading}>
-                  <span className={styles.promptTitle}>{prompt.title}</span>
-                  <Button variant="outline" size="sm" onClick={() => handleCopy(prompt.id, prompt.body)}>
-                    {copiedId === prompt.id ? 'Copied' : 'Copy'}
-                  </Button>
-                </div>
-                <p className={styles.promptDescription}>{prompt.description}</p>
-                <pre className={styles.promptBody}>{prompt.body}</pre>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionKicker}>CSV Import Templates</div>
-          <p className={styles.sectionCopy}>
-            The column contract the importer below parses -- one row per report/task/risk/priority, discriminated by
-            row_type.
-          </p>
-          <div className={styles.templateRow}>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => downloadCsv('weekly-import-template.csv', buildWeeklyImportTemplateCsv())}
-            >
-              Download Weekly Template
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => downloadCsv('daily-import-template.csv', buildDailyImportTemplateCsv())}
-            >
-              Download Daily Template
-            </Button>
-          </div>
-        </section>
-
-        <CsvImportSection />
-
-        {isSupabaseConfigured() ? <LocalDataImportSection /> : null}
-        {isSupabaseConfigured() ? <McpAccessSection /> : null}
-        {isSupabaseConfigured() ? <AiKeySection /> : null}
+        <Tabs value={tab} onChange={handleTabChange} items={items} aria-label="Settings sections" />
       </div>
     </div>
   );

@@ -4,6 +4,12 @@
   margin: 0 auto;
 }
 
+/* Separates a tab's content from the segmented control above it (nav IA
+   restructure). */
+.tabPanel {
+  padding-top: 28px;
+}
+
 .section {
   margin-bottom: 44px;
 }

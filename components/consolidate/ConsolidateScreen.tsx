@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
+import { WizardStepper } from '@/components/wizard/WizardStepper';
 import { aggregateReportsIntoDraft } from '@/lib/aggregate';
 import { addWeeksISO, endOfWeekISO, startOfWeekISO } from '@/lib/calendar';
 import { normalizeClientNames, stripEmptyItems, suggestClientNameRenames } from '@/lib/consolidate';
@@ -29,7 +30,9 @@ export interface ConsolidateScreenProps {
   onCreateReport: (report: Report) => Promise<void>;
 }
 
-const HOUSE_BUCKET_LABEL = 'Foundation First (this workspace)';
+const HOUSE_BUCKET_LABEL = 'Your workspace';
+
+const CONSOLIDATE_STEPS = ['Week', 'Reports', 'Review', 'Create'];
 
 /** `report.projectId ?? null`, flattened to `''` for use as a Map key (mirrors `sameProjectBucket`'s coalesce convention, lib/report-utils.ts). */
 function bucketKey(report: AnyReport): string {
@@ -63,41 +66,32 @@ const SOURCE_COLUMNS: TableColumn[] = [
 
 const LOG_COLUMNS: TableColumn[] = [
   { key: 'type', label: 'Type' },
-  { key: 'key', label: 'Key' },
-  { key: 'keptFrom', label: 'Kept From' },
-  { key: 'mergedFrom', label: 'Merged From' },
+  { key: 'key', label: 'Item' },
+  { key: 'keptFrom', label: 'Kept version from' },
+  { key: 'mergedFrom', label: 'Combined from' },
 ];
 
 /**
- * `/consolidate` -- three stages, top to bottom: (1) pick a Mon-Sun week
- * (same anchor pattern as `CalendarScreen`); (2) every weekly/daily report
- * touching that week, grouped by project bucket, each with an include
- * checkbox -- house-bucket sources (no `projectId`) default CHECKED,
- * project-bucket sources default UNCHECKED (Phase 7b M4: the output is
- * always a house `WeeklyReport`, see `handleCreate` below, so silently
- * pulling in another project's tasks/risks by default was the wrong
- * default -- pulling in a different project's work is an explicit opt-in,
- * not a surprise; see `isChecked`'s own doc comment); (3) a live merged
- * preview of the checked sources, with sanitization (client-name normalization
- * suggestions, empty-row drops) applied only to the merged OUTPUT --
- * sources themselves are never mutated, never re-persisted, and never
- * deleted, no matter what's checked/unchecked or accepted/declined here.
- * "Create Consolidated Weekly Draft" always CREATES a new `WeeklyReport`
- * (never edits one) and hands off to the familiar wizard
- * (`/reports/[id]/edit`) for any further editing -- flipping statuses or
- * rewording content is explicitly out of scope for this screen. A source's
- * own `summaryNarrative` is never merged in either (the aggregator never
- * touched summaries pre-Phase-6b and still doesn't) -- the consolidated
- * draft starts with a blank summary, written fresh in the wizard.
+ * `/consolidate` -- a 4-step guided wizard (nav IA restructure; the merge logic
+ * itself is untouched -- see `lib/aggregate`/`lib/consolidate`): (1) pick a
+ * Mon-Sun week (same anchor pattern as `CalendarScreen`); (2) choose which of
+ * the reports touching that week to include, grouped by project bucket --
+ * workspace/house sources default CHECKED, project sources default UNCHECKED
+ * (the output is always a house `WeeklyReport`, so folding another project's
+ * work in is an explicit opt-in; see `isChecked`); (3) review the merged
+ * preview + a couple of automatic clean-ups (client-name normalization, empty-
+ * row drops) applied only to the OUTPUT -- sources are never mutated, re-
+ * persisted, or deleted; (4) create the draft. "Create draft" always CREATES a
+ * new `WeeklyReport` (never edits one) and hands off to `/reports/[id]/edit`.
+ * A source's own `summaryNarrative` is never merged -- the draft starts blank.
  *
- * Every derived stage below (`allSources` through `{draft, log}`) is
- * `useMemo`'d: `aggregateReportsIntoDraft` mints fresh ids via `uid()` for
- * every new task/risk/priority, so recomputing it on every render (Fast
- * Refresh, an unrelated parent re-render, React Strict Mode's double-invoke
- * in dev) would burn through that counter and redo real work for nothing.
+ * Every derived stage (`allSources` through `{draft, log}`) is `useMemo`'d:
+ * `aggregateReportsIntoDraft` mints fresh ids via `uid()`, so recomputing it
+ * every render would burn that counter and redo real work for nothing.
  */
 export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport }: ConsolidateScreenProps) {
   const router = useRouter();
+  const [step, setStep] = useState(1);
   const [weekStart, setWeekStart] = useState(() => startOfWeekISO(nowDate()));
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [renameAccepted, setRenameAccepted] = useState<Record<string, boolean>>({});
@@ -123,10 +117,9 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
   // always a house `WeeklyReport` (see `handleCreate` below), so silently
   // pulling in another project's tasks/risks by default was the wrong
   // default; a user who genuinely wants a cross-bucket rollup still can, by
-  // explicitly checking those rows (documented Phase 6 follow-up, resolved
-  // here). `readFlag` still wins once the user has actually clicked a
-  // checkbox for this id -- this only changes the FALLBACK when `checked`
-  // has no entry for it yet.
+  // explicitly checking those rows. `readFlag` still wins once the user has
+  // actually clicked a checkbox for this id -- this only changes the FALLBACK
+  // when `checked` has no entry for it yet.
   const isChecked = useCallback(
     (id: string) => {
       const source = sourcesById.get(id);
@@ -157,6 +150,8 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
     [strippedReports, weekStart, weekEnd]
   );
 
+  const touchTotal = draft.touchpoints.calls + draft.touchpoints.emails + draft.touchpoints.escalations;
+
   const orderedGroups = useMemo(() => {
     const groups = new Map<string, AnyReport[]>();
     for (const source of allSources) {
@@ -174,20 +169,17 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
   const handleNext = () => setWeekStart((v) => addWeeksISO(v, 1));
   const handleToday = () => setWeekStart(startOfWeekISO(nowDate()));
 
+  const blankTasks = skippedItems.filter((i) => i.type === 'task').length;
+  const blankRisks = skippedItems.filter((i) => i.type === 'risk').length;
+  const blankPriorities = skippedItems.filter((i) => i.type === 'priority').length;
+
   // Phase 7b: awaits `onCreateReport` before navigating -- with a
   // `Promise<void>`-returning `onCreateReport` (see HttpReportsRepository),
-  // `router.push`ing immediately raced the write: `/reports/[id]/edit`
-  // resolves its `id` against `useReports().reports`, which the wizard's
-  // own route wrapper redirects away from `/` on an unrecognized id (see
-  // WizardPage's "unknown id" handling) -- a real risk the instant the
-  // repository is a network round-trip instead of a synchronous
-  // localStorage write.
-  //
-  // BLOCKER 4 fix: wrapped in try/catch/finally -- a rejection (Supabase
-  // down, an RLS denial) now sets `createError` (rendered next to the
-  // button below) instead of leaving the primary CTA looking like a dead
-  // button with zero feedback; `isCreating` disables it while the write is
-  // in flight so a slow round-trip can't be double-clicked into two drafts.
+  // `router.push`ing immediately raced the write. BLOCKER 4 fix: wrapped in
+  // try/catch/finally -- a rejection now sets `createError` (rendered next to
+  // the button) instead of leaving the primary CTA looking like a dead button;
+  // `isCreating` disables it while the write is in flight so a slow round-trip
+  // can't be double-clicked into two drafts.
   async function handleCreate() {
     if (includedSources.length === 0 || isCreating) return;
     const id = uid('r');
@@ -221,165 +213,217 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
     }
   }
 
+  const weekLabel = fmtWeekLabel(weekStart, weekEnd);
+  const nothingChecked = includedSources.length === 0;
+
   return (
     <div>
       <PageHeader title="Consolidate" />
 
+      <WizardStepper step={step} onStepClick={setStep} labels={CONSOLIDATE_STEPS} />
+
       <div className={styles.content}>
-        <div className={styles.toolbar}>
-          <div className={styles.rangeLabel}>{fmtWeekLabel(weekStart, weekEnd)}</div>
-          <div className={styles.nav}>
-            <Button variant="outline" size="sm" onClick={handlePrev}>
-              &larr; Prev
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleToday}>
-              Today
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleNext}>
-              Next &rarr;
-            </Button>
-          </div>
-        </div>
-
-        <section className={styles.section}>
-          <div className={styles.sectionKicker}>Sources</div>
-          {allSources.length === 0 ? (
-            <div className={styles.emptyState}>No weekly or daily reports touch this week.</div>
-          ) : (
-            orderedGroups.map(([key, sources]) => (
-              <div key={key || 'house'} className={styles.sourceGroup}>
-                <div className={styles.sourceGroupHeading}>{bucketLabel(key, projects)}</div>
-                <Table
-                  dense
-                  stacked
-                  columns={SOURCE_COLUMNS}
-                  rows={sources.map((source) => {
-                    const sourceLabel = `${source.kind === 'weekly' ? 'Weekly' : 'Daily'} ${reportPeriodLabel(source)}`;
-                    return {
-                      include: (
-                        <Checkbox label={`Include ${sourceLabel}`} checked={isChecked(source.id)} onChange={() => toggleChecked(source.id)} />
-                      ),
-                      period: sourceLabel,
-                      status: <Badge tone={statusTone(source.status)}>{source.status}</Badge>,
-                      tasks: String(source.tasks.length),
-                      risks: String(source.risks.length),
-                      actions: (
-                        <Link href={source.kind === 'weekly' ? `/reports/${source.id}` : `/daily/${source.id}`} className={styles.rowAction}>
-                          View
-                        </Link>
-                      ),
-                    };
-                  })}
-                />
-              </div>
-            ))
-          )}
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionKicker}>Sanitize</div>
-
-          {suggestions.length > 0 ? (
-            <div className={styles.sanitizeBlock}>
-              <div className={styles.sanitizeLabel}>Client-name normalization</div>
-              <div className={styles.checkList}>
-                {suggestions.map((s) => (
-                  <Checkbox
-                    key={s.from}
-                    label={`Rename "${s.from}" → "${s.to}" (merged output only)`}
-                    checked={isRenameAccepted(s.from)}
-                    onChange={() => toggleRename(s.from)}
-                  />
-                ))}
+        {step === 1 ? (
+          <section className={styles.stepPanel}>
+            <h2 className={styles.stepTitle}>Pick a week</h2>
+            <p className={styles.stepIntro}>
+              Consolidate rolls up all of a week&apos;s weekly and daily reports into one new, editable draft. Nothing you pick
+              is changed or deleted -- you&apos;ll get a fresh draft to finish in the wizard.
+            </p>
+            <div className={styles.toolbar}>
+              <div className={styles.rangeLabel}>{weekLabel}</div>
+              <div className={styles.nav}>
+                <Button variant="outline" size="sm" onClick={handlePrev}>
+                  &larr; Prev
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleToday}>
+                  Today
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleNext}>
+                  Next &rarr;
+                </Button>
               </div>
             </div>
-          ) : null}
+            <p className={styles.sanitizeCopy}>
+              {allSources.length === 0
+                ? 'No weekly or daily reports touch this week yet. Use Prev / Next to find a week with reports.'
+                : `${allSources.length} report${allSources.length === 1 ? '' : 's'} found this week.`}
+            </p>
+          </section>
+        ) : null}
 
-          {skippedItems.length > 0 ? (
-            <div className={styles.sanitizeBlock}>
-              <div className={styles.sanitizeLabel}>Empty rows skipped</div>
-              <p className={styles.sanitizeCopy}>
-                {skippedItems.filter((i) => i.type === 'task').length} blank task
-                {skippedItems.filter((i) => i.type === 'task').length === 1 ? '' : 's'},{' '}
-                {skippedItems.filter((i) => i.type === 'risk').length} blank risk
-                {skippedItems.filter((i) => i.type === 'risk').length === 1 ? '' : 's'}, and{' '}
-                {skippedItems.filter((i) => i.type === 'priority').length} blank priorit
-                {skippedItems.filter((i) => i.type === 'priority').length === 1 ? 'y' : 'ies'} excluded from the merged output.
-              </p>
-            </div>
-          ) : null}
-
-          {suggestions.length === 0 && skippedItems.length === 0 ? (
-            <p className={styles.sanitizeCopy}>Nothing to sanitize -- every included source&apos;s client names and rows are already clean.</p>
-          ) : null}
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionKicker}>Preview</div>
-          {includedSources.length === 0 ? (
-            <div className={styles.emptyState}>Check at least one source above to build a draft.</div>
-          ) : (
-            <>
-              <div className={styles.statsGrid}>
-                <StatCard label="Tasks" value={String(draft.tasks.length)} />
-                <StatCard label="Risks" value={String(draft.risks.length)} />
-                <StatCard label="Priorities" value={String(draft.priorities.length)} />
-                <StatCard label="Touchpoints" value={String(draft.touchpoints.calls + draft.touchpoints.emails + draft.touchpoints.escalations)} />
-              </div>
-
-              {log.length > 0 ? (
-                <div className={styles.mergeLog}>
-                  <div className={styles.sanitizeLabel}>Dedupe disclosure</div>
-                  <p className={styles.sanitizeCopy}>
-                    &ldquo;Kept From&rdquo; is the LATEST contributing source for tasks/risks, but the FIRST for priorities
-                    (identical priority text has no meaningful &ldquo;version&rdquo; to prefer a later one over). Each
-                    source&apos;s own summary narrative is not merged -- write a fresh one in the wizard.
-                  </p>
+        {step === 2 ? (
+          <section className={styles.stepPanel}>
+            <h2 className={styles.stepTitle}>Choose reports to include</h2>
+            <p className={styles.stepIntro}>
+              These are the reports touching {weekLabel}. Your workspace&apos;s reports are checked by default; check a
+              project&apos;s reports to fold their work into the draft too.
+            </p>
+            {allSources.length === 0 ? (
+              <div className={styles.emptyState}>No weekly or daily reports touch this week.</div>
+            ) : (
+              orderedGroups.map(([key, sources]) => (
+                <div key={key || 'house'} className={styles.sourceGroup}>
+                  <div className={styles.sourceGroupHeading}>{bucketLabel(key, projects)}</div>
                   <Table
                     dense
-                    scrollX
-                    columns={LOG_COLUMNS}
-                    rows={log.map((entry) => ({
-                      type: entry.type,
-                      key: entry.key,
-                      keptFrom: (
-                        <>
-                          {sourcesById.get(entry.keptFromId) ? reportPeriodLabel(sourcesById.get(entry.keptFromId)!) : entry.keptFromId}
-                          {entry.mergedFromIds.length > 1 ? (
-                            <>
-                              {' '}
-                              <Badge tone="sage">Deduped ×{entry.mergedFromIds.length}</Badge>
-                            </>
-                          ) : null}
-                        </>
-                      ),
-                      mergedFrom: entry.mergedFromIds
-                        .map((id) => (sourcesById.get(id) ? reportPeriodLabel(sourcesById.get(id)!) : id))
-                        .join(', '),
-                    }))}
+                    stacked
+                    columns={SOURCE_COLUMNS}
+                    rows={sources.map((source) => {
+                      const sourceLabel = `${source.kind === 'weekly' ? 'Weekly' : 'Daily'} ${reportPeriodLabel(source)}`;
+                      return {
+                        include: (
+                          <Checkbox label={`Include ${sourceLabel}`} checked={isChecked(source.id)} onChange={() => toggleChecked(source.id)} />
+                        ),
+                        period: sourceLabel,
+                        status: <Badge tone={statusTone(source.status)}>{source.status}</Badge>,
+                        tasks: String(source.tasks.length),
+                        risks: String(source.risks.length),
+                        actions: (
+                          <Link href={source.kind === 'weekly' ? `/reports/${source.id}` : `/daily/${source.id}`} className={styles.rowAction}>
+                            View
+                          </Link>
+                        ),
+                      };
+                    })}
                   />
                 </div>
-              ) : null}
-            </>
-          )}
-        </section>
+              ))
+            )}
+          </section>
+        ) : null}
 
-        <div className={styles.createRow}>
-          <p className={styles.createCopy}>
-            Creates a new Draft weekly report -- sources above are never edited or deleted. You&apos;ll finish editing in the
-            familiar wizard.
-          </p>
-          {createError ? (
-            // NIT fix (post-review round 2): `role="alert"`, not
-            // `role="status"` -- see TaskViewScreen.tsx's identical fix for
-            // the rationale.
-            <p className={styles.createError} role="alert">
-              {createError}
-            </p>
-          ) : null}
-          <Button variant="primary" size="md" onClick={handleCreate} disabled={includedSources.length === 0 || isCreating}>
-            {isCreating ? 'Creating…' : 'Create Consolidated Weekly Draft'}
-          </Button>
+        {step === 3 ? (
+          <section className={styles.stepPanel}>
+            <h2 className={styles.stepTitle}>Review &amp; clean up</h2>
+            {nothingChecked ? (
+              <div className={styles.emptyState}>Go back and check at least one report to build a draft.</div>
+            ) : (
+              <>
+                <p className={styles.stepIntro}>Here&apos;s what the merged draft for {weekLabel} will contain.</p>
+
+                <div className={styles.statsGrid}>
+                  <StatCard label="Tasks" value={String(draft.tasks.length)} />
+                  <StatCard label="Risks" value={String(draft.risks.length)} />
+                  <StatCard label="Priorities" value={String(draft.priorities.length)} />
+                  <StatCard label="Touchpoints" value={String(touchTotal)} />
+                </div>
+
+                {suggestions.length > 0 ? (
+                  <div className={styles.sanitizeBlock}>
+                    <div className={styles.sanitizeLabel}>Client name clean-up</div>
+                    <p className={styles.sanitizeCopy}>
+                      These client names match a project but aren&apos;t written exactly the same. Fixes apply to the merged
+                      draft only -- your original reports are untouched.
+                    </p>
+                    <div className={styles.checkList}>
+                      {suggestions.map((s) => (
+                        <Checkbox
+                          key={s.from}
+                          label={`Rename "${s.from}" to "${s.to}"`}
+                          checked={isRenameAccepted(s.from)}
+                          onChange={() => toggleRename(s.from)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {skippedItems.length > 0 ? (
+                  <div className={styles.sanitizeBlock}>
+                    <div className={styles.sanitizeLabel}>Empty rows removed</div>
+                    <p className={styles.sanitizeCopy}>
+                      {blankTasks} blank task{blankTasks === 1 ? '' : 's'}, {blankRisks} blank risk{blankRisks === 1 ? '' : 's'}, and{' '}
+                      {blankPriorities} blank priorit{blankPriorities === 1 ? 'y' : 'ies'} were left out of the draft.
+                    </p>
+                  </div>
+                ) : null}
+
+                {suggestions.length === 0 && skippedItems.length === 0 ? (
+                  <p className={styles.sanitizeCopy}>Everything looks clean -- no name fixes or empty rows to remove.</p>
+                ) : null}
+
+                {log.length > 0 ? (
+                  <details className={styles.mergeDetails}>
+                    <summary className={styles.mergeSummary}>How duplicates were merged ({log.length})</summary>
+                    <p className={styles.mergeIntro}>
+                      When the same task or risk shows up in more than one report, we keep the most recent version. Identical
+                      priorities keep the earliest. Each source&apos;s own summary isn&apos;t merged -- you&apos;ll write a
+                      fresh one in the wizard.
+                    </p>
+                    <Table
+                      dense
+                      scrollX
+                      columns={LOG_COLUMNS}
+                      rows={log.map((entry) => ({
+                        type: entry.type,
+                        key: entry.key,
+                        keptFrom: (
+                          <>
+                            {sourcesById.get(entry.keptFromId) ? reportPeriodLabel(sourcesById.get(entry.keptFromId)!) : entry.keptFromId}
+                            {entry.mergedFromIds.length > 1 ? (
+                              <>
+                                {' '}
+                                <Badge tone="sage">Merged ×{entry.mergedFromIds.length}</Badge>
+                              </>
+                            ) : null}
+                          </>
+                        ),
+                        mergedFrom: entry.mergedFromIds
+                          .map((id) => (sourcesById.get(id) ? reportPeriodLabel(sourcesById.get(id)!) : id))
+                          .join(', '),
+                      }))}
+                    />
+                  </details>
+                ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
+
+        {step === 4 ? (
+          <section className={styles.stepPanel}>
+            <h2 className={styles.stepTitle}>Create draft</h2>
+            {nothingChecked ? (
+              <div className={styles.emptyState}>Go back and check at least one report to build a draft.</div>
+            ) : (
+              <>
+                <p className={styles.stepIntro}>
+                  Your new draft for {weekLabel} will contain <strong>{draft.tasks.length}</strong> task
+                  {draft.tasks.length === 1 ? '' : 's'}, <strong>{draft.risks.length}</strong> risk{draft.risks.length === 1 ? '' : 's'},{' '}
+                  <strong>{draft.priorities.length}</strong> priorit{draft.priorities.length === 1 ? 'y' : 'ies'}, and{' '}
+                  <strong>{touchTotal}</strong> touchpoint{touchTotal === 1 ? '' : 's'}. It&apos;s created as a Draft -- your
+                  source reports are never edited or deleted, and you&apos;ll finish editing in the familiar wizard.
+                </p>
+                {createError ? (
+                  // NIT fix (post-review round 2): `role="alert"`, not
+                  // `role="status"` -- see TaskViewScreen.tsx's identical fix.
+                  <p className={styles.createError} role="alert">
+                    {createError}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
+
+        <div className={styles.stepNav}>
+          {step > 1 ? (
+            <Button variant="outline" size="md" onClick={() => setStep((s) => s - 1)}>
+              &larr; Back
+            </Button>
+          ) : (
+            <span />
+          )}
+          {step < 4 ? (
+            <Button variant="primary" size="md" onClick={() => setStep((s) => s + 1)}>
+              Next &rarr;
+            </Button>
+          ) : (
+            <Button variant="primary" size="md" onClick={handleCreate} disabled={nothingChecked || isCreating}>
+              {isCreating ? 'Creating…' : 'Create draft'}
+            </Button>
+          )}
         </div>
       </div>
     </div>
