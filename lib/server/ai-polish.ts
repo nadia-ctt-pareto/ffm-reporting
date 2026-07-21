@@ -51,6 +51,13 @@
 // parameter.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+// SEC-3 (post-review): `undici`'s OWN exported `fetch`, not Node's global
+// one -- required for `buildPinnedDispatcher` (lib/server/ssrf.ts) to work
+// at all, see that function's own doc comment for the verified
+// `instanceof`-identity reason. Only `callOpenAiCompatible` uses this --
+// `callAnthropic`'s base URL is a fixed constant, never user input, so it
+// keeps using the global `fetch` (no pinning needed there).
+import { fetch as undiciFetch } from 'undici';
 import { HOUSE_VOICE, POLISH_FIELDS, type PolishFieldId } from '../prompts';
 // `PolishRequest`/`PolishContext` are owned by lib/schema/api.ts (the wire
 // shape) and imported here, not redeclared -- same convention
@@ -58,7 +65,7 @@ import { HOUSE_VOICE, POLISH_FIELDS, type PolishFieldId } from '../prompts';
 import type { PolishContext, PolishRequest } from '../schema/api';
 import { getAiKeyPlaintext, getAiKeyProviderConfig } from './ai-keys';
 import { ServiceError } from './reports-service';
-import { assertSafeOutboundUrl, SsrfError } from './ssrf';
+import { assertSafeOutboundUrl, buildPinnedDispatcher, SsrfError } from './ssrf';
 
 /**
  * One server constant -- a one-line model swap if it ever needs to change.
@@ -182,6 +189,18 @@ function throwForUpstreamStatus(status: number): never {
   if (status === 429) {
     throw new ServiceError('invalid', 'anthropic_rate_limited: Anthropic rate-limited the request.');
   }
+  if (status === 404) {
+    // COR nit (post-review): the BYOK generalization made Anthropic's
+    // `model` user-supplyable too (`SetAiKeyInputSchema`'s optional
+    // `model` override) -- a bad model id 404s, and falling through to the
+    // generic `anthropic_unavailable` bucket below would curate that as
+    // "Couldn't reach Anthropic", which reads like a network problem, not
+    // "you typed a model that doesn't exist." Symmetric with
+    // `throwForOpenAiUpstreamStatus`'s 404/400 handling, just narrower --
+    // Anthropic's base URL is never user-controlled, so only the model can
+    // be wrong here, never "the base URL."
+    throw new ServiceError('invalid', 'anthropic_bad_model: Anthropic returned 404 for this model.');
+  }
   throw new ServiceError('internal', `anthropic_unavailable: Anthropic returned an unexpected status (${status}).`);
 }
 
@@ -204,24 +223,52 @@ export async function validateAnthropicKey(apiKey: string, model: string = POLIS
 }
 
 /**
+ * The exact function signature of `undici`'s exported `fetch` -- used ONLY
+ * to type `callOpenAiCompatible`'s (and its callers', including
+ * `lib/server/ai-keys.ts`'s `setAiKey`) optional `fetchImpl` test seam
+ * below. Exported purely so `scripts/verify-byok-providers.ts` (and
+ * `setAiKey`'s own parameter) can name this type -- never used to widen
+ * what a route handler is allowed to pass.
+ */
+export type OpenAiFetchImpl = typeof undiciFetch;
+
+/**
  * The one `openai_compatible` outbound fetch. `baseUrl` is USER-CONTROLLED
  * (unlike Anthropic's fixed base) -- `assertSafeOutboundUrl`
  * (lib/server/ssrf.ts) runs FIRST, on every call (both from
  * `validateOpenAiCompatibleKey` at save time and from `polishField` on
  * every real polish call -- defense-in-depth, see that module's header
- * comment), and `redirect: 'error'` means a provider cannot 3xx this
- * request into an internal address after that check passes. An
+ * comment). Its `addresses` result is then pinned via
+ * `buildPinnedDispatcher` (SEC-3, post-review) so the ACTUAL connection
+ * dials one of the SAME already-validated addresses, never a fresh DNS
+ * resolution -- closing the DNS-rebinding TOCTOU a naive
+ * "validate-then-fetch" would leave open (see lib/server/ssrf.ts's header
+ * comment for the full story). This is why this call uses `undici`'s own
+ * exported `fetch`, not Node's global one -- the pinned dispatcher only
+ * works with the SAME undici module instance that built it. `redirect:
+ * 'error'` still applies on top -- a provider cannot 3xx this request into
+ * an internal address after the check passes, pinned or not. An
  * `SsrfError` maps to `openai_bad_endpoint` -- the same curated bucket as
  * "check the base URL and model" a 404/400 from the provider itself would
  * get (see `throwForOpenAiUpstreamStatus` below), which is honest: from the
  * caller's point of view, both are "this base URL doesn't work."
+ *
+ * `fetchImpl` (optional, defaults to the real `undiciFetch`) is a TEST-ONLY
+ * seam -- `scripts/verify-byok-providers.ts` is the one caller that ever
+ * passes something else (a recording stub), so it can verify request
+ * shape/error-mapping without a real provider account, WITHOUT weakening
+ * anything for a real caller: `assertSafeOutboundUrl` + `buildPinnedDispatcher`
+ * above still run unconditionally regardless of `fetchImpl` -- only the
+ * final network call is swappable, never the SSRF gate. No route handler or
+ * other production call site ever supplies this parameter.
  */
-async function callOpenAiCompatible(apiKey: string, baseUrl: string, body: Record<string, unknown>): Promise<ProviderCallResult> {
+async function callOpenAiCompatible(apiKey: string, baseUrl: string, body: Record<string, unknown>, fetchImpl: OpenAiFetchImpl = undiciFetch): Promise<ProviderCallResult> {
   const requestUrl = `${baseUrl.replace(/\/+$/, '')}${OPENAI_CHAT_COMPLETIONS_PATH}`;
-  let res: Response;
+  let res: Awaited<ReturnType<typeof undiciFetch>>;
   try {
-    const safeUrl = await assertSafeOutboundUrl(requestUrl);
-    res = await fetch(safeUrl, {
+    const { url: safeUrl, addresses } = await assertSafeOutboundUrl(requestUrl);
+    const dispatcher = buildPinnedDispatcher(addresses);
+    res = await fetchImpl(safeUrl, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -229,6 +276,7 @@ async function callOpenAiCompatible(apiKey: string, baseUrl: string, body: Recor
       },
       body: JSON.stringify(body),
       redirect: 'error',
+      dispatcher,
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {
@@ -273,13 +321,21 @@ function throwForOpenAiUpstreamStatus(status: number): never {
  * `setAiKey` BEFORE encrypting/storing anything (mirrors
  * `validateAnthropicKey` above). Validates the key, the base URL, AND the
  * model in one shot: a 2xx here means all three are usable together.
+ * `fetchImpl` is the SAME test-only seam `callOpenAiCompatible` documents --
+ * threaded through here purely so `setAiKey` (lib/server/ai-keys.ts) can
+ * pass it along too; never supplied by a real route handler.
  */
-export async function validateOpenAiCompatibleKey(apiKey: string, baseUrl: string, model: string): Promise<void> {
-  const { status } = await callOpenAiCompatible(apiKey, baseUrl, {
-    model,
-    max_tokens: 1,
-    messages: [{ role: 'user', content: '.' }],
-  });
+export async function validateOpenAiCompatibleKey(apiKey: string, baseUrl: string, model: string, fetchImpl?: OpenAiFetchImpl): Promise<void> {
+  const { status } = await callOpenAiCompatible(
+    apiKey,
+    baseUrl,
+    {
+      model,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: '.' }],
+    },
+    fetchImpl
+  );
   if (status >= 200 && status < 300) return;
   throwForOpenAiUpstreamStatus(status);
 }
@@ -465,8 +521,12 @@ export async function withProviderRateLimit<T>(userId: string, fn: () => Promise
  * what's stored server-side (`getAiKeyProviderConfig`) -- `PolishRequest`
  * (the client-supplied body) carries no provider field at all, so a client
  * can never influence which provider/endpoint this function talks to.
+ *
+ * `openAiFetchImpl` (optional) is the SAME test-only seam
+ * `callOpenAiCompatible` documents -- `app/api/ai/polish/route.ts` never
+ * supplies it.
  */
-export async function polishField(db: SupabaseClient, userId: string, req: PolishRequest): Promise<{ polished: string }> {
+export async function polishField(db: SupabaseClient, userId: string, req: PolishRequest, openAiFetchImpl?: OpenAiFetchImpl): Promise<{ polished: string }> {
   return withProviderRateLimit(userId, async () => {
     const config = await getAiKeyProviderConfig(db);
     const apiKey = await getAiKeyPlaintext(db);
@@ -493,14 +553,19 @@ export async function polishField(db: SupabaseClient, userId: string, req: Polis
       if (!config.baseUrl || !config.model) {
         throw new ServiceError('internal', 'openai_unavailable: stored configuration is missing a base URL or model.');
       }
-      const { status, json } = await callOpenAiCompatible(apiKey, config.baseUrl, {
-        model: config.model,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userMessage },
-        ],
-      });
+      const { status, json } = await callOpenAiCompatible(
+        apiKey,
+        config.baseUrl,
+        {
+          model: config.model,
+          max_tokens: MAX_OUTPUT_TOKENS,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userMessage },
+          ],
+        },
+        openAiFetchImpl
+      );
       if (status < 200 || status >= 300) {
         throwForOpenAiUpstreamStatus(status);
       }

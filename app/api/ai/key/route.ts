@@ -65,9 +65,16 @@ export async function PUT(request: NextRequest) {
     // like every other route -- the parsed body carries the plaintext key,
     // and there is no reason to risk any fragment of it (or of a
     // near-miss paste) round-tripping into a client-visible issues array.
-    // A generic message is enough here; the field is a single required
-    // string.
-    return NextResponse.json({ error: 'Enter a valid Anthropic API key.' }, { status: 400 });
+    // A generic message is enough here.
+    //
+    // COR-1 (post-review): this message used to say "Enter a valid
+    // Anthropic API key." unconditionally -- reachable for
+    // `openai_compatible` too (e.g. a `baseUrl` missing `https://` passes
+    // `AiKeySection.tsx`'s client-side non-empty check but fails this
+    // schema's `.url()`/`startsWith('https://')`), telling an OpenRouter/
+    // Groq/etc. user to enter an "Anthropic key" -- confusing and just
+    // wrong for their provider. Provider-neutral now.
+    return NextResponse.json({ error: 'Check the API key, base URL, and model, then try again.' }, { status: 400 });
   }
 
   try {

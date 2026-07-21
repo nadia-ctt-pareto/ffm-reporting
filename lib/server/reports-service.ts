@@ -106,6 +106,9 @@ export function curatedMessage(code: ServiceErrorCode, rawMessage: string): stri
       if (/anthropic_rate_limited/.test(rawMessage)) {
         return 'Your Anthropic account is rate-limited -- try again in a minute.';
       }
+      if (/anthropic_bad_model/.test(rawMessage)) {
+        return 'Check the model, then try again.';
+      }
       if (/openai_invalid_key/.test(rawMessage)) {
         return 'Your API key was rejected -- update it in Settings.';
       }

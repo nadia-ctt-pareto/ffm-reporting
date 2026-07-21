@@ -126,6 +126,23 @@ export function AiKeySection() {
     setIsEditing(true);
   }
 
+  /**
+   * COR-2 (post-review): switching providers used to leave `baseUrlInput`/
+   * `modelInput` untouched -- e.g. going from `openai_compatible` (model
+   * `anthropic/claude-sonnet-5`, an OpenRouter model id) to `anthropic`
+   * silently carried that string into Anthropic's OPTIONAL model-override
+   * field, so Save would ping a model that doesn't exist there and surface
+   * a confusing "Couldn't reach Anthropic" (a network-sounding message for
+   * what's actually a bad-model problem). Always reset both fields on a
+   * provider change -- simple, predictable, and consistent with the API
+   * key field itself already always starting blank on every edit.
+   */
+  function handleProviderChange(value: string) {
+    setProvider(value as AiProvider);
+    setBaseUrlInput('');
+    setModelInput('');
+  }
+
   const canSave =
     apiKeyInput.trim().length > 0 && (provider !== 'openai_compatible' || (baseUrlInput.trim().length > 0 && modelInput.trim().length > 0));
 
@@ -279,7 +296,7 @@ export function AiKeySection() {
             <Select
               label="Provider"
               value={provider}
-              onChange={(value) => setProvider(value as AiProvider)}
+              onChange={handleProviderChange}
               options={PROVIDER_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
             />
           </div>
@@ -333,7 +350,10 @@ export function AiKeySection() {
               The base URL must be your provider&apos;s OpenAI-compatible API root (Chat Completions is appended
               automatically) -- e.g. <code>https://openrouter.ai/api/v1</code> for OpenRouter, or{' '}
               <code>https://api.groq.com/openai/v1</code> for Groq. Both the base URL and model are validated
-              against the provider before anything is saved.
+              against the provider before anything is saved. Note: OpenAI&apos;s own <code>o1</code>/<code>o3</code>{' '}
+              models, hit directly at <code>api.openai.com</code>, are not supported here (they require{' '}
+              <code>max_completion_tokens</code> instead of <code>max_tokens</code>) -- OpenRouter, Groq, Together,
+              and most other gateways are unaffected.
             </p>
           ) : null}
 

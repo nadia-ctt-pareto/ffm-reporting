@@ -12,7 +12,7 @@
 // resolver (see AssertSafeOutboundUrlOptions.lookup) so it never touches
 // the network.
 
-import { assertSafeOutboundUrl, SsrfError } from '../lib/server/ssrf';
+import { assertSafeOutboundUrl, buildPinnedDispatcher, SsrfError } from '../lib/server/ssrf';
 
 let passed = 0;
 let failed = 0;
@@ -21,7 +21,7 @@ async function expectRejects(label: string, url: string, opts?: Parameters<typeo
   try {
     const result = await assertSafeOutboundUrl(url, opts);
     failed += 1;
-    console.error(`FAIL: ${label} -- expected rejection, got a resolved URL: ${result.href}`);
+    console.error(`FAIL: ${label} -- expected rejection, got a resolved URL: ${result.url.href} (addresses: ${result.addresses.join(', ')})`);
   } catch (err) {
     if (err instanceof SsrfError) {
       passed += 1;
@@ -37,7 +37,7 @@ async function expectResolves(label: string, url: string, opts?: Parameters<type
   try {
     const result = await assertSafeOutboundUrl(url, opts);
     passed += 1;
-    console.log(`OK:   ${label} -- resolved (${result.href})`);
+    console.log(`OK:   ${label} -- resolved (${result.url.href}, addresses: ${result.addresses.join(', ')})`);
   } catch (err) {
     failed += 1;
     console.error(`FAIL: ${label} -- expected to resolve, but was rejected:`, err instanceof Error ? err.message : err);
@@ -136,6 +136,9 @@ async function main() {
   console.log('\n=== redirect: "error" fetch behavior (the mechanism callOpenAiCompatible/callAnthropic rely on to reject a redirect-to-internal) ===');
   await verifyRedirectErrorFetchBehavior();
 
+  console.log('\n=== SEC-3: buildPinnedDispatcher actually pins the connection (closes the DNS-rebinding TOCTOU) ===');
+  await verifyPinnedDispatcherClosesRebinding();
+
   console.log(`\n${passed} passed, ${failed} failed.`);
   if (failed > 0) process.exitCode = 1;
 }
@@ -181,6 +184,52 @@ async function verifyRedirectErrorFetchBehavior(): Promise<void> {
   } finally {
     await new Promise<void>((resolve) => target.close(() => resolve()));
     await new Promise<void>((resolve) => redirector.close(() => resolve()));
+  }
+}
+
+/**
+ * `buildPinnedDispatcher` is the mechanism that closes the DNS-rebinding
+ * TOCTOU `assertSafeOutboundUrl` alone cannot (see lib/server/ssrf.ts's
+ * header comment): a validate-then-fetch WITHOUT pinning would, on a fresh
+ * `fetch()` DNS lookup, trust whatever DNS answers a SECOND time -- a
+ * rebinding attacker's whole play is making that second answer differ from
+ * the first. Two real, network-backed checks prove the pin genuinely
+ * controls what gets dialed (not merely documented as intent):
+ *   1. Pin to the SAME address a real host actually resolved to -> must
+ *      succeed with a normal TLS handshake (SNI/Host/cert validation are
+ *      unaffected by the pin -- only `connect.lookup` is overridden).
+ *   2. Pin to a DELIBERATELY WRONG address -> must fail/time out. If the
+ *      pin were a no-op (silently falling back to a fresh, real DNS
+ *      lookup), this would succeed anyway -- it not succeeding is the
+ *      actual proof the override takes effect, which is exactly the
+ *      property that closes the rebinding race: whatever address
+ *      `assertSafeOutboundUrl` validated is unconditionally what gets
+ *      dialed, never a second, independently-resolved answer.
+ */
+async function verifyPinnedDispatcherClosesRebinding(): Promise<void> {
+  const { url, addresses } = await assertSafeOutboundUrl('https://openrouter.ai/api/v1');
+  console.log(`  (validated addresses for openrouter.ai: ${addresses.join(', ')})`);
+
+  const { fetch: undiciFetch } = await import('undici');
+
+  try {
+    const correctDispatcher = buildPinnedDispatcher(addresses);
+    const res = await undiciFetch(url, { method: 'GET', dispatcher: correctDispatcher, signal: AbortSignal.timeout(10_000) });
+    passed += 1;
+    console.log(`OK:   pinning to the SAME address openrouter.ai actually resolved to succeeds (status ${res.status}) -- SNI/cert validation unaffected by the pin.`);
+  } catch (err) {
+    failed += 1;
+    console.error('FAIL: pinning to the correct, real address should have succeeded:', err instanceof Error ? err.message : err);
+  }
+
+  try {
+    const wrongDispatcher = buildPinnedDispatcher(['203.0.113.1']); // TEST-NET-3 (RFC 5737) -- guaranteed non-routable/unreachable
+    await undiciFetch(url, { method: 'GET', dispatcher: wrongDispatcher, signal: AbortSignal.timeout(5_000) });
+    failed += 1;
+    console.error('FAIL: pinning to a deliberately WRONG address unexpectedly succeeded -- the pin is not actually taking effect.');
+  } catch {
+    passed += 1;
+    console.log('OK:   pinning to a deliberately WRONG address fails (times out/errors) -- proves the override genuinely controls the connection, not a silent fallback to fresh DNS.');
   }
 }
 

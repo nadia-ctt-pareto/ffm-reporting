@@ -177,13 +177,21 @@ export type AiProvider = z.infer<typeof AiProviderSchema>;
  * for `anthropic` (an override of the default model; the base is never
  * user-supplied at all, see `lib/server/ai-polish.ts`'s `ANTHROPIC_BASE_URL`
  * constant). `.max(500)`/`.max(200)` mirror the CHECK constraints in
- * `supabase/migrations/20260724000012_ai_keys_providers.sql`.
+ * `supabase/migrations/20260724000012_ai_keys_providers.sql`. `baseUrl`'s
+ * `.startsWith('https://')` (post-review SEC nit): `.url()` alone accepts
+ * ANY scheme (`http://`, `ftp://`, ...) -- harmless on its own since
+ * `lib/server/ssrf.ts`'s `assertSafeOutboundUrl` is the real, unconditional
+ * gate (scheme included) and would reject a non-`https://` value regardless
+ * -- but rejecting it HERE, at the schema layer, means a bad scheme fails
+ * fast with a plain 400 before any validation network call is even
+ * attempted, rather than surfacing as a less obvious `openai_bad_endpoint`
+ * from deeper in the stack.
  */
 export const SetAiKeyInputSchema = z
   .object({
     apiKey: z.string().min(20).max(200),
     provider: AiProviderSchema,
-    baseUrl: z.string().min(1).max(500).url().optional(),
+    baseUrl: z.string().min(1).max(500).url().startsWith('https://', { message: 'baseUrl must start with https://' }).optional(),
     model: z.string().min(1).max(200).optional(),
   })
   .refine((v) => v.provider !== 'openai_compatible' || (v.baseUrl !== undefined && v.model !== undefined), {

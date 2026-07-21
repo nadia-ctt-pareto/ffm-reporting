@@ -18,7 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiProvider } from '../schema/api';
 import { AiCryptoError, decryptSecret, encryptSecret } from './ai-crypto';
-import { validateAnthropicKey, validateOpenAiCompatibleKey, withProviderRateLimit } from './ai-polish';
+import { validateAnthropicKey, validateOpenAiCompatibleKey, withProviderRateLimit, type OpenAiFetchImpl } from './ai-polish';
 import { ServiceError } from './reports-service';
 
 export interface AiKeyStatus {
@@ -144,8 +144,13 @@ export interface SetAiKeyArgs {
  * shouldn't expose. `userId` is accepted explicitly for this -- the caller
  * (`app/api/ai/key/route.ts`) already has `user.id` in scope from its own
  * `auth.getUser()` call, same pattern `polishField` already uses.
+ *
+ * `openAiFetchImpl` (optional) is `lib/server/ai-polish.ts`'s test-only
+ * seam, threaded through here purely so `scripts/verify-byok-providers.ts`
+ * can verify this function's full flow (validate-before-store) with a
+ * stub -- `app/api/ai/key/route.ts` never supplies it.
  */
-export async function setAiKey(db: SupabaseClient, userId: string, args: SetAiKeyArgs): Promise<{ hint: string; validatedAt: string }> {
+export async function setAiKey(db: SupabaseClient, userId: string, args: SetAiKeyArgs, openAiFetchImpl?: OpenAiFetchImpl): Promise<{ hint: string; validatedAt: string }> {
   const trimmed = args.apiKey.trim();
   const baseUrl = args.provider === 'openai_compatible' ? (args.baseUrl ?? '').trim() : null;
   const model = args.model?.trim() || null;
@@ -159,7 +164,7 @@ export async function setAiKey(db: SupabaseClient, userId: string, args: SetAiKe
     if (!baseUrl || !model) {
       throw new ServiceError('invalid', 'baseUrl and model are required for an OpenAI-compatible provider.');
     }
-    await withProviderRateLimit(userId, () => validateOpenAiCompatibleKey(trimmed, baseUrl, model));
+    await withProviderRateLimit(userId, () => validateOpenAiCompatibleKey(trimmed, baseUrl, model, openAiFetchImpl));
   } else {
     await withProviderRateLimit(userId, () => validateAnthropicKey(trimmed, model ?? undefined));
   }

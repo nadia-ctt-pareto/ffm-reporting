@@ -949,31 +949,71 @@ has no way to evaluate "is this host safe to fetch from the app server's
 network" — that entirely lives in `lib/server/ssrf.ts`'s
 `assertSafeOutboundUrl`:
 
-- `https://` only (rejects `http:` and every other scheme).
+- `https://` only (rejects `http:` and every other scheme) — enforced at
+  BOTH the schema layer (`SetAiKeyInputSchema`'s `.startsWith('https://')`,
+  a fast-fail 400 before any network call) and here (the real,
+  unconditional gate).
 - Rejects `localhost`/`*.localhost` and known cloud-metadata hostnames
   (`169.254.169.254`, `metadata.google.internal`) by name, before any DNS
   resolution.
 - Rejects an IP-literal host, OR any DNS-resolved address for a hostname
   host, that falls in a private/loopback/link-local/ULA/CGNAT/reserved
   range (IPv4: `10/8`, `172.16/12`, `192.168/16`, `127/8`, `169.254/16`,
-  `0.0.0.0/8`, `100.64/10`; IPv6: `::1`, `fc00::/7`, `fe80::/10`, `::`, plus
-  IPv4-mapped `::ffff:a.b.c.d` unwrapped and re-checked as IPv4).
+  `0.0.0.0/8`, `100.64/10`; IPv6: `::1`, `fc00::/7`, `fe80::/10`, `::`).
+  **SEC-1 (post-review): four DIFFERENT embedded-IPv4 forms are unwrapped
+  and the embedded address re-checked against the SAME IPv4 range list** —
+  IPv4-mapped (`::ffff:a.b.c.d`, `::ffff:0:0/96`), IPv4-compatible
+  (`::a.b.c.d`, `::/96`, deprecated but still a valid literal), NAT64
+  (`64:ff9b::a.b.c.d`, `64:ff9b::/96`, RFC 6052 — a REAL escalation path on
+  an IPv6-only/NAT64 runtime: `64:ff9b::a9fe:a9fe` synthesizes to
+  `169.254.169.254`, cloud metadata, and would otherwise sail straight past
+  every other check), and 6to4 (`2002:WWXX:YYZZ::`, `2002::/16`, RFC 3056 —
+  the embedded address sits at bits 16-47, not the low 32 bits like the
+  other three, and 6to4 is INSIDE global unicast `2000::/3`, so a naive
+  "allow `2000::/3`" allowlist would not have caught it either). The
+  original version of this function only handled the first (IPv4-mapped)
+  form — the other three were a live bypass, closed here.
 - Every outbound fetch also passes `redirect: 'error'` — a provider cannot
   3xx this server into an internal address after the check passes.
 - Applied at BOTH save time (`validateOpenAiCompatibleKey`, called from
   `setAiKey` before anything is encrypted/stored) AND every polish call
   (`callOpenAiCompatible`) — defense-in-depth, in case the two ever drift or
   a row is edited directly in Postgres.
-- **Documented residual risk**: DNS rebinding / TOCTOU — this function
-  resolves-and-validates immediately before the caller's `fetch()`, but
-  Node's `fetch` (undici) re-resolves DNS itself a moment later; a
-  malicious DNS server could theoretically serve a different address for
-  that second resolution. Closing this fully would require pinning the
-  validated IP into the connection itself (a custom undici `Agent`), not
-  implemented — see `lib/server/ssrf.ts`'s header comment for the full,
-  honest accounting. Unit-tested in `scripts/verify-byok-providers.ts`
-  against the full private-range list plus a DNS-resolving case (via an
-  injectable resolver) and a real public host.
+- **DNS rebinding / TOCTOU — CLOSED, not just documented (SEC-3, post-review).**
+  A resolve-then-fetch alone only closes this if literally nothing happens
+  between the check and the connect — never true for a real `fetch()`
+  against a default dispatcher, since it re-resolves DNS itself moments
+  later; a malicious DNS server could serve a public address for the FIRST
+  lookup and a private one for the SECOND. `assertSafeOutboundUrl` now
+  returns the exact address(es) it validated, and `buildPinnedDispatcher`
+  (same file) turns them into an `undici` `Agent` whose `connect.lookup`
+  ALWAYS returns those SAME addresses — no second resolution ever happens.
+  Requires pairing with `undici`'s OWN exported `fetch` (not Node's global
+  one — verified live that the global `fetch` rejects a dispatcher built
+  from a separately-installed `undici` package, an `instanceof` identity
+  mismatch against Node's own internal, non-importable undici copy), which
+  is why `undici` is now a direct dependency (`package.json`) and why
+  `callOpenAiCompatible` imports `fetch` from it explicitly. Verified live
+  against a real public host (`scripts/verify-ssrf.ts`): pinning to the
+  address that host actually resolved to succeeds with a normal TLS
+  handshake (SNI/Host/cert validation are computed from the URL by undici's
+  own connector, unaffected by the pin); pinning to a deliberately WRONG
+  address times out/fails — proving the override genuinely controls the
+  connection rather than silently falling back to a fresh, real lookup.
+- **SEC-2 (post-review): the SAVE-TIME validation call is rate-limited
+  too**, not just the polish call — an earlier version let
+  `PUT /api/ai/key` fire an unthrottled, attacker-influenceable outbound
+  fetch to an arbitrary external host on every save (an external-
+  reachability oracle: distinct curated markers + latency leak whether a
+  host:port is reachable). `validateOpenAiCompatibleKey`/`validateAnthropicKey`
+  now run through the SAME per-user `withProviderRateLimit` `polishField`
+  uses — one shared budget across both actions, not a separate pool.
+
+Unit-tested in `scripts/verify-ssrf.ts` (the SSRF/pinning mechanism itself,
+including a real network round-trip proving the pin) and
+`scripts/verify-byok-providers.ts` (request shape, error mapping, the
+shared rate-limit budget, and SSRF defense-in-depth on the polish path) —
+see each script's own header comment.
 
 **Error mapping is provider-neutral where it needs to be, provider-specific
 where it should be.** `lib/server/reports-service.ts`'s `curatedMessage`
@@ -981,8 +1021,14 @@ gained parallel `openai_*` marker-token cases alongside the ORIGINAL,
 unchanged `anthropic_*` ones (401/403 → key rejected; 404/400 →
 `openai_bad_endpoint`, "check the base URL and model"; 429 →
 `openai_rate_limited`; timeout/5xx → `openai_unavailable`/`openai_timeout`).
-The per-user local rate limiter (`lib/server/ai-polish.ts`) was changed from
-reusing the `anthropic_rate_limited` marker to a new provider-neutral
+Anthropic ALSO gained a narrower `anthropic_bad_model` case (404 only — its
+base URL is never user-controlled, so only the model can be wrong) once the
+BYOK generalization made Anthropic's `model` user-overridable too; without
+it, a bad model id fell through to the generic "Couldn't reach Anthropic"
+bucket, which reads like a network problem rather than "you typed a model
+that doesn't exist." The per-user local rate limiter
+(`lib/server/ai-polish.ts`) was changed from reusing the
+`anthropic_rate_limited` marker to a new provider-neutral
 `local_rate_limited` marker — reusing the Anthropic-specific one would have
 mislabeled an `openai_compatible` user's local throttle as an Anthropic-
 account problem. No response body from either provider is ever forwarded to

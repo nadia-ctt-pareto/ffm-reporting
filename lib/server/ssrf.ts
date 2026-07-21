@@ -19,27 +19,32 @@
 // time -- a future bug, or a row edited directly in Postgres -- the polish
 // call re-validates it independently).
 //
-// RESIDUAL RISK (documented, not solved -- DNS rebinding / TOCTOU): this
-// function resolves the hostname and validates every resolved address
-// IMMEDIATELY before the caller is expected to `fetch()` the same URL --
-// but Node's global `fetch` (undici) performs its OWN DNS resolution when
-// it actually opens the connection, a moment later. A malicious/compromised
-// DNS server could serve a public address for THIS validation lookup and a
-// private address for undici's lookup moments after, slipping through.
-// Fully closing this would require pinning the validated IP into the
-// connection itself (e.g. a custom undici `Agent` with a `connect.lookup`
-// override that reuses the same resolved address) -- not implemented here.
-// "Resolve-and-validate immediately before the fetch, reject on private
-// results" is the documented, honest mitigation this module provides: it
-// closes the overwhelmingly common case (a `base_url` that is, or that
-// plainly resolves to, an internal/reserved address at rest) without
-// pretending to close a live-attacker DNS-rebinding race. Every call site
-// also passes `redirect: 'error'` to its own `fetch()` call (a provider
-// cannot 3xx this server into an internal address after this check passes
-// -- see lib/server/ai-polish.ts).
+// DNS REBINDING / TOCTOU (SEC-3, post-review -- CLOSED, not just documented):
+// resolving the hostname and validating every resolved address is only
+// half the job if the caller's `fetch()` then re-resolves DNS itself a
+// moment later -- a malicious/compromised DNS server could serve a public
+// address for THIS validation lookup and a private address for that SECOND
+// lookup, slipping through. `assertSafeOutboundUrl` now returns the exact
+// address(es) it validated, and `buildPinnedDispatcher` (below) turns them
+// into an undici `Agent` whose `connect.lookup` ALWAYS returns those SAME
+// addresses -- no second DNS resolution ever happens, so there is no gap
+// for a rebinding attacker to exploit. `lib/server/ai-polish.ts`'s
+// `callOpenAiCompatible` is the one caller, and pairs this with `undici`'s
+// OWN exported `fetch` (verified live: Node's GLOBAL `fetch` refuses a
+// dispatcher built from a separately-installed `undici` package -- an
+// `instanceof` identity check against Node's own internal, non-importable
+// undici copy fails). The request's Host header and TLS SNI are still
+// computed from the ORIGINAL hostname by undici's own connector (unaffected
+// by this override) -- verified live against a real public host: pinning to
+// the address that host actually resolved to succeeds with a normal TLS
+// handshake (certificate validates against the hostname, not the IP);
+// pinning to a deliberately WRONG address times out/fails, proving the
+// override genuinely takes effect rather than being silently ignored.
 
 import { promises as dns } from 'node:dns';
+import type { LookupFunction } from 'node:net';
 import { isIP } from 'node:net';
+import { Agent, type Dispatcher } from 'undici';
 
 /**
  * Thrown by `assertSafeOutboundUrl` for ANY rejection -- wrong scheme, a
@@ -235,12 +240,16 @@ export interface AssertSafeOutboundUrlOptions {
  * (never returns) for: a non-`https:` scheme; `localhost`/`*.localhost`; a
  * known cloud-metadata hostname; an IP-literal host in a private/loopback/
  * link-local/ULA/CGNAT/reserved range; or a hostname that RESOLVES (via DNS)
- * to ANY such address. Returns the parsed `URL` on success -- callers should
- * `fetch()` that same `URL` object immediately afterward (see this file's
- * header comment for the residual DNS-rebinding risk that ordering does,
- * and does not, close), always with `redirect: 'error'`.
+ * to ANY such address. On success, returns BOTH the parsed `URL` and the
+ * exact `addresses` it validated (SEC-3, post-review) -- callers should feed
+ * `addresses` into `buildPinnedDispatcher` below and `fetch()` the `url`
+ * THROUGH that dispatcher, closing the DNS-rebinding gap a second,
+ * independent resolution at connect time would otherwise leave open (see
+ * this file's header comment). Always pair with `redirect: 'error'` too (a
+ * provider cannot 3xx this server into an internal address after this
+ * check passes).
  */
-export async function assertSafeOutboundUrl(rawUrl: string, options: AssertSafeOutboundUrlOptions = {}): Promise<URL> {
+export async function assertSafeOutboundUrl(rawUrl: string, options: AssertSafeOutboundUrlOptions = {}): Promise<{ url: URL; addresses: string[] }> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -302,5 +311,55 @@ export async function assertSafeOutboundUrl(rawUrl: string, options: AssertSafeO
     }
   }
 
-  return url;
+  return { url, addresses };
+}
+
+/**
+ * SEC-3 (post-review): turns the EXACT address(es) `assertSafeOutboundUrl`
+ * just validated into an `undici` `Agent` whose custom `connect.lookup`
+ * ALWAYS returns those same addresses -- never re-resolves DNS at connect
+ * time. This is what actually closes the DNS-rebinding TOCTOU (see this
+ * file's header comment) -- `assertSafeOutboundUrl` alone only closes it if
+ * literally nothing happens between the check and the connect, which is
+ * never true for a real `fetch()` against the global dispatcher.
+ *
+ * The request's Host header and TLS SNI are computed by undici's own
+ * connector from the URL passed to `fetch()`, NOT from anything this
+ * function returns -- overriding only `connect.lookup` (not `host`/
+ * `servername`) is what keeps certificate validation working normally
+ * against the real hostname while still pinning which IP is actually
+ * dialed. Node's `dns.LookupOptions.all` decides whether the underlying
+ * `net`/`tls` connect logic wants ONE address or ALL of them (Node's own
+ * Happy-Eyeballs multi-connect path requests `all: true`) -- this function
+ * answers either shape from the SAME validated list, never a fresh lookup.
+ *
+ * MUST be used with `undici`'s own exported `fetch`, never Node's global
+ * `fetch` -- verified live that the global `fetch` rejects a `dispatcher`
+ * built from a separately-installed `undici` package (an `instanceof`
+ * check against Node's own internal, non-importable undici copy fails).
+ */
+export function buildPinnedDispatcher(addresses: string[]): Dispatcher {
+  if (addresses.length === 0) {
+    throw new SsrfError('No validated address to connect to.');
+  }
+  const parsed = addresses.map((address) => {
+    const family = isIP(address);
+    if (family !== 4 && family !== 6) {
+      // Should be unreachable -- every address here already passed
+      // `assertSafeOutboundUrl`'s own `isIP` check. Fails closed rather
+      // than silently passing a malformed literal to `net`/`tls`.
+      throw new SsrfError('An internally-validated address was not a valid IP literal.');
+    }
+    return { address, family };
+  });
+
+  const lookup: LookupFunction = (_hostname, dnsOptions, callback) => {
+    if (dnsOptions && typeof dnsOptions === 'object' && dnsOptions.all) {
+      callback(null, parsed);
+    } else {
+      callback(null, parsed[0].address, parsed[0].family);
+    }
+  };
+
+  return new Agent({ connect: { lookup } });
 }
