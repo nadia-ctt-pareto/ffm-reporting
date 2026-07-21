@@ -19,16 +19,16 @@ const env = Object.fromEntries(
     .split('\n').filter((l) => l && !l.trimStart().startsWith('#') && l.includes('='))
     .map((l) => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }),
 );
-const URL = env.SUPABASE_URL;
+const baseUrl = env.SUPABASE_URL; // NOT `URL` -- that shadows the global URL constructor used above
 const SR = env.SUPABASE_SERVICE_ROLE_KEY;
-if (!URL) { console.error('SUPABASE_URL missing from .env.deploy'); process.exit(1); }
+if (!baseUrl) { console.error('SUPABASE_URL missing from .env.deploy'); process.exit(1); }
 if (!SR) { console.error('Add SUPABASE_SERVICE_ROLE_KEY to .env.deploy\n  (Supabase dashboard -> Settings -> API -> "service_role" secret -- the admin key, keep it out of git).'); process.exit(1); }
 
 const [email, password, ...flags] = process.argv.slice(2);
 if (!email || !password) { console.error('Usage: node scripts/create-user.mjs <email> <password> [--admin]'); process.exit(1); }
 const admin = flags.includes('--admin');
 
-const res = await fetch(`${URL}/auth/v1/admin/users`, {
+const res = await fetch(`${baseUrl}/auth/v1/admin/users`, {
   method: 'POST',
   headers: { apikey: SR, Authorization: `Bearer ${SR}`, 'Content-Type': 'application/json' },
   body: JSON.stringify({ email, password, email_confirm: true, app_metadata: admin ? { role: 'admin' } : {} }),
