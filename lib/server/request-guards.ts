@@ -114,17 +114,25 @@ export function assertBodySize(request: NextRequest): NextResponse | null {
  * first too -- a well-formed, already-oversized `Content-Length` lets a
  * handler reject without even starting a stream read).
  */
-export async function readJsonBody(request: NextRequest, maxBytes: number): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
-  const invalidJson = () => ({ ok: false as const, response: NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 }) });
+/**
+ * Phase 8b: the streaming/size-guarded read at the core of `readJsonBody`,
+ * hoisted out so `readTextBody` below (app/oauth/token/route.ts's
+ * `application/x-www-form-urlencoded` body -- OAuth token requests are
+ * NEVER JSON, verified against @modelcontextprotocol/sdk/client/auth.js's
+ * `executeTokenRequest`) can share the exact same SHOULD-FIX F protection
+ * without duplicating it. Not exported -- `readJsonBody`/`readTextBody`
+ * are the two public shapes callers should reach for.
+ */
+async function readRawBody(request: NextRequest, maxBytes: number): Promise<{ ok: true; text: string } | { ok: false; response: NextResponse }> {
   const tooLarge = () => ({ ok: false as const, response: NextResponse.json({ error: 'Request body too large.' }, { status: 413 }) });
+  const readFailure = () => ({ ok: false as const, response: NextResponse.json({ error: 'Failed to read the request body.' }, { status: 400 }) });
 
   if (!request.body) {
-    // No body stream at all (e.g. an empty POST) -- `request.json()` throws
-    // on that anyway, which is the standard "must be valid JSON" 400.
+    // No body stream at all (e.g. an empty POST).
     try {
-      return { ok: true, data: await request.json() };
+      return { ok: true, text: await request.text() };
     } catch {
-      return invalidJson();
+      return readFailure();
     }
   }
 
@@ -145,12 +153,31 @@ export async function readJsonBody(request: NextRequest, maxBytes: number): Prom
     }
     text += decoder.decode();
   } catch {
-    return invalidJson();
+    return readFailure();
   }
 
+  return { ok: true, text };
+}
+
+export async function readJsonBody(request: NextRequest, maxBytes: number): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
+  const invalidJson = () => ({ ok: false as const, response: NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 }) });
+
+  const raw = await readRawBody(request, maxBytes);
+  if (!raw.ok) return raw;
+
   try {
-    return { ok: true, data: JSON.parse(text) };
+    return { ok: true, data: JSON.parse(raw.text) };
   } catch {
     return invalidJson();
   }
+}
+
+/**
+ * Phase 8b: same streaming/size-guarded read as `readJsonBody`, but returns
+ * the raw text unparsed -- `app/oauth/token/route.ts`'s request body is
+ * `application/x-www-form-urlencoded`, not JSON; that caller parses the
+ * result via `new URLSearchParams(text)`.
+ */
+export async function readTextBody(request: NextRequest, maxBytes: number): Promise<{ ok: true; text: string } | { ok: false; response: NextResponse }> {
+  return readRawBody(request, maxBytes);
 }

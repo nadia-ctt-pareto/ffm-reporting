@@ -22,10 +22,14 @@ returning the real `updated_at` it wrote) at
 "Post-review hardening, round 2 (Phase 7b)" below — a Phase 8a delta
 (the MCP bearer-token verify/revoke RPCs) at
 `supabase/migrations/20260721000007_mcp_tokens.sql` — see "`verify_api_token`
-/ `revoke_api_token` (Phase 8a)" below — and a Phase 7c delta (the BYOK AI
+/ `revoke_api_token` (Phase 8a)" below — a Phase 7c delta (the BYOK AI
 key table + its ciphertext-read RPC) at
 `supabase/migrations/20260722000008_ai_keys.sql` — see "`ai_keys` (BYOK,
-Phase 7c)" below.
+Phase 7c)" below — a Phase 9 delta (the production signup-domain
+allowlist) at `supabase/migrations/20260723000009_production_signup_domains.sql`
+— and a Phase 8b delta (OAuth 2.1 + dynamic client registration for
+claude.ai) at `supabase/migrations/20260724000010_oauth.sql` — see "OAuth
+2.1 for claude.ai custom connectors (Phase 8b)" below.
 
 ## Discriminated union ↔ single table (Phase 4)
 
@@ -904,6 +908,348 @@ remove) and `app/api/ai/polish/route.ts` (POST — the actual polish call).
 Both gated on `isAiPolishConfigured()` (`lib/server/ai-crypto.ts`):
 `isSupabaseConfigured() && Boolean(process.env.AI_BYOK_ENCRYPTION_KEY)` —
 404 when false, mirroring `isMcpConfigured()`'s posture exactly.
+
+## OAuth 2.1 for claude.ai custom connectors (Phase 8b)
+
+`supabase/migrations/20260724000010_oauth.sql` layers OAuth 2.1 + RFC 7591
+Dynamic Client Registration on top of Phase 8a's MCP server so claude.ai's
+connector UI (which cannot send a static bearer header) can reach the same
+`/api/mcp` endpoint. **The layering invariant, confirmed live, not assumed:
+an OAuth-issued access token is JUST another `api_tokens` row, verified by
+the EXACT SAME `verify_api_token` RPC (Phase 8a, 20260721000007) a
+`POST /api/tokens`-minted bearer token goes through.** `verify_api_token`
+needed **zero changes** — it hashes whatever text it's given and looks up
+`token_hash`, indifferent to which of the two issuance paths produced the
+row. `lib/server/mcp-auth.ts`, `lib/server/mcp-tools.ts`, and
+`app/api/[transport]/route.ts` are **untouched** by this phase.
+
+### New tables
+
+```sql
+create table oauth_clients (
+  client_id text primary key,
+  client_name text,
+  redirect_uris text[] not null,        -- CHECK: every element must pass oauth_redirect_uris_allowlisted()
+  created_at timestamptz not null default now()
+);
+
+create table oauth_codes (
+  code_hash text primary key,           -- sha-256 hex; plaintext never stored
+  client_id text not null references oauth_clients (client_id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  redirect_uri text not null,
+  code_challenge text not null,         -- S256 only, system-wide
+  expires_at timestamptz not null,      -- 10-minute TTL
+  used_at timestamptz,                  -- stamped atomically on redemption -- NULL = still redeemable
+  created_at timestamptz not null default now()
+);
+```
+
+`oauth_clients`: one row per DCR'd claude.ai connector installation — a
+*client*, not a *user*. **Public clients only** — there is no
+`client_secret` column at all; every client authenticates via PKCE
+(`token_endpoint_auth_methods_supported: ["none"]`). RLS: `select` to
+`authenticated` only (the consent screen looks up a client's display
+name/redirect_uris); **no insert/update/delete policy for any role** —
+`oauth_register_client()` (below) is the only path that can create a row.
+
+`oauth_codes`: one row per issued authorization code. **RLS is enabled with
+ZERO policies** — default-deny for every command, every role, including
+`select`, except the functions' owner (verified live: a superuser-inserted
+probe row is invisible to both `anon` and `authenticated` via a plain
+`select count(*)`, even though the row genuinely exists). `code_challenge`
+is stored in the clear (a PUBLIC value from the original `/oauth/authorize`
+request — PKCE's whole point is that only `code_verifier`, sent for the
+first time at token-exchange, is secret); `code_hash` is what is actually
+secret, exactly like `api_tokens.token_hash`.
+
+**Redirect URI allowlist — THE primary control** against DCR being turned
+into a code-exfiltration channel: `public.oauth_redirect_uris_allowlisted
+(text[]) returns boolean` (plain SQL, `immutable`) is TRUE iff every
+element is `https://`, host exactly `claude.ai`/`claude.com` or a subdomain
+of either. It backs `oauth_clients`' own CHECK constraint AND is called
+again inside `oauth_register_client()` — a bug in either alone can't smuggle
+a bad redirect_uri in. **Three layers total**, counting `app/oauth/register
+/route.ts`'s own `lib/server/oauth.ts#isAllowedRedirectUri` (real WHATWG
+`URL` parsing — correctly rejects a userinfo-smuggled host like
+`https://claude.ai@evil.com/x`, whose `.hostname` resolves to `evil.com`,
+not `claude.ai`). Verified against attack strings live (see "Verification"
+below): `https://evilclaude.ai/x`, `https://claude.ai.evil.com/x`,
+`https://claude.ai@evil.com/x` all REJECTED; `https://claude.ai/x`,
+`https://console.claude.com/x` both accepted. **A plain SQL function, not
+inlined into the CHECK constraint directly** — Postgres does not allow a
+subquery (which iterating `unnest()` requires) inside a CHECK expression at
+all (`cannot use subquery in check constraint`); wrapping the same logic in
+a function call sidesteps that restriction.
+
+### `api_tokens` extension
+
+```sql
+alter table api_tokens
+  add column kind text not null default 'mcp' check (kind in ('mcp', 'oauth')),
+  add column oauth_client_id text references oauth_clients (client_id) on delete cascade,
+  add column refresh_token_hash text unique,
+  add column refresh_expires_at timestamptz;  -- see this migration for why independent from expires_at
+```
+
+`kind='mcp'` = a Phase 8a `POST /api/tokens` bearer token; `kind='oauth'` =
+issued by `oauth_exchange_code`/`oauth_refresh_token` below. `expires_at`
+(already existing, Phase 7a) is reused as the OAuth access token's own
+expiry (~30 days) — `verify_api_token` already checks it, unmodified.
+`refresh_expires_at` is a **necessary addition beyond the plan's literal
+column list** (not scope creep): an access token and its paired refresh
+token need genuinely independent expiries (~30d vs ~90d); reusing one
+column for both would either expire the refresh token early or let it
+outlive its stated budget. Landed while every row's value was still NULL —
+same "cheapest possible time to extend the schema" precedent as 7a's
+`expires_at`/`revoked_at` addition.
+
+**Column-privilege lockdown (surfaced while extending this table, not a
+regression introduced here — 7a never restricted `api_tokens`' INSERT
+columns at all, unlike its own `reports.share_token` precedent in the SAME
+migration; fixed here as a direct, narrowly-scoped consequence of adding
+four new sensitive columns)**: `authenticated`'s INSERT grant is now
+restricted to exactly `{id, user_id, token_hash, label}` — verified
+compatible with `app/api/tokens/route.ts`'s POST, which inserts precisely
+those four columns and nothing else. None of `kind`/`oauth_client_id`/
+`refresh_token_hash`/`refresh_expires_at` (nor `expires_at`/`revoked_at`/
+`last_used_at`, already server-only in practice) can ever be set via a
+direct client INSERT — every write to them goes through a `SECURITY
+DEFINER` function. The existing column-restricted SELECT grant (7a) was
+widened to also expose `kind`/`oauth_client_id`/`refresh_expires_at` (all
+non-secret) — `refresh_token_hash` is deliberately EXCLUDED, same
+rationale as `token_hash` itself.
+
+### The four new functions
+
+All four follow `enable_report_share`/`verify_api_token`'s exact posture
+(`security definer`, `set search_path = ''`, schema-qualified names,
+hand-written checks, generate-secret-in-SQL-return-once, `revoke ... from
+public, anon, authenticated` then a narrow, explicit `grant`).
+
+| Function | Reachable by | Rationale |
+|---|---|---|
+| `oauth_redirect_uris_allowlisted(text[])` | nobody (not `security definer`; revoked from all client roles anyway, for hygiene) | Pure predicate, shared by the CHECK constraint and `oauth_register_client()` — no legitimate direct caller. |
+| `oauth_register_client(text, text[])` | `anon` only | RFC 7591 DCR is unauthenticated by protocol — there is no session to be "authenticated" as. |
+| `oauth_create_authorization_code(text, text, text)` | `authenticated` only | Called from the consent screen's Approve action — `(select auth.uid())` is the consenting user, never a parameter. |
+| `oauth_exchange_code(text, text, text, text)` | `anon` only | Token exchange is a direct client-to-server call, never via browser redirect — the code + PKCE verifier together ARE the proof of identity. |
+| `oauth_refresh_token(text, text)` | `anon` only | Same rationale — the refresh token itself is the proof of identity. |
+
+**`oauth_register_client`**: re-validates the redirect_uri allowlist itself
+(second of three layers — see above) before generating a fresh
+`client_<uuid>` id. **Capped at 500 total rows** (post-review should-fix —
+see "DCR is anon-callable and unbounded" below) — rejects new registrations
+once the table holds 500 clients, regardless of caller.
+
+**`oauth_create_authorization_code`**: re-validates client_id/redirect_uri
+pairing AGAINST THE SPECIFIC CLIENT (not just "some allowlisted domain") —
+verified live: client A requesting a code for client B's registered
+redirect_uri is rejected, even though that redirect_uri passes the global
+allowlist. Generates a 32-random-byte, base64url code, hex-hashes it for
+storage (mirrors `api_tokens.token_hash`), 10-minute TTL.
+
+**`oauth_exchange_code`**: the security core. Atomically consumes the code
+(TOCTOU-safe `UPDATE ... RETURNING`, identical idiom to `verify_api_token`),
+then checks `client_id` match, `redirect_uri` match, and PKCE S256
+(`base64url(sha256(code_verifier)) = code_challenge`, hand-rolled in SQL —
+`encode(..., 'base64')` + a `translate`/`rtrim` alphabet-swap, byte-for-byte
+equivalent to `lib/server/mcp-auth.ts`'s `base64url()`). Every failure
+raises the literal message `'invalid_grant'`, chosen deliberately —
+`app/oauth/token/route.ts` maps it straight through as the OAuth `error`
+field verbatim (it already IS the correct RFC 6749 code for "bad code",
+"expired", "wrong client", "wrong redirect_uri", AND "PKCE mismatch" alike
+— an oracle distinguishing these would let an attacker learn which guess
+was closest). **Important, verified live, not just reasoned about: a
+REJECTED exchange does not burn the code** — every `raise exception` below
+the atomic consume aborts the WHOLE transaction (one RPC call = one
+transaction), rolling back the `used_at` stamp along with everything else.
+A wrong client_id/redirect_uri/PKCE guess costs an attacker nothing in
+extra leverage (guessing a 256-bit `code_verifier` is infeasible
+regardless) but also can never deny the legitimate holder their code —
+confirmed by inspecting `oauth_codes.used_at` directly after a rejected
+cross-client attempt (still NULL), then successfully redeeming the SAME
+code afterward with the correct client. On success: mints a fresh
+`api_tokens` row (`kind='oauth'`) via the SAME generate-in-SQL-hash-
+return-once pattern as `enable_report_share`, plus a rotating hashed
+refresh token; the row's `label` is set from the client's own registered
+`client_name` (falling back to "Claude.ai connector") so it reads
+sensibly in the existing Settings token list.
+
+**`oauth_refresh_token`**: rotates IN PLACE — a single atomic `UPDATE`
+whose `WHERE` clause encodes the ENTIRE validity check (`kind='oauth'`,
+`oauth_client_id` match, `refresh_token_hash` match, not revoked, not
+refresh-expired) and, on match, overwrites both the access-token hash and
+the refresh-token hash on the SAME row. The OLD refresh token stops
+matching anything the instant this succeeds — replaying it fails
+identically to an unknown token (`invalid_grant`) — verified live. The
+prior access token is also invalidated by this (its hash was just
+overwritten), which is intentional: once refreshed, the old access/refresh
+pair is fully superseded.
+
+### Verification performed (local Supabase, live)
+
+- **SQL-level**: full register → authorize → exchange → verify_api_token
+  round-trip with a REAL PKCE S256 verifier/challenge pair (computed via
+  `openssl dgst -sha256`); code replay rejected; cross-client exchange
+  rejected; PKCE mismatch rejected; refresh rotation + old-refresh-replay
+  rejection; DCR evil `redirect_uri` rejected; authorize-time
+  redirect_uri-not-registered-to-this-client rejected; unauthenticated code
+  creation rejected.
+- **HTTP-level, via a real Chrome browser (Playwright) + the actual
+  `/login` form**: unauthenticated `GET /oauth/authorize` → redirected to
+  `/login?next=...` with the FULL original query string preserved (the
+  `middleware.ts` fix this phase required); real password login; correct
+  landing back on the consent screen (client name + user email rendered
+  correctly); Approve → real redirect to the registered `https://claude
+  .ai/...` callback with `code` + `state`; token exchange via
+  `application/x-www-form-urlencoded` (matching
+  `@modelcontextprotocol/sdk/client/auth.js` exactly) succeeded; Deny →
+  redirect with `error=access_denied`; the issued token used against a REAL
+  `/api/mcp` tool call (`list_reports`, `create_report`) through the
+  UNTOUCHED `withMcpAuth`/`verifyMcpAuth` bridge — `create_report` wrote a
+  row whose `owner_id` is the consenting user's uuid (never NULL);
+  attempting `update_report` on a DIFFERENT user's report with the same
+  token was rejected ("You don't have permission to do that.") and that
+  row was verified byte-unchanged in the database afterward; `get_report`
+  on that same foreign report succeeded (org-wide read policy, by design).
+- **Grants**: every new `SECURITY DEFINER` function's `pg_proc.proacl`
+  checked directly (not just the `revoke` statement's intent) — see the
+  table above.
+- **Regression**: the pre-existing Phase 8a bearer-token path (`POST
+  /api/tokens` → `/api/mcp` `initialize`) and the web dashboard both still
+  work unmodified.
+- **Not driven locally** (needs the deployed HTTPS origin): a real
+  claude.ai custom-connector handshake end-to-end. Everything up to that
+  point (DCR, PKCE, consent, token issuance, the MCP bridge) was verified
+  using the exact request shapes `@modelcontextprotocol/sdk`'s own client
+  code sends.
+
+### Issuer/origin: `APP_ORIGIN` pins it (post-review BLOCKER fix)
+
+**Corrected finding, not the original design**: this section used to say
+Phase 8b needed no new env var, deriving every OAuth endpoint's issuer/
+resource origin per-request from `mcp-handler`'s `getPublicOrigin()`
+(`X-Forwarded-Host`/`X-Forwarded-Proto`, falling back to `Forwarded`, then
+the request's own URL). That trusts a forwarded-host header
+UNCONDITIONALLY — combined with the two `.well-known` metadata responses
+being cacheable (`Cache-Control: max-age=3600`), this is a host-header
+**cache-poisoning** primitive: a request with a spoofed
+`X-Forwarded-Host: evil.com` could make `/.well-known/oauth-authorization-server`
+advertise `token_endpoint: https://evil.com/oauth/token` (and
+`/.well-known/oauth-protected-resource` advertise a matching
+`authorization_servers` entry) — if that response were ever cached and
+served to another client, claude.ai would send a VICTIM's real
+authorization code + PKCE verifier straight to the attacker's server. Full
+account takeover, not a theoretical concern.
+
+**Fix, both layers, belt-and-suspenders:**
+1. **`APP_ORIGIN`** (server-only env var, see `.env.example`) — when set,
+   `lib/server/oauth.ts`'s `getIssuerOrigin()` uses it VERBATIM for
+   `issuer`/`authorization_endpoint`/`token_endpoint`/`registration_endpoint`/
+   `authServerUrls`/`resourceUrl`, ignoring the request's forwarded-host
+   headers entirely. Falls back to `getPublicOrigin(request)` only when
+   `APP_ORIGIN` is unset — i.e. local dev, where there's no untrusted
+   reverse proxy between the developer and `next dev`. **Required in
+   production** — verified live: with `APP_ORIGIN` set, both `.well-known`
+   routes return the pinned origin regardless of a spoofed
+   `X-Forwarded-Host: evil.com` request header; with it unset, the request
+   header IS reflected (the local-dev fallback, working as designed).
+2. **`Cache-Control: no-store`** on both `.well-known` routes (was
+   `max-age=3600`) — removes the caching half of the exploit entirely, even
+   as defense in depth on top of the pinned origin.
+
+**The `WWW-Authenticate` residual (documented, not fixed — would require
+touching the untouchable bridge file)**: `app/api/[transport]/route.ts`
+(confirmed byte-unchanged this phase) calls `withMcpAuth(handler,
+verifyMcpAuth, { required: true })` without a `resourceUrl` option, so
+mcp-handler's own 401 handler still derives its `WWW-Authenticate:
+resource_metadata="..."` URL from `getPublicOrigin(req)` — the SAME
+host-trusting default `.well-known/oauth-protected-resource` used to have.
+Pinning this would mean passing `{ resourceUrl: APP_ORIGIN }` into that
+`withMcpAuth(...)` call, which this phase's scope explicitly forbids
+touching (the whole security model depends on that file staying
+byte-identical to Phase 8a's reviewed version) — flagged here rather than
+edited. Practical impact is bounded, verified from `mcp-handler`'s own
+compiled source: that 401 response carries **no `Cache-Control` header at
+all** (not even implicitly cacheable), so a spoofed forwarded-host header
+here only affects the response to THAT SAME spoofed request — there is no
+caching layer to poison and serve to other users the way the (now-fixed)
+`.well-known` routes' `max-age=3600` responses could have. This is a
+known, narrow limitation of the vendor library's default behavior, not an
+open exploit path in this app's current deployment shape; worth a
+follow-up if mcp-handler ever adds a way to pin it without a full
+`withMcpAuth` rewrite.
+
+`SUPABASE_JWT_SECRET` (already documented above) remains a prerequisite —
+every Phase 8b endpoint 404s under the same `isMcpConfigured()` gate as
+`/api/mcp` itself; `APP_ORIGIN`'s absence does NOT 404 anything (it's a
+silent fallback), so double-check it's actually set before a production
+deploy.
+
+### DCR is anon-callable and unbounded — a cap + pruning path (post-review should-fix)
+
+`oauth_register_client` has no auth, no rate limit, and (before this fix)
+no cap — an attacker looping `POST /oauth/register` with valid
+`claude.ai/*` redirect_uris could otherwise grow `oauth_clients` without
+limit (storage/table-bloat DoS). Proportionate for a 2–10-user internal
+tool: a **hard cap of 500 total rows**, enforced inside
+`oauth_register_client` itself (`select count(*) from oauth_clients >=
+500` → reject) — verified live (500 rows inserted, the 501st registration
+attempt rejected with a clear message). The cap is deliberately a simple
+total, not a time-windowed rate limit — simplest durable option, and it
+keeps the `count(*)` check itself cheap forever (the table can never grow
+past the number being counted). A cleanup **index** on
+`oauth_clients.created_at` plus a documented **pruning query** (in that
+table's own SQL comment) support periodically removing clients that never
+completed a flow: `delete from oauth_clients where created_at < now() -
+interval '90 days' and not exists (select 1 from api_tokens where
+oauth_client_id = client_id) and not exists (select 1 from oauth_codes
+where client_id = oauth_clients.client_id)` — safe because of the `on
+delete cascade` FKs from both tables, so it only ever removes a client with
+zero issued tokens and zero pending codes. A full scheduled reaper job is
+out of scope for this phase; the index + query make one easy to add later.
+
+### The two redirect-URI predicates now agree exactly (post-review should-fix)
+
+`lib/server/oauth.ts`'s `isAllowedRedirectUri` (real `URL` parsing) used to
+be LOOSER than `oauth_redirect_uris_allowlisted` (the SQL regex, which has
+no port-matching group and so rejects any `:port` outright) — a redirect_uri
+with a port or userinfo could pass the app-layer pre-check and then fail at
+the SQL layer with a generic `invalid_client_metadata` "Registration
+failed." instead of the specific `invalid_redirect_uri` the route means to
+return. Not a security hole (the SQL layer was always the stricter, winning
+predicate), but the code claims these are the same check — now they
+actually are: `isAllowedRedirectUri` also rejects a non-empty `port` and
+any `username`/`password` (userinfo). claude.ai's real callback URLs use
+neither, so this is purely an error-clarity fix.
+
+### Consent screen shows the redirect destination (post-review should-fix, anti-phishing)
+
+`components/oauth/AuthorizeScreen.tsx` used to name only the DCR-registered
+`client_name` — a value the registering party fully controls and could set
+to anything ("Official Claude Reports Sync", say). The consent card now
+also shows the `redirect_uri`'s host ("Approving will send an access code
+to `claude.ai`") — a value that WAS independently verified (at both
+registration and authorize time) against the claude.ai/claude.com
+allowlist, so a deceptive `client_name` at least gets a real counter-signal
+next to it. `client_name` was already React-escaped (JSX text interpolation,
+never `dangerouslySetInnerHTML`) — no XSS concern there either way.
+
+### Discovery, not integration: GoTrue's own `auth.oauth_*` tables
+
+The local Supabase stack's GoTrue version (2.185.0) ships its OWN native
+OAuth-Authorization-Server schema (`auth.oauth_clients`,
+`auth.oauth_authorizations`, `auth.oauth_consents`,
+`auth.oauth_client_states`) — a *different* feature, in the `auth` schema,
+unrelated to and unused by this phase. This app's `public.oauth_clients`/
+`public.oauth_codes` (this migration) coexist with zero collision or
+interaction (different schema, different owner, never referenced by
+either). Integrating with GoTrue's native OAuth AS instead was considered
+and rejected for this phase: its issued tokens are ordinary GoTrue
+sessions/JWTs, not `api_tokens` rows, so wiring it in would require
+changing (or bypassing) `verify_api_token`/`mcp-auth.ts` — directly against
+this phase's explicit "the bridge is untouched" invariant. Worth a look in
+a future phase; out of scope here.
 
 ## Cutover checklist
 

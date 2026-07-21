@@ -55,7 +55,38 @@ import { isSupabaseConfigured } from './lib/supabase/config';
 // `/api/mcp` is the one deliberate, narrow exception, matched by exact
 // pathname (not a prefix) so it can never accidentally cover a future
 // sibling route under `/api/` that DOES need the cookie check.
-const PUBLIC_EXACT_OR_PREFIX = [/^\/login$/, /^\/auth\//, /^\/sw\.js$/, /^\/api\/mcp$/];
+//
+// Phase 8b: OAuth issuance/discovery endpoints join `/api/mcp` here, for
+// the identical reason -- each has its OWN auth model, never a session
+// cookie:
+//   - `/.well-known/oauth-protected-resource` / `/.well-known/oauth-
+//     authorization-server` -- RFC 9728/8414 metadata, read by an MCP
+//     client BEFORE it has any token at all (app/.well-known/*/route.ts).
+//   - `/oauth/register` -- RFC 7591 DCR, called by claude.ai's own
+//     infrastructure before any user is ever asked to sign in
+//     (app/oauth/register/route.ts).
+//   - `/oauth/token` -- the token endpoint, called directly
+//     client-to-server (never via browser redirect), with an authorization
+//     code + PKCE verifier, or a refresh token, as its own proof of
+//     identity -- exactly like /api/mcp's bearer token.
+// `/oauth/authorize` (+ its `/decision` sub-route) is DELIBERATELY ABSENT
+// from this list -- its whole point is staying BEHIND this middleware's
+// auth wall, so an unauthenticated hit bounces to `/login?next=...` and
+// back (see app/oauth/authorize/page.tsx's header comment: "sign in with
+// your existing account to authorize" falls out of the existing login flow
+// for free). Do NOT widen this to a blanket `/^\/oauth\//` prefix -- that
+// would silently un-protect the one route in this whole set that MUST
+// require a session.
+const PUBLIC_EXACT_OR_PREFIX = [
+  /^\/login$/,
+  /^\/auth\//,
+  /^\/sw\.js$/,
+  /^\/api\/mcp$/,
+  /^\/\.well-known\/oauth-protected-resource$/,
+  /^\/\.well-known\/oauth-authorization-server$/,
+  /^\/oauth\/register$/,
+  /^\/oauth\/token$/,
+];
 const PUBLIC_PRESENT = [/^\/reports\/[^/]+\/present$/, /^\/daily\/[^/]+\/present$/];
 
 function isPublicPath(pathname: string): boolean {
@@ -107,7 +138,14 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
     }
     const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('next', pathname);
+    // Phase 8b: carries the FULL path + query string through `next`, not
+    // just `pathname` -- app/oauth/authorize/page.tsx needs its
+    // client_id/redirect_uri/code_challenge/state query params to survive
+    // the login round-trip (see that file's header comment). A no-op for
+    // every route that previously relied on `pathname` alone -- none of
+    // them carried a query string in the first place (`pathname + ''` ===
+    // `pathname`).
+    loginUrl.searchParams.set('next', pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 

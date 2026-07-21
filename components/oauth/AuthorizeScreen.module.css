@@ -1,0 +1,86 @@
+/* Bare, brand-styled auth screen -- same centered-card-on-full-viewport
+   idiom as components/auth/LoginScreen.module.css (outside the (shell)
+   route group -- see app/oauth/authorize/page.tsx). No sidebar applies
+   here. */
+
+.wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 64px 24px;
+  background: var(--surface-page);
+}
+
+.mark {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 24px;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-weight: var(--weight-light);
+  font-size: 32px;
+  color: var(--text-heading);
+  margin: 0 0 12px;
+}
+
+.copy {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: var(--leading-body);
+  color: var(--text-muted);
+  max-width: 420px;
+  margin: 0 0 32px;
+}
+
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  padding: 32px;
+  text-align: left;
+}
+
+.destination {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: var(--leading-body);
+  color: var(--text-muted);
+  margin: 0 0 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.scopeList {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: var(--leading-body);
+  color: var(--text-body);
+  margin: 0 0 24px;
+  padding-left: 20px;
+}
+
+.scopeList li {
+  margin-bottom: 8px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.buttonRow {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
