@@ -910,27 +910,65 @@ and Claude-via-MCP can never drift into two different voices.
 **Dependencies**: `@modelcontextprotocol/sdk@1.26.0` + `mcp-handler@1.1.0` (no hand-rolled MCP, mirroring
 the hand-rolled CSV parser's dependency-light ethos elsewhere).
 
-## BYOK AI field polish (Phase 7c)
+## BYOK AI field polish (Phase 7c; multi-provider generalization Phase 8a)
 
 A "Polish" button on prose fields in the wizard — re-write under Foundation First's house voice via BYOK
-Anthropic key, server-proxied and encrypted at rest.
+key, server-proxied and encrypted at rest. Originally Anthropic-only (Phase 7c); generalized to any provider
+(Phase 8a) so users can bring their own key to Anthropic's native API, OpenAI's Chat Completions API, or
+any OpenAI-compatible endpoint (OpenRouter, Groq, Together, DeepSeek, Mistral, local models, etc.).
+
+**Provider modes** (`lib/server/ai-polish.ts`):
+- **`anthropic`** — native Anthropic Messages API (`POST https://api.anthropic.com/v1/messages`, `x-api-key`
+  header), the original Phase 7c behavior. Base URL is hardcoded, never user-controlled.
+- **`openai_compatible`** — OpenAI Chat Completions shape (`POST {base_url}/chat/completions`, `Authorization:
+  Bearer` header), covering OpenRouter/OpenAI/Groq/Together/DeepSeek/Mistral and most hosted LLM providers.
+  User supplies both `base_url` and `model` (required; enforced by SQL CHECK constraint and schema validation).
 
 **Key storage** (`lib/server/ai-crypto.ts` + `lib/server/ai-keys.ts`):
 - **Never reaches the browser**: Stored per-user in `ai_keys` table, AES-256-GCM-encrypted under server-only
   `AI_BYOK_ENCRYPTION_KEY` (32 raw bytes, base64-encoded, generated with `openssl rand -base64 32`).
   Plaintext lives ONLY inside `polishField`'s call frame — read once from the encrypted RPC result,
-  used for one fetch to Anthropic, never assigned anywhere else, never logged.
+  used for one fetch to the provider, never assigned anywhere else, never logged.
 - **Owner-only RLS, no admin branch**: `ai_keys` table RLS is stricter than every other table — deliberately
   no `is_admin()` on any verb. An admin can manage reports but must never read another user's key, even
   as ciphertext (which would be useless without the server-only encryption key anyway).
 - **Read RPC** (`get_own_ai_key_ciphertext`): SECURITY DEFINER, `auth.uid()`-scoped (no id param), stamps
   `last_used_at` atomically with the read.
-- **Write RPC** (`set_own_ai_key`): SECURITY DEFINER, validates the key against Anthropic BEFORE
-  encrypting/storing (invalid key never persists), stamps `validated_at` with server `now()` (client
-  clock never trusted). Uses a second function because `ON CONFLICT DO UPDATE SET col = EXCLUDED.col`
-  requires SELECT on the column — `authenticated` has no SELECT on `key_ciphertext`, so authenticated-role
-  upsert is impossible; the DEFINER function bypasses this (verified live as a load-bearing gotcha).
+- **Write RPC** (`set_own_ai_key`): Extended signature — `set_own_ai_key(p_key_ciphertext text, p_key_hint
+  text, p_provider text default 'anthropic', p_base_url text default null, p_model text default null)`.
+  SECURITY DEFINER, validates the key (and base_url/model for `openai_compatible`) against the REAL provider
+  BEFORE encrypting/storing (invalid key/endpoint never persists), stamps `validated_at` with server `now()`
+  (client clock never trusted). `provider`/`base_url`/`model` are now set atomically alongside the encrypted
+  key. The 2-arg overload was explicitly dropped to avoid signature collision.
 - **Decrypt failure degrades gracefully**: "re-enter your key" marker, never a 500 or crash.
+
+**SSRF hardening** (`lib/server/ssrf.ts`, applies only to `openai_compatible` mode):
+- The `openai_compatible` provider's `base_url` is USER-CONTROLLED and the server makes an outbound fetch to
+  it — a critical attack surface. `assertSafeOutboundUrl` gates EVERY fetch (both at save-validation time and
+  on every polish call, defense-in-depth).
+- **https-only**: Rejects `http://` and every other scheme. Enforced at both schema layer (`SetAiKeyInputSchema`)
+  and as the unconditional gate.
+- **Known metadata hosts**: Blocks `localhost`/`*.localhost` and cloud-metadata hostnames (`169.254.169.254`,
+  `metadata.google.internal`) by name, before any DNS resolution.
+- **Private/reserved ranges**: Rejects any IP-literal host or DNS-resolved address falling in:
+  - IPv4: `10/8`, `172.16/12`, `192.168/16`, `127/8` (loopback), `169.254/16` (link-local), `0.0.0.0/8`,
+    `100.64/10` (CGNAT).
+  - IPv6: `::1` (loopback), `::` (unspecified), `fc00::/7` (ULA), `fe80::/10` (link-local), plus all four
+    standard embedded-IPv4 forms: IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible (`::a.b.c.d`, deprecated),
+    NAT64 (`64:ff9b::a.b.c.d`, RFC 6052 — a real escalation on NAT64-only runtimes), and 6to4
+    (`2002:WWXX:YYZZ::`, RFC 3056, embedded address at bits 16-47). Each embedded form is unwrapped and
+    re-checked against the same IPv4 ranges.
+- **No redirects**: `redirect: 'error'` on every fetch — a provider cannot 3xx this server into an internal
+  address after validation passes.
+- **DNS-rebinding closure** (SEC-3): validates the addresses, then PINS them into the connection via an `undici`
+  `Agent` dispatcher (no second DNS lookup happens at connect time). The validated IPs are returned and fed to
+  `buildPinnedDispatcher`, closing the TOCTOU window a naive resolve-then-fetch would leave open. Verified live:
+  pinning to the validated address succeeds with normal TLS handshake; pinning to a wrong address times out,
+  proving the override takes effect. Uses `undici`'s own exported `fetch`, not Node's global one (identity
+  mismatch prevents the global `fetch` from accepting an undici dispatcher).
+- **Validation rate-limited**: Both the save-validation call and every polish call run through the same per-user
+  rate limiter, preventing external-reachability oracles (distinct error markers + latency leaks for which hosts
+  are reachable).
 
 **Per-field registry** (`lib/prompts.ts`, `POLISH_FIELDS` + `HOUSE_VOICE`):
 - 7 polishable fields: summary (executive overview), win narrative (story behind the stat), touchpoints
@@ -957,20 +995,27 @@ Anthropic key, server-proxied and encrypted at rest.
   buttons render. Otherwise, `/api/ai/*` return 404, Settings shows a muted note, demo mode unchanged.
 
 **Polish server** (`lib/server/ai-polish.ts`, model: `claude-sonnet-5`):
-- `polishField`: rate-limit check → decrypt key → build system/user prompts → call Anthropic →
-  extract/clean result. Per-user in-memory rate limiter (10 requests per minute, 2 concurrent max —
-  honest caveat: per-Node-process, so multi-instance serverless exceeds limits easily; Redis/Upstash
-  upgrade is the documented path, not built here).
-- Anthropic response body never logged (can echo back a bad key's last chars). Key never logged. Crypto
-  errors carry no key material. Invalid keys validated against Anthropic before storage. Anthropic errors
-  mapped to marker tokens (`anthropic_invalid_key`, `anthropic_rate_limited`, `anthropic_unavailable`,
-  `anthropic_timeout`, `ai_key_unreadable`), then curated by `curatedMessage` in
-  `lib/server/reports-service.ts`.
+- `polishField`: rate-limit check → decrypt key → resolve provider (server-side only) → build system/user
+  prompts (same for both providers) → call provider (Anthropic or openai_compatible) → extract/clean result.
+  Per-user in-memory rate limiter (10 requests per minute, 2 concurrent max — honest caveat: per-Node-process,
+  so multi-instance serverless exceeds limits easily; Redis/Upstash upgrade is the documented path, not built here).
+- Response body never logged (can echo back a bad key's last chars). Key never logged. Crypto errors carry no key
+  material. Invalid keys validated against the provider before storage. Provider errors mapped to marker tokens
+  (`anthropic_invalid_key`/`anthropic_rate_limited`/`anthropic_unavailable`/`anthropic_timeout` for Anthropic;
+  `openai_invalid_key`/`openai_bad_endpoint`/`openai_rate_limited`/`openai_unavailable`/`openai_timeout` for
+  openai_compatible; `local_rate_limited` for this server's own rate limiter; `ai_key_unreadable` shared),
+  then curated by `curatedMessage` in `lib/server/reports-service.ts`.
+
+**Settings** (`components/settings/AiKeySection.tsx`, in Settings' "Claude & AI" tab):
+- Provider picker (Anthropic / OpenAI-compatible) determines which validation/polish provider is used.
+- Base URL and Model fields appear/required only for `openai_compatible` mode.
+- Configured-state display shows provider, model (if set), and masked key hint (never plaintext).
+- Key upload validated against the selected provider before storage. Invalid key/endpoint rejected.
 
 **Routes** (`app/api/ai/key/route.ts`, `app/api/ai/polish/route.ts`): gated on `isAiPolishConfigured()`.
-GET `/api/ai/key` returns `{ configured, hint, validatedAt, lastUsedAt }` (never plaintext). PUT
-`/api/ai/key` stores a new plaintext key (validated against Anthropic first). POST `/api/ai/polish`
-takes a `PolishRequest`, returns `{ polished: string }`.
+GET `/api/ai/key` returns `{ configured, hint, validatedAt, lastUsedAt, provider, model }` (never plaintext).
+PUT `/api/ai/key` stores a new plaintext key (validated against the provider first) and provider/base_url/model.
+POST `/api/ai/polish` takes a `PolishRequest`, returns `{ polished: string }`.
 
 ## Project (client) management (Phase 8c)
 
