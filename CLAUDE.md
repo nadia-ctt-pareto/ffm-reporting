@@ -27,27 +27,27 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (MVP):** everything local. Data in `localStorage`
-  (`ff.reports.v2`, projects in `ff.projects.v1`), seeded with 7 weekly + 5 daily reports.
-  Share links resolve to an interactive branded HTML slide-deck route
-  (`/reports/[id]/present` or `/daily/[id]/present`) with keyboard nav,
-  touch swipe, deep links, and fullscreen; "PDF export" is the real browser
-  print flow against that same route (no server-side rendering dependency).
-  Task (List/Kanban) and Calendar (Week/Month) views (Phase 3) derive from
-  `Report[]` (weeklies only -- no new storage; Phase 4's dailies are not yet
-  surfaced there, see "Daily reports & the weekly import (Phase 4)" below).
-  Phase 4 added daily reports (`/daily/*`) and the weekly wizard's "Import
-  This Week's Daily Reports" roll-up. Phase 5 added Settings (`/settings`)
-  with a system-theme option, a prompt library, and CSV import templates;
-  report screen is now the working document (no PDF filmstrip); present
-  route is the shared interactive artifact. Phase 6 refactored the type
-  system to Zod (6a), added the Project entity and per-project daily buckets
-  (6a), built CSV import (6b), and added report consolidation (6b) — surface
-  dailies in the Calendar and Task view are deferred.
-- **Later (Phase 7):** Supabase Auth (magic link) + per-user ownership.
-- **Eventually (Phase 8):** remote MCP server + Claude Skill (locked tool
-  names already documented in `lib/prompts.ts`).
-- **Deployment (Phase 9):** Vercel deploy.
+- **Now (Phase 7 complete):** Full stack with optional Supabase backend. **Demo mode** (no
+  `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in
+  `ff.projects.v1`), seeded with 7 weekly + 5 daily reports. **Supabase mode** (env set)
+  uses Postgres + HTTP repository with Auth (magic-link sign-in), per-user ownership, RLS,
+  and **cross-machine share links** via per-report public tokens. Share links resolve to an
+  interactive branded HTML slide-deck route (`/reports/[id]/present` or `/daily/[id]/present`,
+  outside the shell) with keyboard nav, touch swipe, deep links, fullscreen, and token-based
+  anon access; "PDF export" is real browser print-to-PDF (exact 6 pages in Chromium, letterboxed
+  in Firefox/Safari). Task (List/Kanban) and Calendar (Week/Month) views (Phase 3) derive from
+  `Report[]` (weeklies only; dailies in these views are a documented Phase 4 follow-up). Phase 4
+  added daily reports (`/daily/*`) and the weekly wizard's "Import This Week's Daily Reports"
+  roll-up. Phase 5 added Settings (`/settings`) with theme picker (Light/Dark/System),
+  prompt library, CSV import templates; report screen is now the working document. Phase 6
+  refactored the type system to Zod (6a), added the Project entity (6a), built CSV import
+  (6b), and added report consolidation (6b). Phase 7a added the Supabase schema + Auth layer.
+  Phase 7b connected the UI → Postgres (M1 server plane, M2 cutover, M3 cross-machine sharing,
+  M4 local import) with two rounds of adversarial hardening.
+- **Later (Phase 8):** remote MCP server + Claude Skill (locked tool names already documented in
+  `lib/prompts.ts`; Phase 8's `update_report` will use `expectedUpdatedAt` CAS for optimistic
+  concurrency).
+- **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
 ## Routing
@@ -538,6 +538,122 @@ mode-specific panel wrapper anymore (`rootStyle`, `filterBarStyle`,
 `lightPanelStyle`, `panelStyle` were all deleted along with the `darkMode`
 prop on every component that only used it for that branching).
 
+## Data plane (Phase 7b)
+
+The entire UI was ported from `localStorage` to a Supabase/Postgres backend
+behind the existing `ReportsRepository` interface — zero UI changes. **Demo
+mode** (no `NEXT_PUBLIC_SUPABASE_URL` env) still uses localStorage as a
+fallback; **Supabase mode** (env configured) uses a new `HttpReportsRepository`
+and the Postgres schema versioned in Phase 7a.
+
+**Server layer** (`lib/server/`): `reports-service.ts` is the data-access
+layer every route handler and Phase 8's eventual MCP tools call into. Every
+exported function takes the Supabase client it must run AS — the module
+**never constructs a client itself and must never be handed a service-role
+client**. Its correctness assumes RLS (see Phase 7a's
+`supabase/migrations/20260719000004_auth_ownership.sql`) is what enforces
+access; a service-role client would silently bypass RLS, turning every
+function below into an unscoped admin operation. Route handlers pass the
+cookie-bound client from `createServerSupabase()` (Phase 7a, `lib/supabase/server.ts`);
+Phase 8's MCP tools will pass an api-token-derived, user-scoped client —
+same contract, same functions, no service-role key anywhere in this layer.
+
+**Error curation and HTTP contract**:
+- `ServiceError` (code + message) is the only exception type this layer throws.
+  `mapPgError` routes unexpected Postgres errors → `ServiceError('internal')` →
+  HTTP 500 (not 400) — an unrecognized DB error is the server's fault, not a
+  malformed request.
+- `curatedMessage` translates every `ServiceError.message` (raw Postgres text)
+  into user-facing English, exactly once, per error in `route-helpers.ts`. A
+  `'conflict'` error pattern-matches the raw text (e.g.
+  `reports_one_daily_per_day` constraint name) to distinguish "date already exists"
+  from "changed by someone else" — double-curation would flip the message if
+  `curatedMessage` was called twice.
+- Middleware: unauthenticated `/api/*` returns 401 JSON, not a 307 redirect.
+  CSRF guard: Sec-Fetch-Site allowlist + JSON content-type check. Streamed
+  body-size limit. Demo-mode misconfiguration guard + banner.
+
+**Timestamp normalization** (`lib/server/db-mapping.ts`): Postgres `timestamptz`
+columns return as `"2026-07-13T00:00:00+00:00"` strings. Every read path
+normalizes them to ISO date strings (first 10 chars: `"2026-07-13"`) so the
+rest of the app sees the same format it did in localStorage mode. No
+`new Date()` or timezone math anywhere — dates are ISO strings, compared via
+`localeCompare`. This normalization is the single read-side truth, not scattered
+across multiple consumers.
+
+**Transport schemas** (`lib/schema/api.ts`): separate from domain schemas, kept
+out of the schema barrel. `*InputSchema` variants have `.max()` caps on every
+text/numeric field, matching SQL CHECK constraints added in Phase 7b's
+hardening migrations. A cap on the READ schema (e.g., `ReportCoreSchema`) was
+initially tried and caused a catastrophic DoS: one over-length row in Postgres
+would 500 every user's report list (not just the writer's) — the read schema
+must stay satisfiable by any valid DB row by construction.
+
+**Route handlers pattern** (`app/api/reports/*`, `app/api/projects/*`):
+(1) config guard (is Supabase configured?), (2) auth check (am I signed in?),
+(3) Zod validate request body, (4) call service function, (5) `handleServiceError`
+routes the result to curated HTTP response. No service-layer error propagates
+raw to the client — every error text is curated exactly once before send.
+
+**Repository factory** (`lib/data/index.ts`, `getReportsRepository()`): returns
+`HttpReportsRepository` if `NEXT_PUBLIC_SUPABASE_URL` is set, else falls back to
+`LocalStorageReportsRepository`. UI code sees no distinction — both implement
+the same `ReportsRepository` interface. Migration to Supabase is a single-point
+flip.
+
+**HTTP repository** (`lib/data/http-reports-repository.ts`): wraps every
+read/write into a fetch call. Writes serialize through one queue — rapid
+drag-drop-drag on the Kanban board could trigger multiple concurrent
+`updateReportFields` calls, each doing read-merge-write. Without the queue,
+each call reads the pre-drag snapshot, merges in its own change, writes back
+→ all but the last change is silently lost (classic lost-update race). `upsertMany`
+(used by CSV import and localStorage→Postgres bulk import) is one POST →
+one transactional insert, not N fire-and-forget calls.
+
+**Hooks failure resilience** (`useReports`, `useDailyReports`, `useProjects`,
+all Phase 7b additions): optimistic writes roll back to server truth on
+rejection; `loadError` and `mutationError` surface to the UI (show in
+`LoadErrorState` for load failures, in the wizard's error banner for mutation
+failures). The wizard's publish-confirmation screen only displays after the
+write resolves (not before), so a network failure never shows "success" that
+didn't actually save.
+
+**Share tokens and cross-machine sharing**: A share link (`/reports/[id]/present?t=<token>`)
+resolves via a cookie-less anon Supabase client (`lib/supabase/anon.ts`) — no
+session cookies, no JWT, the token is the only key. `PresentScreen` receives a
+`shared` prop and ignores the session/hooks path when a token is present (structural
+trust boundary). Trying the wrong token on your own report still returns not-found,
+even if you're signed in — verified via adversarial testing. The token is 256-bit
+entropy, server-generated only, never client-supplied; revocation is instant (a
+simple boolean flag). Compensating controls: all tokens are opt-in (no
+auto-generation), scoped per-report, short-lived by design (future Phase 9
+deploy checklist: scrub `?t=` from access logs). Both present routes set
+`referrer: no-referrer` so the token can't leak via the Referer header.
+
+**Share-token security hardening** (Phase 7b post-review BLOCKER): Every
+authenticated user could originally read every report's `share_token`. Fixed at
+two layers — SQL column-level grant (excludes `share_token` from
+`authenticated`'s SELECT; `select *` now fails with 42501) AND an explicit
+column list in `reportsQuery` (no `select('*')`). The only read path left is
+a new owner-or-admin-gated SECURITY DEFINER RPC (`get_report_share_token`),
+called by the new `GET /api/reports/[id]/share` route handler. Verified: direct
+PostgREST with anon key + member JWT returns 42501 "permission denied"; the
+column is genuinely unreachable outside the owner-gated path.
+
+**Optimistic concurrency** (`expectedUpdatedAt`): `updateReport` (Phase 8 MCP
+tool) will support compare-and-swap: "update this report only if `updated_at`
+matches my snapshot." `replace_reports` (the transactional upsert function)
+server-stamps `updated_at = now()` on both insert and update branches
+(fixed in Phase 7b hardening: clients used to be able to backdate it). The TS
+side (`createdAt`/`updatedAt`) stays `z.string()` (plain date format from
+localStorage, no change), and the read-side normalization step converts
+Postgres timestamptz → ISO date string so the comparison works.
+
+**Demo-mode guard** (`components/app/DemoModeBanner.tsx`): in production, if
+`NEXT_PUBLIC_SUPABASE_URL` is absent, the banner warns "Running in demo mode
+(localStorage only) — Supabase should be configured". Catches accidental
+misconfiguration at deploy time.
+
 ## Responsive & mobile (mobile P1-P7)
 
 **Intent**: PMs consume/triage reports on a phone; long-form authoring stays desktop,
@@ -750,19 +866,36 @@ domain shapes must add a `supabase/migrations/*.sql` delta and update the
 mapping tables in `docs/database-schema.md`.** The baseline schema
 (`supabase/migrations/20260717000001_initial_schema.sql`) exists ahead of
 the actual Supabase cutover specifically so this discipline starts now,
-before there's a repository implementation to keep in sync. Phase 4's daily
-reports are the first real exercise of this rule:
-`supabase/migrations/20260717000002_daily_reports.sql` lands a `kind`
-discriminant, a nullable `report_date` column, a `reports_period_by_kind`
-CHECK constraint, and the `reports_one_daily_per_day` partial unique index,
-authored in the same phase as the `lib/types.ts` union change, not after.
-Phase 6a added `supabase/migrations/20260718000003_projects.sql` (Project
-entity, per-project daily buckets, renamed `clients` → `projects`) alongside
-the `lib/schema/project.ts` and `lib/types.ts` changes.
+before there's a repository implementation to keep in sync.
 
-**Phase 5 (report screen redesign, interactive present deck, settings) made
-NO schema changes** — no new migrations were authored, no `lib/types.ts`
-domain shapes changed.
+**Phase 4**: `supabase/migrations/20260717000002_daily_reports.sql` — `kind`
+discriminant, nullable `report_date`, `reports_period_by_kind` CHECK,
+`reports_one_daily_per_day` partial unique index. Authored alongside the
+`lib/types.ts` union change.
+
+**Phase 5**: No schema changes — report screen/settings redesign touched no
+domain shapes.
+
+**Phase 6a**: `supabase/migrations/20260718000003_projects.sql` — Project
+entity, per-project daily buckets, renamed `clients` → `projects`. Alongside
+`lib/schema/project.ts` changes.
+
+**Phase 6b**: No schema changes — CSV import/consolidation used Phase 6a's
+schema.
+
+**Phase 7a**: `supabase/migrations/20260719000004_auth_ownership.sql` — Auth,
+ownership, RLS, per-report share tokens, `replace_reports` RPC, `created_at`/
+`updated_at` widened to `timestamptz`, allowed-domain allowlist. No
+`lib/types.ts` changes (domain stays `z.string()` for dates).
+
+**Phase 7b**: Two post-review-hardening deltas, no domain shape changes:
+  - `supabase/migrations/20260720000005_post_review_hardening.sql` — share-token
+    column grant (excludes from `authenticated`'s SELECT), `get_report_share_token`
+    SECURITY DEFINER RPC, `replace_reports` server-stamps `updated_at = now()`.
+  - `supabase/migrations/20260720000006_post_review_hardening_round2.sql` — length/
+    count CHECK constraints matching Zod `*InputSchema` write-boundary caps (id,
+    names, narratives, touch counts); child-row-count cap trigger; `replace_reports`
+    returns the real `updated_at` it stamped.
 
 ## Layout
 
@@ -778,8 +911,11 @@ domain shapes changed.
   generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `import`
   (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic),
   `projects` (Phase 6a project backfill), `data/` (repository interface +
-  localStorage impl + factory), `hooks/useReports`, `hooks/useDailyReports`
-  (Phase 4), `hooks/useProjects` (Phase 6a), `schema/` (Zod 4, Phase 6a).
+  localStorage impl + HTTP impl (Phase 7b) + factory), `hooks/useReports`, 
+  `hooks/useDailyReports` (Phase 4), `hooks/useProjects` (Phase 6a),
+  `schema/` (Zod 4, Phase 6a), `server/` (Phase 7b: `reports-service`, 
+  `db-mapping`, `route-helpers`, `request-guards`), `supabase/` (Phase 7a: 
+  Supabase client factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
   plus `icons.tsx` (hand-authored SVG nav icons, Phase 5).
@@ -821,39 +957,39 @@ domain shapes changed.
   exception (`--radius-pill`).
 - Known faithful-port quirks (do not "fix" silently): "Final" status badge renders
   neutral (prototype's `statusTone` returns an undefined tone); `saveDraft`
-  always forces `Draft` status and still skips full per-step validation
-  (tasks/risks/priorities/`preparedFor` may all be empty on a saved draft).
-  (The two dark-mode quirks previously listed here — "dark mode is partial
-  by design" and "header/panel stays white in dark" — were intentionally
-  superseded in Phase 1; see "Dark mode" above.)
-- **`saveDraft`'s validation-bypass quirk is narrowed, not absolute (Phase
-  7b)**: the period field(s) — Week Start/End for a weekly draft, Date for a
-  daily draft — are the one thing `saveDraft()` (`components/wizard/
-  useWizard.ts`) checks before calling `onSaveDraft`, with a real inline
-  message ("Add a week start and end date before saving a draft." / "Add a
-  report date before saving a draft."), rather than letting a period-less
-  draft reach the wire. This is NOT optional UX polish: Supabase mode's
-  `isoDate` schema (`lib/schema/api.ts`) and the `reports_period_by_kind`
-  CHECK constraint (`supabase/migrations/20260717000002_daily_reports.sql`)
-  both reject a blank period unconditionally, so a period-less draft used to
-  400 with the raw string `Invalid request body.` rendered in the wizard's
-  error banner and nothing persisted. Loosening the Zod schema to accept a
-  blank period was considered and rejected — the DB CHECK constraint would
-  still reject it, just moving the failure one layer deeper with a worse
-  error. Same class, same phase: clearing a weekly report's Week Start/Week
-  End `<input type="date">` on `ReportScreen` (`/reports/[id]`) is rejected
-  client-side too (`app/(shell)/reports/[id]/page.tsx`), mirroring the daily
-  report screen's pre-existing `invalidDailyDateEdit` blank/collision guard.
+  always forces `Draft` status. (The two dark-mode quirks previously listed
+  here — "dark mode is partial by design" and "header/panel stays white in
+  dark" — were intentionally superseded in Phase 1; see "Dark mode" above.)
+- **`saveDraft`'s validation scope (Phase 7b)**: The period field(s) — Week
+  Start/End for a weekly draft, Date for a daily draft — are the one thing
+  `saveDraft()` (`components/wizard/useWizard.ts`) checks before calling
+  `onSaveDraft`, with a real inline message ("Add a week start and end date
+  before saving a draft." / "Add a report date before saving a draft."),
+  rather than letting a period-less draft reach the wire. This is NOT optional
+  UX polish: Supabase mode's `isoDate` schema (`lib/schema/api.ts`) and the
+  `reports_period_by_kind` CHECK constraint
+  (`supabase/migrations/20260717000002_daily_reports.sql`) both reject a blank
+  period unconditionally, so a period-less draft would 400 with the raw string
+  `Invalid request body.` rendered in the wizard's error banner and nothing
+  persisted. Loosening the Zod schema was considered and rejected — the DB
+  CHECK constraint would still reject it, just moving the failure one layer
+  deeper with a worse error. Every other field (tasks/risks/priorities/
+  `preparedFor`) may remain empty on a saved draft. Same scope, same phase:
+  clearing a weekly report's Week Start/Week End `<input type="date">` on
+  `ReportScreen` (`/reports/[id]`) is rejected client-side too
+  (`app/(shell)/reports/[id]/page.tsx`), mirroring the daily report screen's
+  pre-existing `invalidDailyDateEdit` blank/collision guard.
 - **Share/PDF are no longer mocked (Phase 2)** — superseding the Phase-1
   quirk "Share links and PDF export are UI-only mocked dialogs". Share
   links now resolve to a real route (`/reports/[id]/present`) and PDF
-  export is a real browser print flow, but two things stay genuinely
-  limited by this MVP's architecture (document, don't silently "fix"):
-  persistence is per-browser `localStorage`, so a shared link only
-  resolves in a browser whose local storage already has that report (true
-  cross-machine sharing arrives with Supabase); and pixel-faithful export
-  (`@page` custom size honored, no letterboxing) only works in Chromium
-  (Chrome/Edge) — Firefox/Safari ignore custom `@page size`.
+  export is a real browser print flow. **In Supabase mode (Phase 7b)**, share
+  links work cross-machine via per-report public tokens (`?t=<token>`) and
+  resolve for anonymous recipients on any device. **In demo mode** (no Supabase
+  env), the old per-browser limitation still applies — share links require the
+  recipient's browser to already have that report in localStorage. Pixel-faithful
+  export (`@page` custom size honored, no letterboxing) only works in Chromium
+  (Chrome/Edge) — Firefox/Safari ignore custom `@page size` (documented in
+  README and the present-route toolbar).
 
 ## Gates
 

@@ -1,5 +1,51 @@
 # Progress Log — Weekly Reports Dashboard
 
+## 2026-07-21: Phase 7b (M1+M2+M3+M4) — HTTP repository, Supabase data plane, cross-machine sharing, local import
+
+**Summary**: Connected the UI to Postgres via a new server layer and HTTP repository (`HttpReportsRepository`), enabling Supabase mode. The phase landed in four milestones: M1 (server plane with service functions and route handlers), M2 (cutover from localStorage to Postgres with failure resilience), M3 (cross-machine share links via tokens), M4 (one-time localStorage→Postgres import + consolidate defaults). Demo mode (no Supabase env) still uses localStorage. Two rounds of adversarial code review caught share-token leak (share_token readable by every authenticated user), read-schema DoS (over-length row poisoning all users' report lists), and missing SQL CHECK constraints.
+
+**What was built**:
+
+**M1 — Server plane**:
+- **`lib/server/reports-service.ts`**: client-injected Supabase-client functions (never constructs a client, never service-role; RLS is correctness-critical) powering both HTTP handlers and Phase 8's eventual MCP tools. `ServiceError` with curated error codes; `mapPgError` routes unexpected DB errors → HTTP 500 (not 400); `curatedMessage` runs exactly once per error in `route-helpers.ts` to prevent double-curation flip-flopping conflict messages.
+- **`lib/server/db-mapping.ts`**: snake_case row ↔ camelCase domain conversion; read-side timestamptz normalization (so `fmtDateShort` doesn't get `"T00:00:00+00:00"` and render NaN).
+- **`lib/server/route-helpers.ts` + `request-guards.ts`**: curated error responses, CSRF guard (Sec-Fetch-Site allowlist + JSON content-type), streamed body-size limit, demo-mode misconfiguration warning.
+- **`lib/schema/api.ts`**: transport schemas (separate from domain schemas; write boundaries have `.max()` caps matching future SQL CHECKs), kept out of the schema barrel so domain facades aren't polluted.
+- **API routes** (`app/api/reports/route.ts`, `[id]/route.ts`, `[id]/share/route.ts`; `app/api/projects/route.ts`): thin handlers following pattern: config guard → auth check → Zod validate → service call → curated error.
+- **`middleware.ts`**: unauthenticated `/api/*` returns 401 JSON (not 307 redirect to login).
+
+**M2 — Cutover & failure resilience**:
+- **`lib/data/http-reports-repository.ts`**: HTTP adapter behind the `getReportsRepository()` factory (localStorage stays as demo-mode fallback). Writes serialize through one queue to prevent Kanban-drag races where rapid drag-drop-drag-drop could each call merge-based `updateReportFields`, reading the pre-drag snapshot N times → last-write-won → all but one drag lost. `upsertMany()` is one POST → one transactional insert (not N fire-and-forget calls).
+- **Hooks failure resilience** (`useReports`/`useDailyReports`/`useProjects`): optimistic writes roll back to server truth on rejection; `loadError`/`mutationError` surfaced to UI. `components/app/LoadErrorState.tsx` for load failures; wizard publish only shows confirmation after write resolves (not before).
+- **Demo mode guard** (`components/app/DemoModeBanner.tsx`): production-misconfiguration warning when Supabase env is absent but should be present.
+
+**M3 — Cross-machine sharing**:
+- **Token-aware ShareDialog** (`components/dialogs/ShareDialog.tsx`, split into demo/Supabase modes): demo mode shows old localStorage caveat; Supabase mode enables/copies/revokes per-report public token via owner-gated `/api/reports/[id]/share` endpoint.
+- **Present routes token resolution** (both `/reports/[id]/present` and `/daily/[id]/present`): `?t=<token>` resolved server-side through cookie-less anon client (`lib/supabase/anon.ts`) — no cookie adapter, no service-role, token is the only key. `PresentScreen` gains `shared` prop; when token is present, session/hooks path never consulted (structural trust boundary: wrong token → not-found even for the report's owner).
+- **No session fallback**: a signed-in user opening their own report with a wrong token still gets not-found (verified via adversarial attack). Slide mounting, `?print=1` flow, 6-page PDF contract untouched. Toolbar hides "Back to Report" on token path. `referrer: no-referrer` on both present routes.
+
+**M4 — One-time import + consolidate defaults**:
+- **`components/settings/LocalDataImportSection.tsx`** (Settings, Supabase mode only): ensures each local project exists, then one POST of all local reports with skipExisting flag. Every browser shares seed ids (r1..r7, d1..d5), so skip is mandatory; skipped ids shown, not swallowed.
+- **Consolidate bucket defaults**: house-bucket sources now checked by default, project-bucket sources unchecked — cross-bucket merge is explicit opt-in (output is a house report). Resolves Phase 6 documented follow-up.
+
+**Adversarial review hardening**:
+- **Share-token leak (BLOCKER)**: `reports_select` had no column restriction, so `GET /api/reports` returned every report's token. Fixed at two layers: SQL column-level grant (excludes `share_token` from `authenticated`'s SELECT), and explicit column list in service (no `select('*')`). New owner-gated `get_report_share_token` SECURITY DEFINER RPC (only read path left). Verified: direct PostgREST with anon+member JWT now returns 42501 "permission denied".
+- **Read-schema DoS (BLOCKER)**: `.max()` caps landed on read schema (`ReportCoreSchema`), over unbounded SQL columns. A member could POST a 25KB `summary_narrative` via PostgREST's direct `/rest/v1/reports` (bypassing app validators), then `GET /api/reports` 500'd for **every** user (not just the owner), including admins — no in-app recovery. Fixed: caps moved to `*InputSchema` only, matching SQL CHECK constraints. Confirmed exploited end-to-end, then fixed.
+- **`updated_at` forgery (SHOULD-FIX)**: `replace_reports` used to accept `updated_at` from payload on both insert and update branches. Client could backdate/forward-date their own reports. Fixed: `replace_reports` now stamps `updated_at = now()` unconditionally (insert branch also uses `now()`, not payload). `created_at` stays payload-controlled (legitimate import need to preserve original creation).
+
+**Migrations**: `20260720000005_post_review_hardening.sql` (share-token column grants, updated_at server-stamping, get_report_share_token RPC), `20260720000006_post_review_hardening_round2.sql` (length/count CHECKs matching Zod schemas, child-row-count cap trigger). `docs/database-schema.md` updated by implementer; verified accurate.
+
+**Quality**:
+- All three gates (`npm run build`, `npm run lint`, `npm run typecheck`) pass with zero errors/warnings.
+- Read provenance verified live: owner-gated operations (create, update, share token enable/revoke) correctly reject non-owners; RLS denials logged; publish-with-Supabase-down gracefully shows error; demo-mode regression clean (all Phase 1-6 flows unchanged when env is absent).
+- Share-token exploit verified and closed: anon+member JWT cannot read token via `/rest/v1/reports` (42501) or `/api/reports` (missing from response); `GET /api/reports/[id]/share` fails for non-owners (403).
+- Read-schema DoS reproduction and fix: member writes 25KB via `/rest/v1/reports` → admin's `GET /api/reports` 500'd pre-fix → no longer fails post-fix (caps on write schema only).
+- Print contract: real Chromium PDF export still outputs exactly 6 pages.
+- localStorage→Postgres import: 5-report seed import with skipExisting shows skipped id count + success; subsequent re-run skips same ids without collision.
+
+**Documented follow-ups** (Phase 7 complete, future phases):
+- Phase 9 deploy checklist: scrub `?t=` from prod access logs (token rides in URL per secret-link design).
+
 ## 2026-07-18: Mobile P1-P7 (Responsive design) — 767px and 640px breakpoints, off-canvas nav drawer, touch-friendly Kanban
 
 **Summary**: Made the app mobile-friendly at ≤767px primary breakpoint (≤1023px secondary, ≤640px for presentation nav). PMs can now consume/triage reports on phones; long-form authoring stays desktop. Every `@media` query is written `@media screen and (…)` — the `screen and` prefix is mandatory to prevent mobile rules from leaking into print.

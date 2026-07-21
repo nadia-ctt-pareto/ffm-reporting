@@ -21,7 +21,7 @@ Internal reporting tool for a boutique marketing agency. Project managers compos
 - **Projects** (Phase 6a): metadata entity (`id`, `name`) for grouping imported reports; optional on every task/risk/report. House reports (wizard-authored, no project) and imported reports (project-scoped) coexist under the same schema and enforcement rules.
 - **Print-to-PDF**: "Download PDF" opens the presentation route and auto-triggers the browser's print dialog once fonts are ready; fixed 1280×720 slide pages print pixel-faithfully in Chrome/Edge (`@page` custom size + `print-color-adjust: exact` for the full-bleed black cover band and sage "Win" slide).
 - **Dark mode**: a real, uniform theme (`data-theme` + semantic tokens) with 1:1 parity to light mode; Light / Dark / System preference with automatic OS tracking for System mode. Preference persists across reloads. The presentation deck itself always renders brand-light, regardless of the app's theme — it's the printed/shared artifact.
-- **Data persistence**: all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 weekly + 5 daily sample reports + 4 projects). Share links resolve to an interactive presentation route, but persistence is per-browser — a shared link only works in a browser whose local storage already has that report. True cross-machine sharing arrives with Supabase (Phase 7+).
+- **Data persistence**: In **demo mode** (no `NEXT_PUBLIC_SUPABASE_URL` env), all data lives in the browser's `localStorage` (per-browser; clear it to re-seed with 7 weekly + 5 daily sample reports + 4 projects). In **Supabase mode** (env configured), data is persisted server-side with per-user ownership and per-report public share tokens. Share links work cross-machine in Supabase mode (any device, any browser, no login needed — the token is the key). In demo mode, share links still require the recipient's browser to have that report in localStorage.
 
 ## Getting Started
 
@@ -213,14 +213,14 @@ Data access is decoupled via the `ReportsRepository` interface (`lib/data/report
 
 - "Final" status badge renders neutral (prototype's intended tone).
 - `saveDraft` always forces status to "Draft", even when editing a published report.
-- Share links resolve to a real route (`/reports/[id]/present`), but persistence is per-browser `localStorage` — a shared link only resolves in a browser whose local storage already has that report. True cross-machine sharing arrives with the Supabase cutover.
-- Pixel-faithful PDF export only works in Chromium-based browsers (see above).
+- **In demo mode**, share links require the recipient to already have the report in localStorage. **In Supabase mode**, share links work cross-machine via per-report tokens (no login needed).
+- Pixel-faithful PDF export only works in Chromium-based browsers (Chrome/Edge "Save as PDF", margins None, headers/footers off). Firefox/Safari ignore custom `@page size` and will letterbox/scale instead (documented in the present-route toolbar).
 
 ## Roadmap
 
-**Now** (Phase 6 complete): everything local (`localStorage`), sidebar shell with SVG nav icons, real dark mode (Light / Dark / System), pagination, full report screen, interactive HTML slide-deck presentation (keyboard/swipe/deep-links), print-to-PDF, share links, Task view (List/Kanban) + Calendar view (Week/Month), daily reports (`/daily`) + weekly wizard roll-up, Settings screen with theme picker and prompt library, **Zod schemas** as the single source of truth, **Project entity** for organizing imported reports, **CSV import** with formula-injection safety and full-file issue accumulation, **report consolidation** (`/consolidate`) for merging reports by week.
-**Next** (Phase 7): Supabase Auth (magic link) + per-user ownership; surface daily reports in Task view and Calendar (deliberately deferred). See CLAUDE.md "Roadmap" for Phase 7-9 plans.
-**Later**: implement `SupabaseReportsRepository` against the versioned migrations (Phase 7+), deploy on Vercel (Phase 9).
+**Now** (Phase 7 complete): Full optional Supabase backend. **Demo mode** (no env) runs on `localStorage`, everything local — sidebar shell with SVG nav icons, real dark mode (Light / Dark / System), pagination, full report screen, interactive HTML slide-deck presentation (keyboard/swipe/deep-links), print-to-PDF, Task view (List/Kanban) + Calendar view (Week/Month), daily reports (`/daily`) + weekly wizard roll-up, Settings screen, **Zod schemas** as the single source of truth, **Project entity** for organizing imported reports, **CSV import** with formula-injection safety, **report consolidation** (`/consolidate`). **Supabase mode** (env configured) adds Postgres persistence, per-user ownership via magic-link Auth, **cross-machine share links via public tokens**, local→Postgres import, and RLS access control.
+**Next** (Phase 8): Remote MCP server + Claude Skill; surface daily reports in Task view and Calendar (documented Phase 4 follow-up). See CLAUDE.md "Roadmap" for full Phase 8-9 plans.
+**Later**: Deploy on Vercel (Phase 9), production-hardening checklist.
 
 Post-MVP usability/design backlog: `design-source/NEXT_STEPS.md`. Design rationale and conventions: `CLAUDE.md`.
 
