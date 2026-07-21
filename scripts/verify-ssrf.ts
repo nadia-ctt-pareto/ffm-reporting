@@ -80,6 +80,37 @@ async function main() {
   await expectRejects('https://[::ffff:10.1.2.3] (IPv4-mapped private)', 'https://[::ffff:10.1.2.3]/api');
   await expectResolves('https://[2001:4860:4860::8888] (a real public IPv6 -- Google DNS -- must NOT be blocked)', 'https://[2001:4860:4860::8888]/api');
 
+  console.log('\n=== assertSafeOutboundUrl: IPv6 embedded-IPv4 forms beyond IPv4-mapped (SEC-1 post-review) ===');
+  // 64:ff9b::/96 -- NAT64 (RFC 6052). A NAT64 gateway synthesizes exactly
+  // this shape from an IPv4 destination -- 64:ff9b::a9fe:a9fe embeds
+  // 169.254.169.254 (cloud metadata). Reviewer-supplied case: on an
+  // IPv6-only/NAT64 runtime, an attacker's malicious AAAA record resolving
+  // to this address would have sailed straight past every other check.
+  await expectRejects('https://[64:ff9b::a9fe:a9fe] (NAT64 embedding 169.254.169.254 -- cloud metadata)', 'https://[64:ff9b::a9fe:a9fe]/api');
+  await expectResolves('https://[64:ff9c::a9fe:a9fe] (JUST outside the NAT64 prefix -- must NOT be blocked)', 'https://[64:ff9c::a9fe:a9fe]/api');
+  // ::/96 -- IPv4-compatible (deprecated but still a valid literal).
+  // Reviewer-supplied case: ::a00:1 embeds 10.0.0.1.
+  await expectRejects('https://[::a00:1] (IPv4-compatible embedding 10.0.0.1)', 'https://[::a00:1]/api');
+  await expectRejects('https://[::7f00:1] (IPv4-compatible embedding 127.0.0.1)', 'https://[::7f00:1]/api');
+  // 2002::/16 -- 6to4 (RFC 3056). The embedded IPv4 sits at bits 16-47, NOT
+  // the low 32 bits -- and 6to4 is INSIDE global unicast (2000::/3), so a
+  // naive "allow 2000::/3" allowlist would NOT catch this. Reviewer-supplied
+  // case: 2002:7f00:1:: embeds 127.0.0.1.
+  await expectRejects('https://[2002:7f00:1::] (6to4 embedding 127.0.0.1)', 'https://[2002:7f00:1::]/api');
+  await expectRejects('https://[2002:a00:1::] (6to4 embedding 10.0.0.1)', 'https://[2002:a00:1::]/api');
+  await expectResolves('https://[2003:7f00:1::] (JUST outside the 6to4 prefix 2002::/16 -- must NOT be blocked)', 'https://[2003:7f00:1::]/api');
+
+  console.log('\n=== assertSafeOutboundUrl: the same three embedded-IPv4 forms, via a RESOLVED AAAA (injected resolver, not a literal host) ===');
+  await expectRejects('a hostname whose AAAA resolves to a NAT64-embedded 169.254.169.254', 'https://nat64-metadata.example.test/api', {
+    lookup: async () => [{ address: '64:ff9b::a9fe:a9fe' }],
+  });
+  await expectRejects('a hostname whose AAAA resolves to an IPv4-compatible-embedded 10.0.0.1', 'https://v4compat.example.test/api', {
+    lookup: async () => [{ address: '::a00:1' }],
+  });
+  await expectRejects('a hostname whose AAAA resolves to a 6to4-embedded 127.0.0.1', 'https://sixtofour.example.test/api', {
+    lookup: async () => [{ address: '2002:7f00:1::' }],
+  });
+
   console.log('\n=== assertSafeOutboundUrl: a hostname that RESOLVES to a private IP (injected DNS resolver) ===');
   await expectRejects('https://internal.example.test resolving to 10.1.2.3', 'https://internal.example.test/api', {
     lookup: async () => [{ address: '10.1.2.3' }],

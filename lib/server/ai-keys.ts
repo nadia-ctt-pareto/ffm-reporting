@@ -18,7 +18,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AiProvider } from '../schema/api';
 import { AiCryptoError, decryptSecret, encryptSecret } from './ai-crypto';
-import { validateAnthropicKey, validateOpenAiCompatibleKey } from './ai-polish';
+import { validateAnthropicKey, validateOpenAiCompatibleKey, withProviderRateLimit } from './ai-polish';
 import { ServiceError } from './reports-service';
 
 export interface AiKeyStatus {
@@ -131,8 +131,21 @@ export interface SetAiKeyArgs {
  * (`getAiKeyPlaintext` below). The RPC stamps `validated_at`/`updated_at`
  * itself (server `now()`, never a client-supplied timestamp) and returns
  * the `validated_at` it actually wrote.
+ *
+ * SEC-2 (post-review): the validation call is now wrapped in
+ * `lib/server/ai-polish.ts`'s `withProviderRateLimit` -- the SAME per-user
+ * limiter `polishField` uses, sharing its budget. Before this, `PUT
+ * /api/ai/key` was an unthrottled arbitrary-outbound primitive: every save
+ * fired one attacker-influenceable `POST {base_url}/chat/completions` to
+ * an arbitrary external https host, with no per-user cap at all -- bounded
+ * to authenticated internal users plus the CSRF guard, but still an
+ * unnecessary external-reachability oracle (the distinct curated markers,
+ * plus latency, leak whether a given host:port is reachable) a live app
+ * shouldn't expose. `userId` is accepted explicitly for this -- the caller
+ * (`app/api/ai/key/route.ts`) already has `user.id` in scope from its own
+ * `auth.getUser()` call, same pattern `polishField` already uses.
  */
-export async function setAiKey(db: SupabaseClient, args: SetAiKeyArgs): Promise<{ hint: string; validatedAt: string }> {
+export async function setAiKey(db: SupabaseClient, userId: string, args: SetAiKeyArgs): Promise<{ hint: string; validatedAt: string }> {
   const trimmed = args.apiKey.trim();
   const baseUrl = args.provider === 'openai_compatible' ? (args.baseUrl ?? '').trim() : null;
   const model = args.model?.trim() || null;
@@ -146,9 +159,9 @@ export async function setAiKey(db: SupabaseClient, args: SetAiKeyArgs): Promise<
     if (!baseUrl || !model) {
       throw new ServiceError('invalid', 'baseUrl and model are required for an OpenAI-compatible provider.');
     }
-    await validateOpenAiCompatibleKey(trimmed, baseUrl, model);
+    await withProviderRateLimit(userId, () => validateOpenAiCompatibleKey(trimmed, baseUrl, model));
   } else {
-    await validateAnthropicKey(trimmed, model ?? undefined);
+    await withProviderRateLimit(userId, () => validateAnthropicKey(trimmed, model ?? undefined));
   }
 
   const hint = fingerprint(trimmed);

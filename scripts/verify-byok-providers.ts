@@ -347,7 +347,7 @@ async function verifySetAiKeyValidatesBeforeStoring(): Promise<void> {
     stubFetch(200, { content: [{ type: 'text', text: 'Hi' }] });
     try {
       const args: SetAiKeyArgs = { apiKey: FAKE_ANTHROPIC_KEY, provider: 'anthropic' };
-      const result = await setAiKey(db, args);
+      const result = await setAiKey(db, 'user-setkey-4a', args);
       if (rpcCalls.length !== 1 || rpcCalls[0].fn !== 'set_own_ai_key') return fail('setAiKey (anthropic, valid) -- expected exactly 1 set_own_ai_key RPC call', rpcCalls);
       const rpcArgs = rpcCalls[0].args as Record<string, unknown>;
       if (rpcArgs.p_provider !== 'anthropic') return fail('setAiKey (anthropic) -- p_provider', rpcArgs);
@@ -370,7 +370,7 @@ async function verifySetAiKeyValidatesBeforeStoring(): Promise<void> {
     stubFetch(200, { choices: [{ message: { content: '.' } }] });
     try {
       const args: SetAiKeyArgs = { apiKey: FAKE_OPENAI_KEY, provider: 'openai_compatible', baseUrl: OPENROUTER_BASE, model: 'anthropic/claude-sonnet-5' };
-      await setAiKey(db, args);
+      await setAiKey(db, 'user-setkey-4b', args);
       if (rpcCalls.length !== 1) return fail('setAiKey (openai_compatible, valid) -- expected exactly 1 RPC call', rpcCalls);
       const rpcArgs = rpcCalls[0].args as Record<string, unknown>;
       if (rpcArgs.p_provider !== 'openai_compatible') return fail('setAiKey (openai_compatible) -- p_provider', rpcArgs);
@@ -389,7 +389,7 @@ async function verifySetAiKeyValidatesBeforeStoring(): Promise<void> {
     stubFetch(401, { error: { message: 'invalid x-api-key' } });
     try {
       const args: SetAiKeyArgs = { apiKey: FAKE_ANTHROPIC_KEY, provider: 'anthropic' };
-      await setAiKey(db, args);
+      await setAiKey(db, 'user-setkey-4c', args);
       fail('setAiKey (anthropic, invalid) -- expected a throw, none occurred');
     } catch (err) {
       if (rpcCalls.length !== 0) {
@@ -416,7 +416,7 @@ async function verifySetAiKeyValidatesBeforeStoring(): Promise<void> {
     }) as typeof fetch;
     try {
       const args: SetAiKeyArgs = { apiKey: FAKE_OPENAI_KEY, provider: 'openai_compatible', baseUrl: 'https://169.254.169.254/latest', model: 'whatever' };
-      await setAiKey(db, args);
+      await setAiKey(db, 'user-setkey-4d', args);
       fail('setAiKey (openai_compatible, private base_url) -- expected a throw, none occurred');
     } catch (err) {
       if (fetchWasCalled) {
@@ -427,6 +427,76 @@ async function verifySetAiKeyValidatesBeforeStoring(): Promise<void> {
         ok('setAiKey (openai_compatible, private base_url) -- SSRF-rejected at save time, before any outbound fetch or RPC call');
       } else {
         fail('setAiKey (openai_compatible, private base_url) -- wrong error shape', err);
+      }
+    } finally {
+      restoreFetch();
+    }
+  }
+}
+
+// =============================================================================
+// 4e/4f) SEC-2 (post-review): setAiKey's validation call is now rate-limited
+// through the SAME per-user limiter polishField uses -- previously
+// `PUT /api/ai/key` was an unthrottled arbitrary-outbound primitive.
+// =============================================================================
+
+async function verifySetAiKeyIsRateLimited(): Promise<void> {
+  // 4e) The concurrency cap applies to setAiKey's OWN validation calls --
+  // fire 3 concurrent validations for the SAME user (MAX_CONCURRENT_PER_USER
+  // is 2); at least the 3rd must be rejected, never reaching the provider.
+  {
+    const userId = 'user-setkey-concurrency';
+    stubFetch(200, { content: [{ type: 'text', text: 'Hi' }] });
+    try {
+      const makeArgs = (): SetAiKeyArgs => ({ apiKey: FAKE_ANTHROPIC_KEY, provider: 'anthropic' });
+      const results = await Promise.allSettled([
+        setAiKey(makeSetKeyDb([]), userId, makeArgs()),
+        setAiKey(makeSetKeyDb([]), userId, makeArgs()),
+        setAiKey(makeSetKeyDb([]), userId, makeArgs()),
+      ]);
+      const rejections = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (rejections.length === 0) {
+        fail('SEC-2 -- setAiKey concurrency cap: expected at least one of 3 concurrent validation calls to be rejected');
+      } else {
+        const err = rejections[0].reason;
+        if (err instanceof ServiceError && /local_rate_limited/.test(err.message)) {
+          ok(`SEC-2 -- setAiKey's OWN validation calls are now rate-limited (${rejections.length}/3 rejected, same limiter as polishField)`);
+        } else {
+          fail('SEC-2 -- setAiKey concurrency cap: wrong error shape', err);
+        }
+      }
+    } finally {
+      restoreFetch();
+    }
+  }
+
+  // 4f) The budget is SHARED with polishField, not a separate pool -- a
+  // real polish call plus validation calls for the SAME user compete for
+  // the SAME 2 concurrent slots.
+  {
+    const userId = 'user-shared-budget';
+    stubFetch(200, { content: [{ type: 'text', text: 'Hi' }], choices: [{ message: { content: 'ok' } }] });
+    try {
+      const ciphertext = encryptSecret(FAKE_ANTHROPIC_KEY);
+      const polishDb = makePolishDb(ciphertext, { provider: 'anthropic', base_url: null, model: null });
+      const req: PolishRequest = { field: 'summary', text: 'Raw text.' };
+      const setKeyArgs: SetAiKeyArgs = { apiKey: FAKE_ANTHROPIC_KEY, provider: 'anthropic' };
+
+      const results = await Promise.allSettled([
+        polishField(polishDb, userId, req),
+        setAiKey(makeSetKeyDb([]), userId, setKeyArgs),
+        setAiKey(makeSetKeyDb([]), userId, setKeyArgs),
+      ]);
+      const rejections = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (rejections.length === 0) {
+        fail('SEC-2 -- shared budget: expected at least one of (1 polish + 2 setAiKey) concurrent calls for the same user to be rejected');
+      } else {
+        const err = rejections[0].reason;
+        if (err instanceof ServiceError && /local_rate_limited/.test(err.message)) {
+          ok(`SEC-2 -- polishField and setAiKey share the SAME per-user budget, not separate pools (${rejections.length}/3 rejected)`);
+        } else {
+          fail('SEC-2 -- shared budget: wrong error shape', err);
+        }
       }
     } finally {
       restoreFetch();
@@ -478,6 +548,9 @@ async function main() {
 
   console.log('\n=== 4) setAiKey: validate-before-store (both providers, valid + invalid + SSRF-unsafe) ===');
   await verifySetAiKeyValidatesBeforeStoring();
+
+  console.log('\n=== 4e/4f) SEC-2: setAiKey validation is rate-limited, sharing polishField\'s per-user budget ===');
+  await verifySetAiKeyIsRateLimited();
 
   console.log('\n=== 5) polishField: SSRF defense-in-depth on every call, not just at save time ===');
   await verifyPolishFieldRevalidatesSsrfOnEveryCall();

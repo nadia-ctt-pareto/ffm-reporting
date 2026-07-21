@@ -138,7 +138,66 @@ function ipv6ToBigInt(ip: string): bigint | null {
   return result;
 }
 
-/** True if the raw IPv6 literal falls in a private/loopback/link-local/ULA/unspecified range, OR is an IPv4-mapped (`::ffff:0:0/96`) address wrapping a private IPv4. Fails CLOSED on anything unparsable. */
+function bigIntToIpv4(v: bigint): string {
+  const mask8 = BigInt(0xff);
+  return [(v >> BigInt(24)) & mask8, (v >> BigInt(16)) & mask8, (v >> BigInt(8)) & mask8, v & mask8].join('.');
+}
+
+/**
+ * The 96-bit `64:ff9b::/96` NAT64 prefix (RFC 6052), as an integer directly
+ * comparable to `value >> 32n` (a tested address's own top-96-bits value).
+ * Derived by re-running `ipv6ToBigInt` on the literal prefix itself
+ * (already-tested parser, module-load-time-once) rather than hand-computing
+ * the hex/bit-shift arithmetic -- less room for a silent off-by-one.
+ */
+const NAT64_PREFIX_TOP96 = (() => {
+  const parsed = ipv6ToBigInt('64:ff9b::');
+  if (parsed === null) throw new Error('lib/server/ssrf.ts: failed to parse the NAT64 prefix constant (64:ff9b::) -- this should never happen.');
+  return parsed >> BigInt(32);
+})();
+
+/** The 16-bit `2002::/16` 6to4 prefix (RFC 3056), same derivation approach as `NAT64_PREFIX_TOP96` above. */
+const SIX_TO_FOUR_PREFIX_TOP16 = (() => {
+  const parsed = ipv6ToBigInt('2002::');
+  if (parsed === null) throw new Error('lib/server/ssrf.ts: failed to parse the 6to4 prefix constant (2002::) -- this should never happen.');
+  return parsed >> BigInt(112);
+})();
+
+/**
+ * SEC-1 (post-review): the ORIGINAL version of this function only unwrapped
+ * ONE embedded-IPv4 form -- IPv4-mapped (`::ffff:a.b.c.d`). Three OTHER
+ * standard forms embed an IPv4 address inside an IPv6 address too, and each
+ * is a live bypass if left unhandled (verified against this exact function,
+ * pre-fix, by the reviewer):
+ *   - **IPv4-compatible** (`::a.b.c.d`, `::/96`, deprecated but still a
+ *     valid literal) -- e.g. `::10.0.0.1` embeds a private address.
+ *   - **NAT64** (`64:ff9b::a.b.c.d`, `64:ff9b::/96`, RFC 6052) -- a NAT64
+ *     gateway synthesizes exactly this shape from an IPv4 destination, so
+ *     on an IPv6-only/NAT64 runtime, `64:ff9b::a9fe:a9fe` (169.254.169.254,
+ *     cloud metadata) resolving via AAAA sails straight past every
+ *     IPv6-specific check below unless unwrapped here -- a REAL escalation
+ *     to metadata-SSRF / credential theft, not a theoretical one.
+ *   - **6to4** (`2002:WWXX:YYZZ::`, `2002::/16`, RFC 3056) -- the embedded
+ *     IPv4 sits at bits 16-47 (right after the fixed `2002` prefix), NOT
+ *     the low 32 bits like the three forms above. 6to4 is INSIDE global
+ *     unicast (`2000::/3`), so a naive "allow everything in `2000::/3`"
+ *     allowlist would not have caught this either.
+ * Every embedded form, once unwrapped, is checked with the SAME
+ * `isPrivateIpv4` this file already uses for plain IPv4 -- one range list,
+ * never duplicated.
+ */
+function extractEmbeddedIpv4(value: bigint): string | null {
+  const mask32 = BigInt(0xffffffff);
+  const top96 = value >> BigInt(32);
+  if (top96 === BigInt(0xffff)) return bigIntToIpv4(value & mask32); // ::ffff:a.b.c.d -- IPv4-mapped
+  if (top96 === BigInt(0)) return bigIntToIpv4(value & mask32); // ::a.b.c.d -- IPv4-compatible (also covers :: and ::1, redundant with the explicit checks below)
+  if (top96 === NAT64_PREFIX_TOP96) return bigIntToIpv4(value & mask32); // 64:ff9b::a.b.c.d -- NAT64
+  const top16 = value >> BigInt(112);
+  if (top16 === SIX_TO_FOUR_PREFIX_TOP16) return bigIntToIpv4((value >> BigInt(80)) & mask32); // 2002:WWXX:YYZZ:: -- 6to4, embedded at bits 16-47
+  return null;
+}
+
+/** True if the raw IPv6 literal falls in a private/loopback/link-local/ULA/unspecified range, OR embeds a private IPv4 address via any of the four standard forms (`extractEmbeddedIpv4` above). Fails CLOSED on anything unparsable. */
 function isPrivateIpv6(ip: string): boolean {
   const value = ipv6ToBigInt(ip);
   if (value === null) return true;
@@ -150,13 +209,8 @@ function isPrivateIpv6(ip: string): boolean {
   if (top10 === BigInt(0b1111111010)) return true;
   const top7 = value >> BigInt(121); // fc00::/7 -- unique local (ULA)
   if (top7 === BigInt(0b1111110)) return true;
-  const top96 = value >> BigInt(32); // ::ffff:0:0/96 -- IPv4-mapped
-  if (top96 === BigInt(0xffff)) {
-    const mask8 = BigInt(0xff);
-    const low32 = value & BigInt(0xffffffff);
-    const ipv4 = [(low32 >> BigInt(24)) & mask8, (low32 >> BigInt(16)) & mask8, (low32 >> BigInt(8)) & mask8, low32 & mask8].join('.');
-    return isPrivateIpv4(ipv4);
-  }
+  const embedded = extractEmbeddedIpv4(value);
+  if (embedded !== null) return isPrivateIpv4(embedded);
   return false;
 }
 

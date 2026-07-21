@@ -418,18 +418,48 @@ function releaseConcurrencySlot(userId: string): void {
   }
 }
 
+/**
+ * SEC-2 (post-review): shared by BOTH `polishField` (a real polish call)
+ * AND `lib/server/ai-keys.ts`'s `setAiKey` (its validate-before-store call
+ * -- a 1-token ping proving a key/endpoint works) -- an earlier version of
+ * this feature rate-limited only the former, leaving `PUT /api/ai/key` as
+ * an UNTHROTTLED arbitrary-outbound primitive: every save fired one
+ * attacker-influenceable `POST {base_url}/chat/completions` to an arbitrary
+ * external https host, with no per-user cap. Bounded to authenticated
+ * internal users plus the CSRF guard, but still an unnecessary
+ * external-reachability oracle a live app shouldn't expose (the distinct
+ * curated markers, plus latency, leak whether a given host:port is
+ * reachable at all). One shared per-user budget across BOTH actions,
+ * deliberately -- they're the same kind of outbound-request primitive
+ * either way, and key validation is infrequent enough that sharing the
+ * budget costs a real user nothing in practice. Centralizes the
+ * acquire/`try`/release bookkeeping so neither caller can forget the
+ * `finally` (see `polishField` below, now built on this).
+ */
+export async function withProviderRateLimit<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  assertUnderRateLimit(userId);
+  acquireConcurrencySlot(userId);
+  try {
+    return await fn();
+  } finally {
+    releaseConcurrencySlot(userId);
+  }
+}
+
 // =============================================================================
 // The public entry point
 // =============================================================================
 
 /**
- * The whole polish flow: rate-limit -> read the user's stored provider
- * config + decrypt their stored key -> assemble the system/user prompts ->
- * call the RIGHT provider -> clean the result. `userId` is accepted
- * explicitly (a small, deliberate deviation from the original plan's
- * sketch, which didn't account for the rate limiter needing a key) -- the
- * caller (`app/api/ai/polish/route.ts`) already has `user.id` in scope from
- * its own `auth.getUser()` call, so this avoids a second one here.
+ * The whole polish flow: rate-limit (`withProviderRateLimit`, shared with
+ * `setAiKey`'s validation call -- see SEC-2 in that function's own doc
+ * comment) -> read the user's stored provider config + decrypt their stored
+ * key -> assemble the system/user prompts -> call the RIGHT provider ->
+ * clean the result. `userId` is accepted explicitly (a small, deliberate
+ * deviation from the original plan's sketch, which didn't account for the
+ * rate limiter needing a key) -- the caller
+ * (`app/api/ai/polish/route.ts`) already has `user.id` in scope from its
+ * own `auth.getUser()` call, so this avoids a second one here.
  *
  * BYOK generalization: which provider to call is resolved ENTIRELY from
  * what's stored server-side (`getAiKeyProviderConfig`) -- `PolishRequest`
@@ -437,9 +467,7 @@ function releaseConcurrencySlot(userId: string): void {
  * can never influence which provider/endpoint this function talks to.
  */
 export async function polishField(db: SupabaseClient, userId: string, req: PolishRequest): Promise<{ polished: string }> {
-  assertUnderRateLimit(userId);
-  acquireConcurrencySlot(userId);
-  try {
+  return withProviderRateLimit(userId, async () => {
     const config = await getAiKeyProviderConfig(db);
     const apiKey = await getAiKeyPlaintext(db);
     if (!config || !apiKey) {
@@ -500,7 +528,5 @@ export async function polishField(db: SupabaseClient, userId: string, req: Polis
       throw new ServiceError('internal', 'provider_unavailable: the provider returned an empty result.');
     }
     return { polished };
-  } finally {
-    releaseConcurrencySlot(userId);
-  }
+  });
 }

@@ -76,8 +76,11 @@ export async function PUT(request: NextRequest) {
     // is the full `{apiKey, provider, baseUrl?, model?}` body (BYOK
     // generalization) -- passed through verbatim, `setAiKey`
     // (lib/server/ai-keys.ts) is what dispatches to the right provider's
-    // validation.
-    const result = await setAiKey(supabase, parsed.data);
+    // validation. `user.id` lets `setAiKey` rate-limit its validation call
+    // through the SAME per-user limiter `polishField` uses (SEC-2,
+    // post-review) -- an unauthenticated/unthrottled outbound-fetch
+    // primitive otherwise.
+    const result = await setAiKey(supabase, user.id, parsed.data);
     return NextResponse.json(result);
   } catch (err) {
     return handleServiceError(err, { route: 'api/ai/key PUT', userId: user.id });
