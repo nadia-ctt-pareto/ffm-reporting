@@ -16,8 +16,9 @@
 // here only ever touches ciphertext or non-secret metadata.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AiProvider } from '../schema/api';
 import { AiCryptoError, decryptSecret, encryptSecret } from './ai-crypto';
-import { validateAnthropicKey } from './ai-polish';
+import { validateAnthropicKey, validateOpenAiCompatibleKey } from './ai-polish';
 import { ServiceError } from './reports-service';
 
 export interface AiKeyStatus {
@@ -25,12 +26,19 @@ export interface AiKeyStatus {
   hint: string;
   validatedAt: string | null;
   lastUsedAt: string | null;
+  /** Non-secret. `'anthropic'` when `configured` is `false` (nothing stored -- an arbitrary-but-harmless default, never rendered). */
+  provider: AiProvider;
+  baseUrl: string | null;
+  model: string | null;
 }
 
 interface AiKeyStatusRow {
   key_hint: string;
   validated_at: string | null;
   last_used_at: string | null;
+  provider: AiProvider;
+  base_url: string | null;
+  model: string | null;
 }
 
 /**
@@ -39,17 +47,53 @@ interface AiKeyStatusRow {
  * most the caller's own single row (same pattern `app/api/tokens/route.ts`'s
  * GET already uses for `api_tokens`). Returns `configured: false` (never
  * throws) when the caller has no row yet -- "no key saved" is an ordinary
- * state, not an error.
+ * state, not an error. `provider`/`base_url`/`model` are non-secret columns
+ * (see the column grant in `supabase/migrations/20260724000012_ai_keys_providers.sql`)
+ * -- this plain `SELECT` is safe precisely because it never names
+ * `key_ciphertext`, which `authenticated` has no privilege to read at all.
  */
 export async function getAiKeyStatus(db: SupabaseClient): Promise<AiKeyStatus> {
-  const { data, error } = await db.from('ai_keys').select('key_hint, validated_at, last_used_at').maybeSingle();
+  const { data, error } = await db.from('ai_keys').select('key_hint, validated_at, last_used_at, provider, base_url, model').maybeSingle();
   if (error) {
     console.error('[ai-keys] getAiKeyStatus query error', { code: error.code });
     throw new ServiceError('internal', 'Failed to load the AI key status.');
   }
-  if (!data) return { configured: false, hint: '', validatedAt: null, lastUsedAt: null };
+  if (!data) return { configured: false, hint: '', validatedAt: null, lastUsedAt: null, provider: 'anthropic', baseUrl: null, model: null };
   const row = data as AiKeyStatusRow;
-  return { configured: true, hint: row.key_hint, validatedAt: row.validated_at, lastUsedAt: row.last_used_at };
+  return {
+    configured: true,
+    hint: row.key_hint,
+    validatedAt: row.validated_at,
+    lastUsedAt: row.last_used_at,
+    provider: row.provider,
+    baseUrl: row.base_url,
+    model: row.model,
+  };
+}
+
+export interface AiKeyProviderConfig {
+  provider: AiProvider;
+  baseUrl: string | null;
+  model: string | null;
+}
+
+/**
+ * The polish path's (`lib/server/ai-polish.ts`'s `polishField`) OTHER read,
+ * alongside `getAiKeyPlaintext` below -- non-secret provider/base_url/model,
+ * fetched WITHOUT ever touching `key_ciphertext` (a plain RLS-scoped
+ * select, no `SECURITY DEFINER` needed for these three columns -- unlike
+ * the ciphertext itself). Returns `null` when the caller has no stored key
+ * (same "no key yet is ordinary" posture as `getAiKeyStatus`).
+ */
+export async function getAiKeyProviderConfig(db: SupabaseClient): Promise<AiKeyProviderConfig | null> {
+  const { data, error } = await db.from('ai_keys').select('provider, base_url, model').maybeSingle();
+  if (error) {
+    console.error('[ai-keys] getAiKeyProviderConfig query error', { code: error.code });
+    throw new ServiceError('internal', 'Failed to load the AI key configuration.');
+  }
+  if (!data) return null;
+  const row = data as { provider: AiProvider; base_url: string | null; model: string | null };
+  return { provider: row.provider, baseUrl: row.base_url, model: row.model };
 }
 
 /** A short, display-only fingerprint -- e.g. `sk-ant-...ab12` -- never the key itself. Falls back to a generic mask if the key is shorter than expected (still never empty). */
@@ -59,25 +103,53 @@ function fingerprint(apiKey: string): string {
   return `${head}...${tail}`;
 }
 
+export interface SetAiKeyArgs {
+  apiKey: string;
+  provider: AiProvider;
+  /** Required (by `lib/schema/api.ts`'s `SetAiKeyInputSchema` refine) when `provider === 'openai_compatible'`; ignored for `'anthropic'`. */
+  baseUrl?: string;
+  /** Required for `openai_compatible`; an OPTIONAL override of the default model for `anthropic` (see `lib/server/ai-polish.ts`'s `POLISH_MODEL`). */
+  model?: string;
+}
+
 /**
- * Validates `plaintextKey` against Anthropic FIRST (`validateAnthropicKey`,
- * lib/server/ai-polish.ts -- a 1-token ping to `POLISH_MODEL`) -- an invalid
- * key is never encrypted or stored. Only on success: encrypt, then call
- * `set_own_ai_key()` (supabase/migrations/20260722000008_ai_keys.sql) --
- * NOT a plain client-side `.upsert()`. That migration's header comment has
- * the full "VERIFIED GOTCHA": `ON CONFLICT ... DO UPDATE SET key_ciphertext
- * = excluded.key_ciphertext` requires SELECT privilege on `key_ciphertext`
- * to reference `excluded`, which `authenticated` deliberately never has --
- * a direct client-side upsert cannot satisfy both "authenticated can write
- * it" and "authenticated can never read it" at once, so the write goes
- * through a SECURITY DEFINER function instead, same as the read side
+ * Validates `args.apiKey` against the REAL provider FIRST -- `anthropic` ->
+ * `validateAnthropicKey` (a 1-token Messages ping); `openai_compatible` ->
+ * `validateOpenAiCompatibleKey` (SSRF-validates `args.baseUrl`, then a
+ * 1-token Chat Completions ping) -- an invalid key (or an unsafe/unreachable
+ * `base_url`) is never encrypted or stored. Only on success: encrypt, then
+ * call `set_own_ai_key()` (supabase/migrations/20260722000008_ai_keys.sql,
+ * extended by 20260724000012_ai_keys_providers.sql to also accept
+ * provider/base_url/model) -- NOT a plain client-side `.upsert()`. That
+ * first migration's header comment has the full "VERIFIED GOTCHA": `ON
+ * CONFLICT ... DO UPDATE SET key_ciphertext = excluded.key_ciphertext`
+ * requires SELECT privilege on `key_ciphertext` to reference `excluded`,
+ * which `authenticated` deliberately never has -- a direct client-side
+ * upsert cannot satisfy both "authenticated can write it" and
+ * "authenticated can never read it" at once, so the write goes through a
+ * SECURITY DEFINER function instead, same as the read side
  * (`getAiKeyPlaintext` below). The RPC stamps `validated_at`/`updated_at`
  * itself (server `now()`, never a client-supplied timestamp) and returns
  * the `validated_at` it actually wrote.
  */
-export async function setAiKey(db: SupabaseClient, plaintextKey: string): Promise<{ hint: string; validatedAt: string }> {
-  const trimmed = plaintextKey.trim();
-  await validateAnthropicKey(trimmed);
+export async function setAiKey(db: SupabaseClient, args: SetAiKeyArgs): Promise<{ hint: string; validatedAt: string }> {
+  const trimmed = args.apiKey.trim();
+  const baseUrl = args.provider === 'openai_compatible' ? (args.baseUrl ?? '').trim() : null;
+  const model = args.model?.trim() || null;
+
+  if (args.provider === 'openai_compatible') {
+    // Schema-level `.refine()` (lib/schema/api.ts) already guarantees
+    // baseUrl/model are present before this function is ever called -- the
+    // `!baseUrl`/`!model` checks here are a defensive backstop, not the
+    // primary gate, mirroring this codebase's general "don't trust a single
+    // layer" posture.
+    if (!baseUrl || !model) {
+      throw new ServiceError('invalid', 'baseUrl and model are required for an OpenAI-compatible provider.');
+    }
+    await validateOpenAiCompatibleKey(trimmed, baseUrl, model);
+  } else {
+    await validateAnthropicKey(trimmed, model ?? undefined);
+  }
 
   const hint = fingerprint(trimmed);
   let ciphertext: string;
@@ -107,7 +179,13 @@ export async function setAiKey(db: SupabaseClient, plaintextKey: string): Promis
     throw err;
   }
 
-  const { data, error } = await db.rpc('set_own_ai_key', { p_key_ciphertext: ciphertext, p_key_hint: hint });
+  const { data, error } = await db.rpc('set_own_ai_key', {
+    p_key_ciphertext: ciphertext,
+    p_key_hint: hint,
+    p_provider: args.provider,
+    p_base_url: baseUrl,
+    p_model: model,
+  });
   if (error) {
     // Deliberate: logs the Postgres error code/message, NEVER `ciphertext`,
     // `hint`, or `trimmed` -- see this file's header comment and

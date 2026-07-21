@@ -297,7 +297,7 @@ statement) to confirm:
 | `get_report_share_token(text)` (Phase 7b, 20260720000005) | `authenticated` only | Same rationale as `enable_report_share`/`revoke_report_share` — owner-or-admin-gated internally, `anon` has no account to own a report with. See "Post-review hardening (Phase 7b)" below. |
 | `verify_api_token(text)` (Phase 8a, 20260721000007) | `anon` only | The MCP auth bridge's bare anon client is the only real caller — see "`verify_api_token` / `revoke_api_token` (Phase 8a)" below. |
 | `revoke_api_token(text)` (Phase 8a, 20260721000007) | `authenticated` only | Owner-gated internally, same rationale as `enable_report_share`/`revoke_report_share`. |
-| `set_own_ai_key(text, text)` (Phase 7c, 20260722000008) | `authenticated` only | `auth.uid()`-scoped write path for `ai_keys.key_ciphertext` — see "`ai_keys` (BYOK, Phase 7c)" below for the verified reason a plain client-side upsert cannot do this. |
+| `set_own_ai_key(text, text, text, text, text)` (Phase 7c, 20260722000008; signature extended by the BYOK generalization delta, 20260724000012) | `authenticated` only | `auth.uid()`-scoped write path for `ai_keys.key_ciphertext` (and, since 20260724000012, `provider`/`base_url`/`model`) — see "`ai_keys` (BYOK, Phase 7c)" below for the verified reason a plain client-side upsert cannot do this. The original 2-arg overload was explicitly dropped when the 5-arg one was added (see that migration). |
 | `get_own_ai_key_ciphertext()` (Phase 7c, 20260722000008) | `authenticated` only | `auth.uid()`-scoped read path for `ai_keys.key_ciphertext` — same section. |
 
 ```sql
@@ -765,26 +765,34 @@ DOMAIN-normalized, not raw, `updated_at`) is an app-layer-only change — see
 `lib/server/reports-service.ts`'s `updateReport` and `lib/schema/api.ts`'s
 `ReportPatchSchema` doc comment.
 
-## `ai_keys` (BYOK, Phase 7c)
+## `ai_keys` (BYOK, Phase 7c; generalized to any provider, delta migration 20260724000012)
 
 `supabase/migrations/20260722000008_ai_keys.sql` — the schema half of the
 BYOK AI field-polish feature (`lib/server/ai-crypto.ts` encrypts/decrypts;
 `lib/server/ai-keys.ts` is the service layer that calls this schema;
-`lib/server/ai-polish.ts` is the actual Anthropic call — read all three
-alongside this section for the full picture). One row per user: their
-Anthropic API key, AES-256-GCM-encrypted at rest.
+`lib/server/ai-polish.ts` builds the actual provider request — read all
+three alongside this section for the full picture). One row per user: their
+BYOK API key, AES-256-GCM-encrypted at rest. **Originally Anthropic-only;
+`supabase/migrations/20260724000012_ai_keys_providers.sql` generalized this
+to any provider** — see "BYOK generalization: any provider (delta)" below
+for what that migration added; everything else on this page describes the
+unchanged Phase 7c foundation (`key_ciphertext` itself, the crypto, the RLS
+posture, both `SECURITY DEFINER` functions' core shape).
 
 ### Column mapping
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `user_id` | `uuid` PK | FK → `auth.users(id)`, `on delete cascade`. `default auth.uid()` is a defensive fallback, not load-bearing for this app's own write path — every real write goes through `set_own_ai_key()` (below), which sets `user_id` explicitly. (A subquery form, `default (select auth.uid())`, is rejected outright by Postgres — "cannot use subquery in DEFAULT expression" — verified; a column DEFAULT must be a plain function call.) |
-| `key_ciphertext` | `text` | `base64(iv (12 bytes) \|\| authTag (16 bytes) \|\| ciphertext)`, AES-256-GCM. The encryption key is `AI_BYOK_ENCRYPTION_KEY`, a Next server-only env var — **never present in Postgres in any form.** Not client-SELECTable OR client-writable directly (see "Column grants" below); read via `get_own_ai_key_ciphertext()`, written via `set_own_ai_key()` — both `SECURITY DEFINER`. |
+| `key_ciphertext` | `text` | `base64(iv (12 bytes) \|\| authTag (16 bytes) \|\| ciphertext)`, AES-256-GCM. The encryption key is `AI_BYOK_ENCRYPTION_KEY`, a Next server-only env var — **never present in Postgres in any form.** Not client-SELECTable OR client-writable directly (see "Column grants" below); read via `get_own_ai_key_ciphertext()`, written via `set_own_ai_key()` — both `SECURITY DEFINER`. Unchanged by the provider generalization — opaque to every SQL role regardless of which provider it's a key for. |
 | `key_hint` | `text` | Display-only fingerprint (e.g. `sk-ant-...ab12`), computed server-side from the plaintext at save time — never derived from `key_ciphertext`, never the key itself. |
+| `provider` | `text`, default `'anthropic'` | **New (20260724000012).** `'anthropic'` or `'openai_compatible'`. Non-secret — see the column grant below. CHECK-constrained (`ai_keys_provider_check`). |
+| `base_url` | `text`, nullable | **New (20260724000012).** Non-secret. `NULL` for `provider='anthropic'` (fixed base, never user-controlled). Required for `provider='openai_compatible'` (`ai_keys_openai_compatible_requires_fields` CHECK) — SSRF-validated server-side, both at save time and at every polish call (`lib/server/ssrf.ts`'s `assertSafeOutboundUrl`) — see "BYOK generalization" below. `char_length <= 500` (`ai_keys_base_url_len`). |
+| `model` | `text`, nullable | **New (20260724000012).** Non-secret. `NULL` for `provider='anthropic'` (defaults to `lib/server/ai-polish.ts`'s `POLISH_MODEL`) or an explicit override. Required for `provider='openai_compatible'`. `char_length <= 200` (`ai_keys_model_len`). |
 | `created_at` | `timestamptz` | Standard bookkeeping, DB-defaulted. |
 | `updated_at` | `timestamptz` | Stamped by `set_own_ai_key()` (server `now()`, never a client-supplied timestamp — same posture as `replace_reports` stamping `reports.updated_at` itself). |
-| `validated_at` | `timestamptz`, nullable | Stamped by `set_own_ai_key()` from the SAME `now()` as `updated_at` — the key was just successfully validated against Anthropic (a 1-token ping to `POLISH_MODEL`, run BEFORE this function is ever called — an invalid key never reaches it). |
-| `last_used_at` | `timestamptz`, nullable | Stamped by `get_own_ai_key_ciphertext()` every time the ciphertext is READ for a polish attempt — not gated on whether the subsequent Anthropic call succeeds (see that function's comment; mirrors `verify_api_token`'s "one round trip" precedent). |
+| `validated_at` | `timestamptz`, nullable | Stamped by `set_own_ai_key()` from the SAME `now()` as `updated_at` — the key was just successfully validated against the REAL provider (a 1-token ping — Anthropic Messages or OpenAI-compatible Chat Completions, depending on `provider` — run BEFORE this function is ever called — an invalid key never reaches it). |
+| `last_used_at` | `timestamptz`, nullable | Stamped by `get_own_ai_key_ciphertext()` every time the ciphertext is READ for a polish attempt — not gated on whether the subsequent provider call succeeds (see that function's comment; mirrors `verify_api_token`'s "one round trip" precedent). |
 
 ### Threat model (app-level AES-256-GCM, the chosen approach)
 
@@ -850,10 +858,13 @@ already resolve the analogous read-side problem: run the privileged
 operation as the function owner (full table access) instead of the calling
 role.
 
-### `set_own_ai_key(p_key_ciphertext text, p_key_hint text)`
+### `set_own_ai_key(p_key_ciphertext text, p_key_hint text, p_provider text default 'anthropic', p_base_url text default null, p_model text default null)`
 
 ```sql
-create function public.set_own_ai_key(p_key_ciphertext text, p_key_hint text) returns timestamptz
+create function public.set_own_ai_key(
+  p_key_ciphertext text, p_key_hint text,
+  p_provider text default 'anthropic', p_base_url text default null, p_model text default null
+) returns timestamptz
   security definer set search_path = ''
 -- auth.uid()-scoped, no id argument. Insert-or-replace via
 -- ON CONFLICT (user_id) DO UPDATE -- see "Column grants" above for why
@@ -862,10 +873,23 @@ create function public.set_own_ai_key(p_key_ciphertext text, p_key_hint text) re
 -- client-supplied timestamp) and returns the validated_at it wrote.
 ```
 
+**Signature history**: originally `(p_key_ciphertext text, p_key_hint text)`
+(Phase 7c). `20260724000012_ai_keys_providers.sql` (the BYOK generalization
+delta) extended it to also accept/set `provider`/`base_url`/`model` —
+Postgres treats a different argument count as a NEW, DISTINCT overload
+(`create or replace` alone would have left the old 2-arg signature callable
+alongside this one), so that migration explicitly `drop function if exists
+public.set_own_ai_key(text, text)` FIRST. Only the 5-arg signature exists
+now (verified via `pg_proc` — see "Function EXECUTE grants" above, exactly
+one row for `set_own_ai_key`).
+
 **Grants**: `authenticated` only, same rationale as `get_own_ai_key_ciphertext`
-below. Called by `lib/server/ai-keys.ts`'s `setAiKey`, AFTER
-`validateAnthropicKey` has already confirmed the key against Anthropic — an
-invalid key never reaches this function, and therefore is never stored.
+below. Called by `lib/server/ai-keys.ts`'s `setAiKey`, AFTER the
+provider-appropriate validation call (`validateAnthropicKey` or
+`validateOpenAiCompatibleKey`, `lib/server/ai-polish.ts`) has already
+confirmed the key (and, for `openai_compatible`, the base URL + model)
+against the REAL provider — an invalid key/endpoint never reaches this
+function, and therefore is never stored.
 
 ### `get_own_ai_key_ciphertext()`
 
@@ -890,8 +914,80 @@ requires an authenticated session.
 
 | Function | Reachable by | Rationale |
 |---|---|---|
-| `set_own_ai_key(text, text)` | `authenticated` only | The only write path for `ai_keys.key_ciphertext` — needs a real session for `auth.uid()` to resolve; `anon` has no account to own a key with. |
-| `get_own_ai_key_ciphertext()` | `authenticated` only | The only read path for `ai_keys.key_ciphertext` — same rationale. |
+| `set_own_ai_key(text, text, text, text, text)` | `authenticated` only | The only write path for `ai_keys.key_ciphertext` (and, since 20260724000012, `provider`/`base_url`/`model` too) — needs a real session for `auth.uid()` to resolve; `anon` has no account to own a key with. |
+| `get_own_ai_key_ciphertext()` | `authenticated` only | The only read path for `ai_keys.key_ciphertext` — same rationale. Unchanged by the provider generalization; `provider`/`base_url`/`model` are read separately, via the plain column-grant select in `getAiKeyProviderConfig` (`lib/server/ai-keys.ts`), never through this function. |
+
+### BYOK generalization: any provider (delta, `20260724000012_ai_keys_providers.sql`)
+
+Two provider modes cover essentially every hosted LLM provider:
+
+- **`anthropic`** — the native Anthropic Messages API (the original Phase 7c
+  behavior, unchanged): `sk-ant-...` key, `x-api-key` header, fixed
+  `https://api.anthropic.com/v1/messages` — never user-controlled.
+- **`openai_compatible`** — the OpenAI Chat Completions request/response
+  shape (`Authorization: Bearer` key, `{base_url}/chat/completions`), which
+  covers OpenRouter, OpenAI itself, Groq, Together, DeepSeek, Mistral, and
+  most other hosted providers. The user supplies BOTH `base_url` and
+  `model` (required — enforced by `ai_keys_openai_compatible_requires_fields`).
+
+**What changed at the SQL layer**: three new non-secret columns
+(`provider`/`base_url`/`model`, see "Column mapping" above), two new shape
+CHECK constraints, two new length-cap CHECK constraints, `set_own_ai_key()`'s
+signature extended (see that function's own section above), and the
+`authenticated` column-SELECT grant widened to include the three new
+columns (same "revoke, then re-grant the full widened list" pattern as
+`supabase/migrations/20260724000010_oauth.sql`'s `api_tokens` delta) —
+`key_ciphertext` stays excluded, unchanged.
+
+**SSRF is an application-layer concern, not a SQL one.** `base_url` is
+USER-CONTROLLED for `openai_compatible`, and the server makes an outbound
+fetch to it — a naive implementation would let a user point this server's
+own network access at an internal service (localhost, a private-network
+peer, a cloud metadata endpoint) simply by saving that address as their
+`base_url`. SQL can constrain the column's SHAPE (a string, ≤500 chars) but
+has no way to evaluate "is this host safe to fetch from the app server's
+network" — that entirely lives in `lib/server/ssrf.ts`'s
+`assertSafeOutboundUrl`:
+
+- `https://` only (rejects `http:` and every other scheme).
+- Rejects `localhost`/`*.localhost` and known cloud-metadata hostnames
+  (`169.254.169.254`, `metadata.google.internal`) by name, before any DNS
+  resolution.
+- Rejects an IP-literal host, OR any DNS-resolved address for a hostname
+  host, that falls in a private/loopback/link-local/ULA/CGNAT/reserved
+  range (IPv4: `10/8`, `172.16/12`, `192.168/16`, `127/8`, `169.254/16`,
+  `0.0.0.0/8`, `100.64/10`; IPv6: `::1`, `fc00::/7`, `fe80::/10`, `::`, plus
+  IPv4-mapped `::ffff:a.b.c.d` unwrapped and re-checked as IPv4).
+- Every outbound fetch also passes `redirect: 'error'` — a provider cannot
+  3xx this server into an internal address after the check passes.
+- Applied at BOTH save time (`validateOpenAiCompatibleKey`, called from
+  `setAiKey` before anything is encrypted/stored) AND every polish call
+  (`callOpenAiCompatible`) — defense-in-depth, in case the two ever drift or
+  a row is edited directly in Postgres.
+- **Documented residual risk**: DNS rebinding / TOCTOU — this function
+  resolves-and-validates immediately before the caller's `fetch()`, but
+  Node's `fetch` (undici) re-resolves DNS itself a moment later; a
+  malicious DNS server could theoretically serve a different address for
+  that second resolution. Closing this fully would require pinning the
+  validated IP into the connection itself (a custom undici `Agent`), not
+  implemented — see `lib/server/ssrf.ts`'s header comment for the full,
+  honest accounting. Unit-tested in `scripts/verify-byok-providers.ts`
+  against the full private-range list plus a DNS-resolving case (via an
+  injectable resolver) and a real public host.
+
+**Error mapping is provider-neutral where it needs to be, provider-specific
+where it should be.** `lib/server/reports-service.ts`'s `curatedMessage`
+gained parallel `openai_*` marker-token cases alongside the ORIGINAL,
+unchanged `anthropic_*` ones (401/403 → key rejected; 404/400 →
+`openai_bad_endpoint`, "check the base URL and model"; 429 →
+`openai_rate_limited`; timeout/5xx → `openai_unavailable`/`openai_timeout`).
+The per-user local rate limiter (`lib/server/ai-polish.ts`) was changed from
+reusing the `anthropic_rate_limited` marker to a new provider-neutral
+`local_rate_limited` marker — reusing the Anthropic-specific one would have
+mislabeled an `openai_compatible` user's local throttle as an Anthropic-
+account problem. No response body from either provider is ever forwarded to
+a log or a client — only the HTTP status code is read out of a failed
+response (a 401 body can echo back the last characters of a bad key).
 
 ### Operational note: `AI_BYOK_ENCRYPTION_KEY` rotation/loss
 

@@ -148,23 +148,57 @@ export interface PolishResponse {
   polished: string;
 }
 
+// =============================================================================
+// BYOK generalization: any provider, not just Anthropic. Two provider modes
+// cover essentially every provider -- `anthropic` (native Messages API,
+// unchanged from the original Phase 7c behavior) and `openai_compatible`
+// (the OpenAI Chat Completions request/response shape, which OpenRouter,
+// OpenAI itself, Groq, Together, DeepSeek, Mistral, and most other hosted
+// LLM providers all implement). See `lib/server/ai-polish.ts`'s two request
+// builders and `lib/server/ssrf.ts` (the `base_url` is user-controlled for
+// `openai_compatible` and gets SSRF-validated server-side, both at save
+// time and at every polish call -- schema-level `.url()` below is a shape
+// check only, NOT the security gate).
+// =============================================================================
+
+export const AiProviderSchema = z.enum(['anthropic', 'openai_compatible']);
+export type AiProvider = z.infer<typeof AiProviderSchema>;
+
 /**
- * `PUT /api/ai/key` body. A real Anthropic key (`sk-ant-...`) is
- * comfortably longer than 20 chars and nowhere near 200 -- these bounds
- * exist only to reject an obviously-wrong paste (an empty string, a whole
- * pasted paragraph) before it ever reaches Anthropic, not to validate the
- * key's actual shape (Anthropic's own API is what validates that -- see
- * `lib/server/ai-polish.ts`'s `validateAnthropicKey`).
+ * `PUT /api/ai/key` body. `apiKey` bounds: a real provider key is
+ * comfortably longer than 20 chars and nowhere near 200 -- these exist only
+ * to reject an obviously-wrong paste (an empty string, a whole pasted
+ * paragraph) before it ever reaches the provider, not to validate the key's
+ * actual shape (the provider's own API is what validates that -- see
+ * `lib/server/ai-polish.ts`'s `validateAnthropicKey`/
+ * `validateOpenAiCompatibleKey`). `baseUrl`/`model` are REQUIRED for
+ * `openai_compatible` (there is no sane built-in default the way
+ * `anthropic` has a fixed base + a documented default model) and optional
+ * for `anthropic` (an override of the default model; the base is never
+ * user-supplied at all, see `lib/server/ai-polish.ts`'s `ANTHROPIC_BASE_URL`
+ * constant). `.max(500)`/`.max(200)` mirror the CHECK constraints in
+ * `supabase/migrations/20260724000012_ai_keys_providers.sql`.
  */
-export const SetAiKeyInputSchema = z.object({
-  apiKey: z.string().min(20).max(200),
-});
+export const SetAiKeyInputSchema = z
+  .object({
+    apiKey: z.string().min(20).max(200),
+    provider: AiProviderSchema,
+    baseUrl: z.string().min(1).max(500).url().optional(),
+    model: z.string().min(1).max(200).optional(),
+  })
+  .refine((v) => v.provider !== 'openai_compatible' || (v.baseUrl !== undefined && v.model !== undefined), {
+    message: 'baseUrl and model are required for an OpenAI-compatible provider.',
+    path: ['baseUrl'],
+  });
 export type SetAiKeyInput = z.infer<typeof SetAiKeyInputSchema>;
 
-/** `GET`/`PUT` `/api/ai/key` response. Never ciphertext, never plaintext -- see CLAUDE.md's "Data plane (Phase 7b)"-adjacent Phase 7c security section. */
+/** `GET`/`PUT` `/api/ai/key` response. Never ciphertext, never plaintext -- see CLAUDE.md's "Data plane (Phase 7b)"-adjacent Phase 7c security section. `provider`/`baseUrl`/`model` are non-secret (see the column grant in `supabase/migrations/20260724000012_ai_keys_providers.sql`). */
 export interface AiKeyStatusResponse {
   configured: boolean;
   hint: string;
   validatedAt: string | null;
   lastUsedAt: string | null;
+  provider: AiProvider;
+  baseUrl: string | null;
+  model: string | null;
 }

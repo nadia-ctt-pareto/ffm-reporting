@@ -80,6 +80,17 @@
   flex-wrap: wrap;
 }
 
+.editForm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.providerRow {
+  width: min(360px, 100%);
+  margin-bottom: 6px;
+}
+
 .controlsRow {
   display: flex;
   align-items: flex-end;
@@ -90,6 +101,15 @@
 
 .keyInputWrap {
   width: min(420px, 100%);
+}
+
+.helperText {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+  max-width: 640px;
 }
 
 .saveButtonWrap {

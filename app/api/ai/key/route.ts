@@ -72,8 +72,12 @@ export async function PUT(request: NextRequest) {
 
   try {
     // NEVER log `parsed.data`/`bodyResult.data` anywhere in this function
-    // or anything it calls -- see this file's header comment.
-    const result = await setAiKey(supabase, parsed.data.apiKey);
+    // or anything it calls -- see this file's header comment. `parsed.data`
+    // is the full `{apiKey, provider, baseUrl?, model?}` body (BYOK
+    // generalization) -- passed through verbatim, `setAiKey`
+    // (lib/server/ai-keys.ts) is what dispatches to the right provider's
+    // validation.
+    const result = await setAiKey(supabase, parsed.data);
     return NextResponse.json(result);
   } catch (err) {
     return handleServiceError(err, { route: 'api/ai/key PUT', userId: user.id });

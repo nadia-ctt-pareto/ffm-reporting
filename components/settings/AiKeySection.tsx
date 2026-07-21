@@ -1,8 +1,9 @@
 'use client';
 
-// Phase 7c (BYOK AI field polish): "AI Polish (Bring Your Own Key)" settings
-// section. RECONCILIATION DELTA: modeled directly on `McpAccessSection.tsx`
-// -- same Supabase-mode gate (SettingsScreen.tsx mounts this only when
+// Phase 7c (BYOK AI field polish); generalized to ANY provider (BYOK
+// generalization delta): "AI Polish (Bring Your Own Key)" settings section.
+// RECONCILIATION DELTA: modeled directly on `McpAccessSection.tsx` -- same
+// Supabase-mode gate (SettingsScreen.tsx mounts this only when
 // `isSupabaseConfigured()`), same self-contained fetch/CRUD state (no
 // shared hook -- `lib/hooks/useAiKeyStatus.ts` exists purely for
 // `PolishButton`'s much smaller "is polish available" check, see that
@@ -19,13 +20,22 @@
 // `McpAccessSection`'s `endpointReady === false` notice for the analogous
 // missing-`SUPABASE_JWT_SECRET` case. True demo mode (no Supabase at all)
 // never mounts this component at all -- see SettingsScreen.tsx.
+//
+// BYOK generalization: a provider picker (Anthropic / OpenAI-compatible)
+// gates two extra fields (Base URL, Model) that only apply/are required for
+// `openai_compatible` -- see lib/schema/api.ts's SetAiKeyInputSchema for the
+// server-side mirror of this same "required only for openai_compatible"
+// rule. The configured-state display now also shows the provider and model
+// alongside the masked key hint.
 
 import type { ChangeEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { fmtDateShort } from '@/lib/format';
 import { invalidateAiKeyStatusCache } from '@/lib/hooks/useAiKeyStatus';
+import type { AiProvider } from '@/lib/schema/api';
 import styles from './AiKeySection.module.css';
 
 interface AiKeyStatusBody {
@@ -33,6 +43,18 @@ interface AiKeyStatusBody {
   hint: string;
   validatedAt: string | null;
   lastUsedAt: string | null;
+  provider: AiProvider;
+  baseUrl: string | null;
+  model: string | null;
+}
+
+const PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openai_compatible', label: 'OpenAI-compatible (OpenRouter, OpenAI, Groq, …)' },
+];
+
+function providerLabel(provider: AiProvider): string {
+  return provider === 'openai_compatible' ? 'OpenAI-compatible' : 'Anthropic';
 }
 
 async function readApiError(response: Response, fallback: string): Promise<string> {
@@ -51,6 +73,9 @@ export function AiKeySection() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const [provider, setProvider] = useState<AiProvider>('anthropic');
+  const [baseUrlInput, setBaseUrlInput] = useState('');
+  const [modelInput, setModelInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -76,13 +101,36 @@ export function AiKeySection() {
       const body = (await res.json()) as AiKeyStatusBody;
       setStatus(body);
       setLoadError(null);
-      setIsEditing((prev) => prev || !body.configured);
+      if (!body.configured) {
+        // First-time setup -- open the form directly, with the defaults a
+        // brand-new key should start from.
+        setProvider('anthropic');
+        setBaseUrlInput('');
+        setModelInput('');
+        setIsEditing(true);
+      }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load the AI key status.');
     }
   }
 
+  /** "Replace Key" -- pre-fills provider/baseUrl/model from the EXISTING configuration (so replacing just the key doesn't require retyping an unchanged base URL/model); the key field itself always starts blank -- it's secret, never re-displayed. */
+  function handleStartReplace() {
+    if (status) {
+      setProvider(status.provider);
+      setBaseUrlInput(status.baseUrl ?? '');
+      setModelInput(status.model ?? '');
+    }
+    setApiKeyInput('');
+    setSaveError(null);
+    setIsEditing(true);
+  }
+
+  const canSave =
+    apiKeyInput.trim().length > 0 && (provider !== 'openai_compatible' || (baseUrlInput.trim().length > 0 && modelInput.trim().length > 0));
+
   async function handleSave() {
+    if (!canSave) return;
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -91,13 +139,25 @@ export function AiKeySection() {
       // only trims AFTER validation, so a pasted key with stray leading/
       // trailing whitespace could otherwise land right on (or past) that
       // boundary and 400 for a reason the user can't see.
+      const body: { apiKey: string; provider: AiProvider; baseUrl?: string; model?: string } = {
+        apiKey: apiKeyInput.trim(),
+        provider,
+      };
+      if (provider === 'openai_compatible') {
+        body.baseUrl = baseUrlInput.trim();
+        body.model = modelInput.trim();
+      } else if (modelInput.trim().length > 0) {
+        // Anthropic's model is optional -- only sent when the user actually
+        // typed an override; an empty field means "use the server default".
+        body.model = modelInput.trim();
+      }
       const res = await fetch('/api/ai/key', {
         method: 'PUT',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKeyInput.trim() }),
+        body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(await readApiError(res, 'This key was rejected by Anthropic -- nothing was saved.'));
+      if (!res.ok) throw new Error(await readApiError(res, 'This key was rejected -- nothing was saved.'));
       setApiKeyInput('');
       setIsEditing(false);
       // So a PolishButton that mounts LATER in this SAME browser tab (not
@@ -107,14 +167,14 @@ export function AiKeySection() {
       invalidateAiKeyStatusCache();
       await loadStatus();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'This key was rejected by Anthropic -- nothing was saved.');
+      setSaveError(err instanceof Error ? err.message : 'This key was rejected -- nothing was saved.');
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleRemove() {
-    if (typeof window !== 'undefined' && !window.confirm('Remove your saved Anthropic key? You can add a new one at any time.')) {
+    if (typeof window !== 'undefined' && !window.confirm('Remove your saved AI key? You can add a new one at any time.')) {
       return;
     }
     setIsRemoving(true);
@@ -124,6 +184,9 @@ export function AiKeySection() {
       if (!res.ok && res.status !== 204) throw new Error(await readApiError(res, 'Failed to remove the AI key.'));
       invalidateAiKeyStatusCache();
       setApiKeyInput('');
+      setProvider('anthropic');
+      setBaseUrlInput('');
+      setModelInput('');
       setIsEditing(true);
       await loadStatus();
     } catch (err) {
@@ -143,12 +206,14 @@ export function AiKeySection() {
     <section className={styles.section}>
       <div className={styles.sectionKicker}>AI Polish (Bring Your Own Key)</div>
       <p className={styles.sectionCopy}>
-        Add your own Anthropic API key to enable the &quot;Polish&quot; button next to report text fields -- it
-        rewrites what you typed in Foundation First&apos;s house voice, tailored to that specific field, and never
-        changes anything until you accept the suggestion. The key is encrypted and stored server-side; it never
-        reaches your browser again once saved, and this app never sees it in plaintext except for the moment you
-        save it. Each polish sends the field text (plus a small amount of context, such as the client name on a
-        risk) to Anthropic under your own key -- cost accrues to your Anthropic account, not this app.
+        Add your own API key to enable the &quot;Polish&quot; button next to report text fields -- it rewrites what
+        you typed in Foundation First&apos;s house voice, tailored to that specific field, and never changes
+        anything until you accept the suggestion. Works with Anthropic directly, or any OpenAI-compatible provider
+        (OpenRouter, OpenAI, Groq, and most other hosted LLM providers). The key is encrypted and stored
+        server-side; it never reaches your browser again once saved, and this app never sees it in plaintext except
+        for the moment you save it. Each polish sends the field text (plus a small amount of context, such as the
+        client name on a risk) to your chosen provider under your own key -- cost accrues to your own account
+        there, not this app.
       </p>
 
       {serverAvailable === false ? (
@@ -167,6 +232,20 @@ export function AiKeySection() {
       {serverAvailable && status && !isEditing ? (
         <div className={styles.statusBlock}>
           <div className={styles.statusRow}>
+            <span className={styles.statusLabel}>Provider</span>
+            <span className={styles.statusValue}>{providerLabel(status.provider)}</span>
+          </div>
+          {status.provider === 'openai_compatible' && status.baseUrl ? (
+            <div className={styles.statusRow}>
+              <span className={styles.statusLabel}>Base URL</span>
+              <code className={styles.statusValue}>{status.baseUrl}</code>
+            </div>
+          ) : null}
+          <div className={styles.statusRow}>
+            <span className={styles.statusLabel}>Model</span>
+            <code className={styles.statusValue}>{status.model || 'Default'}</code>
+          </div>
+          <div className={styles.statusRow}>
             <span className={styles.statusLabel}>Key</span>
             <code className={styles.statusValue}>{status.hint || '(configured)'}</code>
           </div>
@@ -179,7 +258,7 @@ export function AiKeySection() {
             <span className={styles.statusValue}>{status.lastUsedAt ? fmtDateShort(status.lastUsedAt) : 'Never'}</span>
           </div>
           <div className={styles.templateRow}>
-            <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+            <Button variant="outline" size="sm" onClick={handleStartReplace}>
               Replace Key
             </Button>
             <Button variant="ghost" size="sm" onClick={handleRemove} disabled={isRemoving}>
@@ -195,18 +274,71 @@ export function AiKeySection() {
       ) : null}
 
       {serverAvailable && isEditing ? (
-        <div className={styles.controlsRow}>
-          <div className={styles.keyInputWrap}>
-            <Input
-              label="Anthropic API Key"
-              type="password"
-              placeholder="sk-ant-..."
-              value={apiKeyInput}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setApiKeyInput(e.target.value)}
+        <div className={styles.editForm}>
+          <div className={styles.providerRow}>
+            <Select
+              label="Provider"
+              value={provider}
+              onChange={(value) => setProvider(value as AiProvider)}
+              options={PROVIDER_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
             />
           </div>
+
+          <div className={styles.controlsRow}>
+            <div className={styles.keyInputWrap}>
+              <Input
+                label={provider === 'openai_compatible' ? 'API Key' : 'Anthropic API Key'}
+                type="password"
+                placeholder={provider === 'openai_compatible' ? 'sk-or-...' : 'sk-ant-...'}
+                value={apiKeyInput}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setApiKeyInput(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {provider === 'openai_compatible' ? (
+            <div className={styles.controlsRow}>
+              <div className={styles.keyInputWrap}>
+                <Input
+                  label="Base URL"
+                  placeholder="https://openrouter.ai/api/v1"
+                  value={baseUrlInput}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setBaseUrlInput(e.target.value)}
+                />
+              </div>
+              <div className={styles.keyInputWrap}>
+                <Input
+                  label="Model"
+                  placeholder="anthropic/claude-sonnet-5"
+                  value={modelInput}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setModelInput(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className={styles.controlsRow}>
+              <div className={styles.keyInputWrap}>
+                <Input
+                  label="Model (optional)"
+                  placeholder="claude-sonnet-5 (default)"
+                  value={modelInput}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setModelInput(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {provider === 'openai_compatible' ? (
+            <p className={styles.helperText}>
+              The base URL must be your provider&apos;s OpenAI-compatible API root (Chat Completions is appended
+              automatically) -- e.g. <code>https://openrouter.ai/api/v1</code> for OpenRouter, or{' '}
+              <code>https://api.groq.com/openai/v1</code> for Groq. Both the base URL and model are validated
+              against the provider before anything is saved.
+            </p>
+          ) : null}
+
           <div className={styles.saveButtonWrap}>
-            <Button variant="primary" size="sm" onClick={handleSave} disabled={isSaving || apiKeyInput.trim().length === 0}>
+            <Button variant="primary" size="sm" onClick={handleSave} disabled={isSaving || !canSave}>
               {isSaving ? 'Validating…' : 'Save Key'}
             </Button>
             {status?.configured ? (

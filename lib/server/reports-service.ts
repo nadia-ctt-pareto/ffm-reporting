@@ -97,12 +97,26 @@ export function curatedMessage(code: ServiceErrorCode, rawMessage: string): stri
       // Phase 7c (BYOK AI polish): marker-token matches, NOT new
       // ServiceErrorCode members -- see lib/server/ai-polish.ts's header
       // comment for why every AI failure reuses this existing 'invalid'/
-      // 'internal' scheme instead of a parallel error type.
+      // 'internal' scheme instead of a parallel error type. BYOK
+      // generalization added the `openai_*`/`local_rate_limited` markers
+      // below, alongside the ORIGINAL, unchanged `anthropic_*` ones.
       if (/anthropic_invalid_key/.test(rawMessage)) {
         return 'Your Anthropic key was rejected -- update it in Settings.';
       }
       if (/anthropic_rate_limited/.test(rawMessage)) {
         return 'Your Anthropic account is rate-limited -- try again in a minute.';
+      }
+      if (/openai_invalid_key/.test(rawMessage)) {
+        return 'Your API key was rejected -- update it in Settings.';
+      }
+      if (/openai_bad_endpoint/.test(rawMessage)) {
+        return 'Check the base URL and model, then try again.';
+      }
+      if (/openai_rate_limited/.test(rawMessage)) {
+        return 'The provider rate-limited this request -- try again in a minute.';
+      }
+      if (/local_rate_limited/.test(rawMessage)) {
+        return "You've made too many polish requests -- try again in a minute.";
       }
       if (/ai_key_unreadable/.test(rawMessage)) {
         return 'Your stored key can no longer be read -- re-enter it in Settings.';
@@ -111,6 +125,9 @@ export function curatedMessage(code: ServiceErrorCode, rawMessage: string): stri
     case 'internal':
       if (/anthropic_unavailable|anthropic_timeout/.test(rawMessage)) {
         return "Couldn't reach Anthropic -- your text is unchanged.";
+      }
+      if (/openai_unavailable|openai_timeout|provider_unavailable/.test(rawMessage)) {
+        return "Couldn't reach the provider -- your text is unchanged.";
       }
       return 'Something went wrong on our end. Please try again.';
     default:
