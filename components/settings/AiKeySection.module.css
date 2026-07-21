@@ -1,0 +1,99 @@
+.section {
+  margin-bottom: 44px;
+}
+
+.sectionKicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 14px;
+}
+
+.sectionCopy {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0 0 18px;
+  max-width: 720px;
+}
+
+.notConfiguredNotice {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-body);
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--warning);
+  padding: 12px 14px;
+  margin: 0 0 18px;
+}
+
+.fieldError {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--negative);
+  margin: 12px 0 0;
+}
+
+.statusBlock {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-panel-muted);
+  padding: 16px 18px;
+  margin-bottom: 6px;
+}
+
+.statusRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+.statusRow:last-of-type {
+  margin-bottom: 16px;
+}
+
+.statusLabel {
+  color: var(--text-muted);
+  width: 90px;
+  flex: none;
+}
+
+.statusValue {
+  color: var(--text-body);
+  /* Mono, not var(--font-body) -- the key fingerprint mixes letters/digits
+     where look-alike characters matter; see McpAccessSection.module.css's
+     .tokenValue for the identical rationale (no mono token exists in the
+     design system yet, so this is a local, self-contained stack). */
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.templateRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.controlsRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.keyInputWrap {
+  width: min(420px, 100%);
+}
+
+.saveButtonWrap {
+  display: flex;
+  gap: 10px;
+  padding-bottom: 2px;
+}

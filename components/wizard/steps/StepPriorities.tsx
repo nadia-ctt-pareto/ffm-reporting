@@ -1,10 +1,12 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { PolishButton } from '@/components/ai/PolishButton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ImportPanel } from '@/components/wizard/ImportPanel';
 import type { ImportCandidateProps } from '@/components/wizard/ImportPanel';
+import { draftPeriodLabel } from '@/lib/report-utils';
 import type { Draft, Priority } from '@/lib/types';
 import styles from './Step.module.css';
 
@@ -40,6 +42,7 @@ export function StepPriorities({
   importPriorityDisabled,
   importSelectedPriorities,
 }: StepPrioritiesProps) {
+  const context = { kind: draft.kind, period: draftPeriodLabel(draft) };
   return (
     <div>
       <div className={styles.title}>{draft.kind === 'daily' ? 'Priorities' : "Next Week's Priorities"}</div>
@@ -58,11 +61,14 @@ export function StepPriorities({
       <div className={styles.rowsList}>
         {draft.priorities.map((p, i) => (
           <div key={p.id} className={styles.priorityRow}>
-            <Input
-              label={`Priority ${i + 1}`}
-              value={p.text}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => updatePriority(p.id, 'text', e.target.value)}
-            />
+            <div className={styles.fieldWithPolish}>
+              <Input
+                label={`Priority ${i + 1}`}
+                value={p.text}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => updatePriority(p.id, 'text', e.target.value)}
+              />
+              <PolishButton field="priority" value={p.text} context={context} onAccept={(next) => updatePriority(p.id, 'text', next)} />
+            </div>
             <Button variant="ghost" size="sm" onClick={() => removePriority(p.id)}>
               Remove
             </Button>

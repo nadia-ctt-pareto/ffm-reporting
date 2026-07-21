@@ -247,9 +247,14 @@ substitute for asking first.
 
 ## Voice
 
-There is no shared `HOUSE_VOICE` constant yet (planned for a future phase
--- see `lib/prompts.ts`'s comment). Until it exists, match the tone already
-present in the reports you read: concise, client-facing status language --
-not internal engineering jargon -- for `summaryNarrative`, `win.narrative`,
-and `touchpoints.narrative`. When in doubt, mirror the phrasing style of
-the most recent report for the same `prepared_for`.
+Foundation First's house voice (`HOUSE_VOICE`, `lib/prompts.ts`) is the
+same voice the app's own "Polish" button uses to rewrite prose fields
+(`lib/server/ai-polish.ts`) -- match it here too, so a report drafted or
+edited through this connector reads no differently from one polished or
+hand-written in the web app: concise, concrete, client-appropriate; plain
+business English, active voice, specific outcomes and numbers over vague
+adjectives; no corporate filler ("I'm pleased to report", "as previously
+mentioned", "moving forward"), no hype, no exclamation marks, no internal
+jargon a client wouldn't recognize. Applies to `summaryNarrative`,
+`win.narrative`, and `touchpoints.narrative`. When in doubt, also mirror
+the phrasing style of the most recent report for the same `prepared_for`.

@@ -18,6 +18,7 @@
 // `revoke_report_share` -- neither is reachable through this schema at all.
 
 import { z } from 'zod';
+import { POLISH_FIELD_IDS } from '../prompts';
 import { isoDate, AnyReportInputSchema, ReportCoreInputSchema } from './report';
 import { ProjectSchema } from './project';
 
@@ -83,4 +84,74 @@ export type ProjectInput = z.infer<typeof ProjectInputSchema>;
 export interface ApiErrorBody {
   error: string;
   issues?: unknown;
+}
+
+// =============================================================================
+// Phase 7c (BYOK AI polish): `/api/ai/key` and `/api/ai/polish` transport
+// schemas. Same placement rule as everything above -- wire shapes only,
+// deliberately NOT re-exported through lib/schema/index.ts (see that
+// barrel's own comment). `PolishFieldIdSchema` is built from
+// `lib/prompts.ts`'s `POLISH_FIELD_IDS` array (not re-declared here) so the
+// transport schema and the per-field prompt registry can never drift apart.
+// =============================================================================
+
+export const PolishFieldIdSchema = z.enum(POLISH_FIELD_IDS);
+
+/**
+ * Small, bounded context object sent alongside the field text -- NOT the
+ * whole report (see `lib/server/ai-polish.ts`'s doc comment for why: token
+ * cost and data-sharing surface, for little single-field quality gain).
+ * Every string is capped at 120 chars -- generous for a period label, a
+ * client name, or a single enum value, nowhere near a paragraph. `.strict()`
+ * so an unrecognized key is rejected outright rather than silently dropped
+ * -- this object's whole point is to stay small and enumerated.
+ */
+export const PolishContextSchema = z
+  .object({
+    kind: z.enum(['weekly', 'daily']).optional(),
+    period: z.string().max(120).optional(),
+    client: z.string().max(120).optional(),
+    severity: z.string().max(120).optional(),
+    status: z.string().max(120).optional(),
+  })
+  .strict();
+export type PolishContext = z.infer<typeof PolishContextSchema>;
+
+/**
+ * `POST /api/ai/polish` body. `text` is capped at 4,000 chars (CLAUDE.md's
+ * Phase 7c abuse-control caps) -- `components/ai/PolishButton.tsx` also
+ * enforces this client-side before ever issuing the request, so an
+ * oversized paste never leaves the browser.
+ */
+export const PolishRequestSchema = z.object({
+  field: PolishFieldIdSchema,
+  text: z.string().min(1).max(4000),
+  context: PolishContextSchema.optional(),
+});
+export type PolishRequest = z.infer<typeof PolishRequestSchema>;
+
+/** `POST /api/ai/polish` response -- read path, no `.max()` needed. */
+export interface PolishResponse {
+  polished: string;
+}
+
+/**
+ * `PUT /api/ai/key` body. A real Anthropic key (`sk-ant-...`) is
+ * comfortably longer than 20 chars and nowhere near 200 -- these bounds
+ * exist only to reject an obviously-wrong paste (an empty string, a whole
+ * pasted paragraph) before it ever reaches Anthropic, not to validate the
+ * key's actual shape (Anthropic's own API is what validates that -- see
+ * `lib/server/ai-polish.ts`'s `validateAnthropicKey`).
+ */
+export const SetAiKeyInputSchema = z.object({
+  apiKey: z.string().min(20).max(200),
+});
+export type SetAiKeyInput = z.infer<typeof SetAiKeyInputSchema>;
+
+/** `GET`/`PUT` `/api/ai/key` response. Never ciphertext, never plaintext -- see CLAUDE.md's "Data plane (Phase 7b)"-adjacent Phase 7c security section. */
+export interface AiKeyStatusResponse {
+  configured: boolean;
+  hint: string;
+  validatedAt: string | null;
+  lastUsedAt: string | null;
 }

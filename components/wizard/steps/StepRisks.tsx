@@ -1,12 +1,14 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { PolishButton } from '@/components/ai/PolishButton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ImportPanel } from '@/components/wizard/ImportPanel';
 import type { ImportCandidateProps } from '@/components/wizard/ImportPanel';
 import { RISK_SEVERITY_OPTIONS } from '@/lib/constants';
+import { draftPeriodLabel } from '@/lib/report-utils';
 import type { Draft, Risk } from '@/lib/types';
 import styles from './Step.module.css';
 
@@ -39,6 +41,7 @@ export function StepRisks({
   importRiskDisabled,
   importSelectedRisks,
 }: StepRisksProps) {
+  const period = draftPeriodLabel(draft);
   return (
     <div>
       <div className={styles.title}>{'Risks & Blockers'}</div>
@@ -69,16 +72,32 @@ export function StepRisks({
               value={rk.severity}
               onChange={(value) => updateRisk(rk.id, 'severity', value as Risk['severity'])}
             />
-            <Input
-              label="Description"
-              value={rk.description}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => updateRisk(rk.id, 'description', e.target.value)}
-            />
-            <Input
-              label="Next Step"
-              value={rk.nextStep}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => updateRisk(rk.id, 'nextStep', e.target.value)}
-            />
+            <div className={styles.fieldWithPolish}>
+              <Input
+                label="Description"
+                value={rk.description}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => updateRisk(rk.id, 'description', e.target.value)}
+              />
+              <PolishButton
+                field="riskDescription"
+                value={rk.description}
+                context={{ kind: draft.kind, period, client: rk.client, severity: rk.severity }}
+                onAccept={(next) => updateRisk(rk.id, 'description', next)}
+              />
+            </div>
+            <div className={styles.fieldWithPolish}>
+              <Input
+                label="Next Step"
+                value={rk.nextStep}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => updateRisk(rk.id, 'nextStep', e.target.value)}
+              />
+              <PolishButton
+                field="riskNextStep"
+                value={rk.nextStep}
+                context={{ kind: draft.kind, period, client: rk.client, severity: rk.severity }}
+                onAccept={(next) => updateRisk(rk.id, 'nextStep', next)}
+              />
+            </div>
             <Button variant="ghost" size="sm" onClick={() => removeRisk(rk.id)}>
               Remove
             </Button>

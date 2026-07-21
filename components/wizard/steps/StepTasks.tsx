@@ -1,12 +1,14 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { PolishButton } from '@/components/ai/PolishButton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ImportPanel } from '@/components/wizard/ImportPanel';
 import type { ImportCandidateProps } from '@/components/wizard/ImportPanel';
 import { TASK_STATUS_OPTIONS } from '@/lib/constants';
+import { draftPeriodLabel } from '@/lib/report-utils';
 import type { Draft, Task } from '@/lib/types';
 import styles from './Step.module.css';
 
@@ -39,6 +41,7 @@ export function StepTasks({
   importTaskDisabled,
   importSelectedTasks,
 }: StepTasksProps) {
+  const period = draftPeriodLabel(draft);
   return (
     <div>
       <div className={styles.title}>Task Status</div>
@@ -63,11 +66,19 @@ export function StepTasks({
               onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'client', e.target.value)}
               suggestions={clientSuggestions}
             />
-            <Input
-              label="Task"
-              value={t.task}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'task', e.target.value)}
-            />
+            <div className={styles.fieldWithPolish}>
+              <Input
+                label="Task"
+                value={t.task}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'task', e.target.value)}
+              />
+              <PolishButton
+                field="taskTitle"
+                value={t.task}
+                context={{ kind: draft.kind, period, client: t.client, status: t.status }}
+                onAccept={(next) => updateTask(t.id, 'task', next)}
+              />
+            </div>
             <Select
               label="Status"
               options={[...TASK_STATUS_OPTIONS]}

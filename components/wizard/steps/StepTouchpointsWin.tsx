@@ -1,8 +1,10 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { PolishButton } from '@/components/ai/PolishButton';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
+import { draftPeriodLabel } from '@/lib/report-utils';
 import type { Draft } from '@/lib/types';
 import styles from './Step.module.css';
 
@@ -26,6 +28,7 @@ function nonNegativeInt(raw: string): number {
 
 /** Ported from design-source lines 173-197. */
 export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: StepTouchpointsWinProps) {
+  const context = { kind: draft.kind, period: draftPeriodLabel(draft) };
   return (
     <div>
       <div className={styles.title}>{"This Week's Touchpoints & Win"}</div>
@@ -56,6 +59,12 @@ export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: 
           value={draft.touchpoints.narrative}
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTouchpointsField('narrative', e.target.value)}
         />
+        <PolishButton
+          field="touchpointsNarrative"
+          value={draft.touchpoints.narrative}
+          context={context}
+          onAccept={(next) => setTouchpointsField('narrative', next)}
+        />
       </div>
       <div className={styles.divider}>
         <div className={styles.kicker}>{"This Week's Win"}</div>
@@ -77,6 +86,7 @@ export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: 
           value={draft.win.narrative}
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setWinField('narrative', e.target.value)}
         />
+        <PolishButton field="winNarrative" value={draft.win.narrative} context={context} onAccept={(next) => setWinField('narrative', next)} />
       </div>
     </div>
   );

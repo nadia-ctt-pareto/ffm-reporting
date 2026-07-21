@@ -1,6 +1,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { PolishButton } from '@/components/ai/PolishButton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
@@ -103,6 +104,12 @@ export function StepBasics({
         placeholder="How did the week go, overall?"
         value={draft.summaryNarrative}
         onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setDraftField('summaryNarrative', e.target.value)}
+      />
+      <PolishButton
+        field="summary"
+        value={draft.summaryNarrative}
+        context={{ kind: draft.kind, period: draftPeriodLabel(draft) }}
+        onAccept={(next) => setDraftField('summaryNarrative', next)}
       />
       <div className={styles.preview}>{draftPeriodLabel(draft)}</div>
     </div>

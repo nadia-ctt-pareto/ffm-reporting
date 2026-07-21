@@ -5,7 +5,8 @@ import { useId } from 'react';
 import styles from './Input.module.css';
 
 export interface InputProps {
-  type?: 'text' | 'date' | 'number' | 'email';
+  /** Phase 7c: `'password'` added for AiKeySection's Anthropic-key entry field -- masks the value on screen while typing, same native behavior as any other password field (no design-system-specific styling needed). */
+  type?: 'text' | 'date' | 'number' | 'email' | 'password';
   label?: string;
   placeholder?: string;
   value: string | number;

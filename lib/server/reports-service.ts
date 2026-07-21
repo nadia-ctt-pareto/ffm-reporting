@@ -78,8 +78,25 @@ export function curatedMessage(code: ServiceErrorCode, rawMessage: string): stri
     case 'unauthorized':
       return 'You must be signed in to do that.';
     case 'invalid':
+      // Phase 7c (BYOK AI polish): marker-token matches, NOT new
+      // ServiceErrorCode members -- see lib/server/ai-polish.ts's header
+      // comment for why every AI failure reuses this existing 'invalid'/
+      // 'internal' scheme instead of a parallel error type.
+      if (/anthropic_invalid_key/.test(rawMessage)) {
+        return 'Your Anthropic key was rejected -- update it in Settings.';
+      }
+      if (/anthropic_rate_limited/.test(rawMessage)) {
+        return 'Your Anthropic account is rate-limited -- try again in a minute.';
+      }
+      if (/ai_key_unreadable/.test(rawMessage)) {
+        return 'Your stored key can no longer be read -- re-enter it in Settings.';
+      }
       return "That request couldn't be processed -- check the values and try again.";
     case 'internal':
+      if (/anthropic_unavailable|anthropic_timeout/.test(rawMessage)) {
+        return "Couldn't reach Anthropic -- your text is unchanged.";
+      }
+      return 'Something went wrong on our end. Please try again.';
     default:
       return 'Something went wrong on our end. Please try again.';
   }

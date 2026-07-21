@@ -19,10 +19,13 @@ post-review-hardening delta (matching SQL CHECK constraints + a child-row
 count cap for the app's write-boundary length caps, plus `replace_reports`
 returning the real `updated_at` it wrote) at
 `supabase/migrations/20260720000006_post_review_hardening_round2.sql` — see
-"Post-review hardening, round 2 (Phase 7b)" below — and a Phase 8a delta
+"Post-review hardening, round 2 (Phase 7b)" below — a Phase 8a delta
 (the MCP bearer-token verify/revoke RPCs) at
 `supabase/migrations/20260721000007_mcp_tokens.sql` — see "`verify_api_token`
-/ `revoke_api_token` (Phase 8a)" below.
+/ `revoke_api_token` (Phase 8a)" below — and a Phase 7c delta (the BYOK AI
+key table + its ciphertext-read RPC) at
+`supabase/migrations/20260722000008_ai_keys.sql` — see "`ai_keys` (BYOK,
+Phase 7c)" below.
 
 ## Discriminated union ↔ single table (Phase 4)
 
@@ -286,6 +289,8 @@ statement) to confirm:
 | `get_report_share_token(text)` (Phase 7b, 20260720000005) | `authenticated` only | Same rationale as `enable_report_share`/`revoke_report_share` — owner-or-admin-gated internally, `anon` has no account to own a report with. See "Post-review hardening (Phase 7b)" below. |
 | `verify_api_token(text)` (Phase 8a, 20260721000007) | `anon` only | The MCP auth bridge's bare anon client is the only real caller — see "`verify_api_token` / `revoke_api_token` (Phase 8a)" below. |
 | `revoke_api_token(text)` (Phase 8a, 20260721000007) | `authenticated` only | Owner-gated internally, same rationale as `enable_report_share`/`revoke_report_share`. |
+| `set_own_ai_key(text, text)` (Phase 7c, 20260722000008) | `authenticated` only | `auth.uid()`-scoped write path for `ai_keys.key_ciphertext` — see "`ai_keys` (BYOK, Phase 7c)" below for the verified reason a plain client-side upsert cannot do this. |
+| `get_own_ai_key_ciphertext()` (Phase 7c, 20260722000008) | `authenticated` only | `auth.uid()`-scoped read path for `ai_keys.key_ciphertext` — same section. |
 
 ```sql
 select p.proname, p.proacl from pg_proc p
@@ -297,7 +302,8 @@ where p.pronamespace = 'public'::regnamespace order by p.proname;
 Every `SECURITY DEFINER` function (`get_shared_report`,
 `enable_report_share`, `revoke_report_share`, `before_user_created_hook`,
 `get_report_share_token` (Phase 7b), `verify_api_token`/`revoke_api_token`
-(Phase 8a)) sets `search_path = ''` (empty), not `= public`, and every relation/function
+(Phase 8a), `set_own_ai_key`/`get_own_ai_key_ciphertext` (Phase 7c)) sets
+`search_path = ''` (empty), not `= public`, and every relation/function
 reference inside them is schema-qualified (`public.reports`,
 `extensions.gen_random_bytes`, ...) — Supabase's own linter recommendation.
 An empty search_path means Postgres can never resolve an unqualified name
@@ -750,6 +756,154 @@ The `expectedUpdatedAt` CAS half of SHOULD-FIX C (comparing against the
 DOMAIN-normalized, not raw, `updated_at`) is an app-layer-only change — see
 `lib/server/reports-service.ts`'s `updateReport` and `lib/schema/api.ts`'s
 `ReportPatchSchema` doc comment.
+
+## `ai_keys` (BYOK, Phase 7c)
+
+`supabase/migrations/20260722000008_ai_keys.sql` — the schema half of the
+BYOK AI field-polish feature (`lib/server/ai-crypto.ts` encrypts/decrypts;
+`lib/server/ai-keys.ts` is the service layer that calls this schema;
+`lib/server/ai-polish.ts` is the actual Anthropic call — read all three
+alongside this section for the full picture). One row per user: their
+Anthropic API key, AES-256-GCM-encrypted at rest.
+
+### Column mapping
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `user_id` | `uuid` PK | FK → `auth.users(id)`, `on delete cascade`. `default auth.uid()` is a defensive fallback, not load-bearing for this app's own write path — every real write goes through `set_own_ai_key()` (below), which sets `user_id` explicitly. (A subquery form, `default (select auth.uid())`, is rejected outright by Postgres — "cannot use subquery in DEFAULT expression" — verified; a column DEFAULT must be a plain function call.) |
+| `key_ciphertext` | `text` | `base64(iv (12 bytes) \|\| authTag (16 bytes) \|\| ciphertext)`, AES-256-GCM. The encryption key is `AI_BYOK_ENCRYPTION_KEY`, a Next server-only env var — **never present in Postgres in any form.** Not client-SELECTable OR client-writable directly (see "Column grants" below); read via `get_own_ai_key_ciphertext()`, written via `set_own_ai_key()` — both `SECURITY DEFINER`. |
+| `key_hint` | `text` | Display-only fingerprint (e.g. `sk-ant-...ab12`), computed server-side from the plaintext at save time — never derived from `key_ciphertext`, never the key itself. |
+| `created_at` | `timestamptz` | Standard bookkeeping, DB-defaulted. |
+| `updated_at` | `timestamptz` | Stamped by `set_own_ai_key()` (server `now()`, never a client-supplied timestamp — same posture as `replace_reports` stamping `reports.updated_at` itself). |
+| `validated_at` | `timestamptz`, nullable | Stamped by `set_own_ai_key()` from the SAME `now()` as `updated_at` — the key was just successfully validated against Anthropic (a 1-token ping to `POLISH_MODEL`, run BEFORE this function is ever called — an invalid key never reaches it). |
+| `last_used_at` | `timestamptz`, nullable | Stamped by `get_own_ai_key_ciphertext()` every time the ciphertext is READ for a polish attempt — not gated on whether the subsequent Anthropic call succeeds (see that function's comment; mirrors `verify_api_token`'s "one round trip" precedent). |
+
+### Threat model (app-level AES-256-GCM, the chosen approach)
+
+Weighed against `pgcrypto` (key passed per-query, so it either lives in the
+DB — no protection at all — or transits SQL text where `log_statement`
+could capture it) and Supabase Vault (built for project-level secrets, not
+per-user rows — any role able to `select vault.decrypted_secrets` gets
+plaintext, and per-user row-scoping on Vault views is awkward). App-level
+AES-256-GCM in the Next server runtime, key from `AI_BYOK_ENCRYPTION_KEY`,
+is the honest choice for a per-user secret:
+
+| Threat | Protected? |
+| --- | --- |
+| Stolen DB dump / backup | **Yes** — the dump contains ciphertext only; the encryption key never touches Postgres. |
+| Compromised app server / malicious deploy | **No — and nothing can fix this.** A server that proxies calls to Anthropic must be able to decrypt. This is stated plainly, not papered over: it is out of scope for any server-proxied BYOK design, not a gap specific to this implementation. |
+| Admin user via SQL/PostgREST | **Yes** — an admin can see ciphertext at most (and cannot even do that — see "Column grants" below); the decryption key exists only in the app's env, which repo admins ≠ DB admins may not share. |
+
+### Why NO `is_admin()` branch — deliberately tighter than every other table
+
+Every other table in this schema (`reports`, `tasks`, `risks`,
+`priorities`, `projects`) gives `public.is_admin()` a bypass on top of
+owner-scoped RLS — reasonable, since an admin legitimately needs to manage
+the org's reports. `ai_keys` has **no such branch on any verb** (select/
+insert/update/delete all read strictly `user_id = (select auth.uid())`,
+full stop): an admin's job is reports, never another user's personal
+Anthropic API key. Applying the existing `is_admin()` pattern here by
+habit would have been the wrong default — this was a deliberate exception,
+not an oversight, and it's the single thing to double-check first if this
+table is ever touched again.
+
+### Column grants — and a VERIFIED GOTCHA that shaped the write path
+
+`key_ciphertext` is excluded from `authenticated`'s SELECT grant entirely
+(the `api_tokens.token_hash` / `reports.share_token` precedent — Postgres
+treats `SELECT *` as naming every column, so this closes even an
+accidental future `select('*')`, and a direct PostgREST call with the anon
+key + a user's own JWT). `authenticated` gets **no INSERT or UPDATE grant
+on `ai_keys` at all** — every write to `key_ciphertext` (and, since there's
+no reason to write the other columns independently of it, every write to
+the row at all) goes through `set_own_ai_key()` below. DELETE stays a
+plain table-level grant to `authenticated` (RLS-scoped) — DELETE doesn't
+reference column *values*, so none of the below applies to it.
+
+**Why writes need a `SECURITY DEFINER` function too, not just reads
+(verified live, not theoretical):** the first version of this schema
+granted `authenticated` a column-scoped UPDATE on `key_ciphertext`, meant
+to be reached via a plain client-side `.upsert(...).onConflict('user_id')`
+— mirroring the read side's column-grant pattern. This does **not** work:
+Postgres requires **SELECT** privilege on any column referenced as
+`excluded.<column>` inside an `ON CONFLICT ... DO UPDATE SET` clause, and
+`authenticated` deliberately has no SELECT on `key_ciphertext`. Verified
+directly via `psql` (`set role authenticated; set request.jwt.claims =
+...`), isolating one `SET` clause at a time: `on conflict (user_id) do
+update set key_ciphertext = excluded.key_ciphertext` failed with
+`permission denied for table ai_keys`, while the identical statement with
+`set key_hint = excluded.key_hint` (or `updated_at`, or `validated_at`)
+succeeded — and a plain `INSERT` with no `ON CONFLICT` clause at all also
+succeeded. The two properties this table needs — "authenticated can write
+`key_ciphertext`" and "authenticated can never read `key_ciphertext`" —
+are mutually exclusive for a directly-executed upsert. `set_own_ai_key()`
+resolves this the same way `enable_report_share`/`get_own_ai_key_ciphertext`
+already resolve the analogous read-side problem: run the privileged
+operation as the function owner (full table access) instead of the calling
+role.
+
+### `set_own_ai_key(p_key_ciphertext text, p_key_hint text)`
+
+```sql
+create function public.set_own_ai_key(p_key_ciphertext text, p_key_hint text) returns timestamptz
+  security definer set search_path = ''
+-- auth.uid()-scoped, no id argument. Insert-or-replace via
+-- ON CONFLICT (user_id) DO UPDATE -- see "Column grants" above for why
+-- this specifically must be SECURITY DEFINER. Stamps validated_at/
+-- updated_at from ONE now() captured at the top of the function (never a
+-- client-supplied timestamp) and returns the validated_at it wrote.
+```
+
+**Grants**: `authenticated` only, same rationale as `get_own_ai_key_ciphertext`
+below. Called by `lib/server/ai-keys.ts`'s `setAiKey`, AFTER
+`validateAnthropicKey` has already confirmed the key against Anthropic — an
+invalid key never reaches this function, and therefore is never stored.
+
+### `get_own_ai_key_ciphertext()`
+
+```sql
+create function public.get_own_ai_key_ciphertext() returns text
+  security definer set search_path = ''
+-- auth.uid()-scoped, no argument -- there is no legitimate reason for this
+-- to ever read anyone else's row. A single atomic UPDATE ... RETURNING
+-- (not a SELECT then a separate UPDATE) stamps last_used_at and returns
+-- the ciphertext in one round trip -- mirrors verify_api_token's
+-- TOCTOU-closing technique exactly (Phase 8a,
+-- 20260721000007_mcp_tokens.sql). Returns NULL if the caller has no
+-- stored key (never raises for that case).
+```
+
+**Grants** (verified via `pg_proc.proacl`, per this document's own "verify,
+never just re-read the `revoke` statement" discipline): `authenticated`
+only, for both functions above. `anon` is excluded entirely from either —
+unlike `verify_api_token` (anon-only, because an MCP request carries no
+session at all), these need `auth.uid()` to resolve to something, which
+requires an authenticated session.
+
+| Function | Reachable by | Rationale |
+|---|---|---|
+| `set_own_ai_key(text, text)` | `authenticated` only | The only write path for `ai_keys.key_ciphertext` — needs a real session for `auth.uid()` to resolve; `anon` has no account to own a key with. |
+| `get_own_ai_key_ciphertext()` | `authenticated` only | The only read path for `ai_keys.key_ciphertext` — same rationale. |
+
+### Operational note: `AI_BYOK_ENCRYPTION_KEY` rotation/loss
+
+**Rotating or losing `AI_BYOK_ENCRYPTION_KEY` makes every previously-stored
+key permanently undecryptable.** There is no recovery path other than each
+affected user re-entering their key in Settings — `lib/server/ai-crypto.ts`
+degrades this to the `ai_key_unreadable` curated error ("re-enter your
+key"), never a 500. Before rotating this value in production: expect every
+BYOK user to need to re-save their key afterward, and communicate that
+ahead of the rotation. Same "server-only, never `NEXT_PUBLIC_*`" rule as
+`SUPABASE_JWT_SECRET` — see `.env.example`'s block for the local dev value
+(`openssl rand -base64 32`).
+
+### Route handlers
+
+`app/api/ai/key/route.ts` (GET status / PUT save-or-replace / DELETE
+remove) and `app/api/ai/polish/route.ts` (POST — the actual polish call).
+Both gated on `isAiPolishConfigured()` (`lib/server/ai-crypto.ts`):
+`isSupabaseConfigured() && Boolean(process.env.AI_BYOK_ENCRYPTION_KEY)` —
+404 when false, mirroring `isMcpConfigured()`'s posture exactly.
 
 ## Cutover checklist
 

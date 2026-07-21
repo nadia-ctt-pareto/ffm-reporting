@@ -122,3 +122,12 @@ export function IconMenu(props: SVGProps<SVGSVGElement>) {
     </IconBase>
   );
 }
+
+/** Phase 7c: a 4-point sparkle -- "AI polish" (components/ai/PolishButton.tsx). A single filled straight-edged star, not the rounded/curved sparkle glyph most "AI" affordances use elsewhere -- straight line segments stay on-brand with this design system's square-corner rule even though the shape itself is a star, not a rectangle. */
+export function IconPolish(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M8 1L9.8 6.2L15 8L9.8 9.8L8 15L6.2 9.8L1 8L6.2 6.2Z" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}

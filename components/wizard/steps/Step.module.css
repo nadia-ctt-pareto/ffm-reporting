@@ -83,6 +83,40 @@
   margin-bottom: 28px;
 }
 
+/* Phase 7c: wraps an Input + its PolishButton inside one grid cell of
+   .taskRow/.riskRow/.priorityRow, replacing the bare Input as that cell's
+   direct grid child -- the column's own width still governs the field
+   (and its suggestion panel, when open), it does not span the whole row.
+   `min-width: 0` lets the Input still shrink inside its fr-sized column
+   (a plain grid item without this can refuse to shrink below its content's
+   intrinsic width, which the bare Input never hit but this wrapper div
+   could). align-items: end on the outer row still holds -- this wrapper's
+   bottom edge is what aligns, same as the bare Input did before it.
+
+   Post-review (NIT 6): the suggestion panel rendered inside this wrapper
+   is column-constrained (~250-300px for .taskRow's "Task"/.riskRow's
+   "Description"/"Next Step" columns) -- narrower than ideal for a
+   multi-sentence rewrite, which the field's own length cap (POLISH_FIELDS,
+   lib/prompts.ts -- one sentence / ~10 words for these specific fields)
+   keeps merely cramped, not unusable. A genuine full-row-width span was
+   evaluated and deliberately NOT done: CSS Grid's `grid-column` only
+   affects DIRECT children of the grid container, so the panel (nested two
+   levels inside .taskRow -- .taskRow > .fieldWithPolish > PolishButton's
+   own wrapper > the panel) cannot span parent columns without either (a)
+   `subgrid` (real added complexity/support-matrix consideration for a
+   cosmetic width fix) or (b) splitting PolishButton's trigger and panel
+   into two independently-positioned pieces sharing state, so the panel
+   can be rendered as its own direct grid sibling with `grid-column: 1/-1`
+   -- a real component-API change across all 4 of its call sites for a
+   cosmetic gain. Neither is worth it here -- see CLAUDE.md's "don't
+   over-engineer" guidance. StepBasics/StepTouchpointsWin's panels (not
+   inside a multi-column grid row at all) are already genuinely full-width. */
+.fieldWithPolish {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .kicker {
   font-family: var(--font-heading);
   font-weight: 600;

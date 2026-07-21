@@ -1,0 +1,61 @@
+.wrap {
+  margin-top: 8px;
+}
+
+.triggerContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.triggerIcon {
+  flex: none;
+}
+
+.panel {
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 14px 16px;
+  margin-top: 8px;
+  color: var(--text-body);
+}
+
+.panelLabel {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 10px;
+}
+
+.suggestionText {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-body);
+  margin: 0 0 14px;
+  white-space: pre-wrap;
+}
+
+.panelActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.panelError {
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--negative);
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+
+.errorText {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-body);
+  margin: 0 0 10px;
+}

@@ -9,6 +9,7 @@ import { downloadCsv } from '@/lib/csv';
 import { buildDailyImportTemplateCsv, buildWeeklyImportTemplateCsv } from '@/lib/csv-templates';
 import { PROMPT_TEMPLATES } from '@/lib/prompts';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { AiKeySection } from './AiKeySection';
 import { CsvImportSection } from './CsvImportSection';
 import { LocalDataImportSection } from './LocalDataImportSection';
 import { McpAccessSection } from './McpAccessSection';
@@ -29,15 +30,16 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
  * reusing `ReportScreen`'s clipboard + 1800ms copied-state pattern), (c) two
  * CSV import template downloads (the import contract, see
  * lib/csv-templates.ts), (d) the live CSV importer (Phase 6b) directly below
- * the templates, (e, Phase 7b M4) `LocalDataImportSection`, and (f, Phase
- * 8a) `McpAccessSection` -- the latter two rendered only when
- * `isSupabaseConfigured()`, since both are meaningless without per-user
- * ownership to scope against (no "elsewhere" for demo mode's own
- * localStorage data to move to; no user to own an MCP bearer token).
- * `CsvImportSection`/`LocalDataImportSection`/`McpAccessSection` are their
- * own components (not inlined here) so this screen stays thin; each owns
- * all of its own upload/preview/project-choice, import-progress, or
- * token-CRUD state.
+ * the templates, (e, Phase 7b M4) `LocalDataImportSection`, (f, Phase 8a)
+ * `McpAccessSection`, and (g, Phase 7c) `AiKeySection` -- the latter three
+ * rendered only when `isSupabaseConfigured()`, since all three are
+ * meaningless without per-user ownership to scope against (no "elsewhere"
+ * for demo mode's own localStorage data to move to; no user to own an MCP
+ * bearer token or a BYOK Anthropic key). `CsvImportSection`/
+ * `LocalDataImportSection`/`McpAccessSection`/`AiKeySection` are their own
+ * components (not inlined here) so this screen stays thin; each owns all of
+ * its own upload/preview/project-choice, import-progress, token-CRUD, or
+ * key-CRUD state.
  */
 export function SettingsScreen() {
   const { preference, setPreference } = useTheme();
@@ -131,6 +133,7 @@ export function SettingsScreen() {
 
         {isSupabaseConfigured() ? <LocalDataImportSection /> : null}
         {isSupabaseConfigured() ? <McpAccessSection /> : null}
+        {isSupabaseConfigured() ? <AiKeySection /> : null}
       </div>
     </div>
   );
