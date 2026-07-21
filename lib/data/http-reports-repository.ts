@@ -158,6 +158,39 @@ export class HttpReportsRepository implements ReportsRepository {
   }
 
   /**
+   * Phase 8c: `PATCH /api/projects/[id]` -> `renameProject`
+   * (lib/server/reports-service.ts) -> a `.update({ name })` gated by
+   * `projects_update` RLS (admin-only) AND a column-level grant restricting
+   * `authenticated`'s UPDATE privilege to `name` alone (supabase/migrations/
+   * 20260724000011_project_management.sql) -- both layers unreachable from
+   * this client method's request body, which only ever carries `{ name }`
+   * by construction (see `ProjectRenameInputSchema`, lib/schema/api.ts).
+   * Rejects (via `toHttpError`, curated server-side) on a duplicate name,
+   * a non-admin caller, or an unknown id.
+   */
+  async renameProject(id: string, name: string): Promise<Project> {
+    return this.enqueueWrite(async () => {
+      const { project } = await request<{ project: Project }>(`/api/projects/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+      return project;
+    });
+  }
+
+  /**
+   * Phase 8c: `DELETE /api/projects/[id]` -> `deleteProject`
+   * (lib/server/reports-service.ts), admin-gated by `projects_delete` RLS
+   * and blocked at the DB FK layer (`NO ACTION`) if any report/task/risk
+   * still references this project -- see that function's doc comment.
+   */
+  async deleteProject(id: string): Promise<void> {
+    return this.enqueueWrite(async () => {
+      await request<void>(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    });
+  }
+
+  /**
    * SHOULD-FIX 13 fix: resolves once every write queued SO FAR (via
    * `enqueueWrite` above) has settled -- success or failure, mirroring
    * `enqueueWrite`'s own `then(run, run)` never-rejecting-the-chain

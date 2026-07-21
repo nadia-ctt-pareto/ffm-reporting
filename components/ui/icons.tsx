@@ -123,6 +123,16 @@ export function IconMenu(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Phase 8c: a filled square nested inside an outlined square -- "projects": a client/project as a distinct container, echoing IconConsolidate's "several boxes" vocabulary without reusing its exact composition. */
+export function IconProjects(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <rect x="1.5" y="1.5" width="13" height="13" />
+      <rect x="5" y="5" width="6" height="6" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
 /** Phase 7c: a 4-point sparkle -- "AI polish" (components/ai/PolishButton.tsx). A single filled straight-edged star, not the rounded/curved sparkle glyph most "AI" affordances use elsewhere -- straight line segments stay on-brand with this design system's square-corner rule even though the shape itself is a star, not a rectangle. */
 export function IconPolish(props: SVGProps<SVGSVGElement>) {
   return (

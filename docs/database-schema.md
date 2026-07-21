@@ -223,8 +223,12 @@ verbatim copy, deliberately not derived from `FF_CLIENTS`.
 
 | TS field (`Project`) | Column | Type              | Notes                                  |
 | ---------------------- | ------ | ----------------- | --------------------------------------- |
-| `id`                    | `id`   | `text` PK          | slug (e.g. `helitech-foundation-waterproofing`) |
-| `name`                  | `name` | `text`, `unique`   | exact display string used throughout the UI |
+| `id`                    | `id`   | `text` PK          | slug (e.g. `helitech-foundation-waterproofing`); immutable post-create -- see "Project management (Phase 8c)" below |
+| `name`                  | `name` | `text`, `unique`   | exact display string used throughout the UI; the ONLY column `authenticated` may UPDATE (Phase 8c column grant) |
+
+Phase 8c adds project list/create/rename/delete UI (`/projects`,
+`/projects/[id]`) over this same table -- see "Project management (Phase
+8c)" below for the one grant change it required.
 
 ## Auth, ownership, and RLS (Phase 7a)
 
@@ -1250,6 +1254,152 @@ sessions/JWTs, not `api_tokens` rows, so wiring it in would require
 changing (or bypassing) `verify_api_token`/`mcp-auth.ts` — directly against
 this phase's explicit "the bridge is untouched" invariant. Worth a look in
 a future phase; out of scope here.
+
+## Project management (Phase 8c)
+
+`supabase/migrations/20260724000011_project_management.sql` is the ONLY
+schema/grant change the project-management UI (`/projects`, `/projects/[id]`)
+needed. No new tables, no new columns, no `lib/types.ts` domain shape
+change (list/create/rename/delete/detail-view are all served by the
+EXISTING `projects` table + its EXISTING RLS policies from
+`supabase/migrations/20260719000004_auth_ownership.sql`).
+
+**LOCKED DECISION (superseding an earlier draft plan that recommended
+loosening `projects_update`/`projects_delete` to all-authenticated): rename
+and delete stay ADMIN-ONLY.** `projects_select`/`projects_insert` (any
+authenticated user) and `projects_update`/`projects_delete`
+(`public.is_admin()`) are UNCHANGED by this migration — see "Auth,
+ownership, and RLS (Phase 7a)" above for their original text.
+
+**What this migration DOES add**: a column-level privilege guard so that
+even an admin (who already passes `projects_update`'s row-level
+`using(is_admin())`/`with check(is_admin())`) can only ever change the
+`name` column via a table UPDATE — never `id`:
+
+```sql
+revoke update on projects from authenticated;
+grant update (name) on projects to authenticated;
+```
+
+`authenticated` previously held full table-level privileges on `projects`
+(`authenticated=arwdDxtm/postgres` — every privilege, every column,
+verified via `\dp projects` before this migration). This narrows JUST the
+UPDATE privilege to the `name` column; INSERT/SELECT/DELETE privileges (and
+INSERT/SELECT on every column, including `id`) are untouched. Verified
+live, post-migration:
+
+```sql
+-- \dp+ projects now shows, under "Column privileges":
+--   name: authenticated=w/postgres
+-- and authenticated's table-level ACL entry no longer includes "w":
+--   authenticated=ardDxtm/postgres
+```
+
+**Post-review SHOULD-FIX 1 — `anon` also loses its table-level grant on
+`projects` entirely**:
+
+```sql
+revoke all on public.projects from anon;
+```
+
+Pre-fix, `anon` still held the Supabase-baseline full-table grant on
+`projects` (`anon=arwdDxtm/postgres` — INSERT/SELECT/UPDATE/DELETE on every
+column, including `id`) even though `projects` has NO `anon`-targeted RLS
+policy at all — `projects_select`/`projects_insert`/`projects_update`/
+`projects_delete` are every one of them `to authenticated` only, so this
+was never actually reachable (RLS default-denies an unpolicied row for a
+role with no matching policy). Not exploitable today, but latent risk the
+moment anyone ever adds an `anon` policy here, and inconsistent with this
+schema's own established "don't rely on RLS as the only gate" posture (see
+`is_admin()`'s `revoke ... from public, anon` above, closing a REAL,
+previously-live leak of a different function). Verified post-migration:
+
+```sql
+-- \dp+ projects: the `anon=arwdDxtm/postgres` ACL entry is GONE entirely.
+-- information_schema.role_table_grants / column_privileges for
+-- grantee='anon' on table_name='projects': 0 rows, either way.
+```
+
+Verified this changes NOTHING about the anon-reachable share/present-route
+path: the only anon-reachable read in this whole schema is
+`get_shared_report(text)` (SECURITY DEFINER, supabase/migrations/
+20260719000004_auth_ownership.sql), which queries `reports`/`tasks`/`risks`
+directly and never touches `public.projects` at all (each row's own
+`project_id` column is returned verbatim, no join) — and a SECURITY
+DEFINER function's privilege checks run against its OWNING role regardless
+of the calling role's own table grants, so this revoke could not have
+broken it even if it did touch `projects`. Confirmed live: enabled sharing
+on a report as `dev@`, then fetched `/reports/[id]/present?t=<token>` with
+zero session cookies (a fresh anonymous request) both before and after this
+revoke — identical 200 response, full report content rendered either way.
+Also confirmed `ensureProject`'s create path (`POST /api/projects`) is
+unaffected as `member@` (non-admin, authenticated) — it always runs as
+`authenticated`, which retains its unchanged SELECT/INSERT/DELETE
+table-level grants (see the `authenticated=ardDxtm/postgres` ACL entry
+above); `anon` was never a caller on this path.
+
+**Verify a grant like this via `information_schema.column_privileges` /
+`\dp+ <table>`, NOT `pg_proc.proacl`** — the latter is the catalog for
+FUNCTION EXECUTE grants (see "Function EXECUTE grants" above), a different
+catalog entirely; this migration grants a TABLE/column privilege, so
+`pg_proc` has nothing to show for it. Confirmed live (local Supabase, both
+via raw PostgREST and through this app's own `PATCH /api/projects/[id]`
+route):
+
+| Caller | Request | Result |
+|---|---|---|
+| `member@` (non-admin) | `PATCH .../projects/<id>` `{name: ...}` | RLS filters the row (`projects_update`'s `using(is_admin())` is false) → 0 rows updated, no Postgres error → curated `404 "Not found."` (not distinguished from a genuinely unknown id, same posture as `revoke_api_token`'s "not found or not permitted") |
+| `dev@` (admin) | raw PostgREST `PATCH .../projects?id=eq.<id>` `{id: "hacked-id"}` | `42501 permission denied for table projects` — the column grant, not RLS, is what blocks this; an admin passes RLS but is still refused at the column-privilege layer |
+| `dev@` (admin) | `PATCH .../projects/<id>` `{name: "New Name"}` | `200`, project renamed |
+| `dev@` (admin) | `DELETE .../projects/<id>` on a project referenced by a task's `project_id` | `409` curated `"This project is still referenced by existing reports."` (sqlstate 23503, the `tasks_project_id_fkey`/`risks_project_id_fkey`/`reports_project_id_fkey` FK — `NO ACTION`, no cascade/set-null anywhere in this schema) |
+| `dev@` (admin) | `DELETE .../projects/<id>` on an unreferenced project | `204` |
+| (none) | `PATCH .../projects/<id>` with no session cookie | `401 {"error":"unauthorized"}` |
+
+**Server layer** (`lib/server/reports-service.ts`): `renameProject(db, id,
+name)` — a plain `.update({ name }).eq('id', id).select('id, name')
+.maybeSingle()`; RLS/the column grant do all the enforcement, this function
+just issues the call. A 23505 (`projects_name_key`, another project already
+has this exact name) flows through the existing `mapPgError` → `'conflict'`
+path; `curatedMessage` (`reports-service.ts`) gained one more `'conflict'`
+regex branch (`projects_name_key` → "A project with this name already
+exists."). `deleteProject(db, id)` — a `.delete().eq('id', id).select('id')`;
+its ONE deviation from every other function in this file is that it
+intercepts sqlstate 23503 itself, BEFORE calling `mapPgError` (which maps
+23503 → `'invalid'`/400 for every OTHER caller, e.g. `replace_reports`
+rejecting a report that names a nonexistent `project_id` — a genuinely
+malformed request). A referenced project's delete being blocked is a
+`'conflict'`/409 ("this can't proceed because other data depends on it"),
+not a malformed request, so it can't share that blanket branch.
+`curatedMessage` gained a matching `/_project_id_fkey/` regex branch
+(matches whichever of the three FK constraint names fired).
+
+**Transport schema** (`lib/schema/api.ts`): `ProjectRenameInputSchema =
+z.object({ name: ProjectSchema.shape.name })` — reuses the domain schema's
+own `name` field rather than redeclaring bounds, so the two can never drift.
+
+**Repository parity** (`lib/data/reports-repository.ts` +
+`local-storage-reports-repository.ts` + `http-reports-repository.ts`):
+`renameProject`/`deleteProject` are explicit interface methods (not
+piggybacked onto `upsertProject`, whose semantics genuinely diverge — see
+that method's own doc comment). `LocalStorageReportsRepository` has no
+RLS/FK to lean on, so it re-implements both rules directly: `renameProject`
+throws on a missing id or an existing DIFFERENT project already holding
+that exact `name`; `deleteProject` scans every locally-stored `AnyReport`
+for a report/task/risk `projectId === id` reference (mirroring the SQL
+FK's id-only semantics — see `lib/project-view.ts`'s `projectIsReferenced`,
+which the UI uses to predict this same outcome BEFORE the request even
+round-trips) and throws "still referenced" if any exist.
+
+**THE CRUX — rename safety, restated for this section**: neither
+`renameProject` implementation, nor the `PATCH /api/projects/[id]` route,
+nor the app-level `resolveNewProjectName`/`renameProject`/`useProjects`
+call chain, EVER touches `tasks.client`/`risks.client` or any `project_id`
+FK. A rename updates exactly one column, `projects.name`. See CLAUDE.md's
+"Project (client) management (Phase 8c)" → "THE CRUX" for the full
+rationale (dedupe-key corruption, partial-success-under-RLS) and how the
+one real, documented consequence (the dashboard's client filter, which
+matched `task.client` strings against project NAMES) was fixed with an
+id-or-exact-name predicate instead.
 
 ## Cutover checklist
 

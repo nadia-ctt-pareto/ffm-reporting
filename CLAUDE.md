@@ -27,25 +27,30 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (Phase 8a + 7c complete):** Full stack with optional Supabase backend + Claude connectivity. **Demo mode**
+- **Now (Phase 8c complete):** Full stack with optional Supabase backend + Claude connectivity. **Demo mode**
   (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`),
   seeded with 7 weekly + 5 daily reports; MCP server and AI polish 404 in demo mode. **Supabase mode** (env set)
   uses Postgres + HTTP repository with Auth (magic-link sign-in), per-user ownership, RLS, and **cross-machine
   share links** via per-report public tokens. Share links resolve to an interactive branded HTML slide-deck route
   (`/reports/[id]/present` or `/daily/[id]/present`, outside the shell) with keyboard nav, touch swipe, deep links,
   fullscreen, and token-based anon access; "PDF export" is real browser print-to-PDF (exact 6 pages in Chromium,
-  letterboxed in Firefox/Safari). **Phase 8a: Remote MCP server** — Claude Code / Desktop / CLI can now read/write
-  reports under the user's own ownership via bearer-token auth; the Skill teaches the domain model and workflows.
-  8 locked tools (list_reports, get_report, list_projects, get_week_rollup, create_report, update_report,
-  create_project, create_weekly_from_dailies; no delete_report). **Phase 7c: BYOK AI field polish** — a
+  letterboxed in Firefox/Safari). **Phase 8c: Project (client) management** — `/projects` (list + create) and
+  `/projects/[id]` (rename/delete, admin-only; per-project rollup of reports/open tasks/blocked/risks) over the
+  existing Project entity; see "Project (client) management (Phase 8c)" below. **Phase 8b: OAuth 2.1 for
+  claude.ai** — dynamic client registration + authorization-code+PKCE, layered on Phase 8a's MCP server and
+  `api_tokens` table with zero changes to the auth bridge itself. **Phase 8a: Remote MCP server** — Claude Code /
+  Desktop / CLI can now read/write reports under the user's own ownership via bearer-token auth; the Skill teaches
+  the domain model and workflows. 8 locked tools (list_reports, get_report, list_projects, get_week_rollup,
+  create_report, update_report, create_project, create_weekly_from_dailies; no delete_report — and no
+  rename_project/delete_project, see Phase 8c's own note on that). **Phase 7c: BYOK AI field polish** — a
   "Polish" button on prose fields in the wizard (summary, win narrative, task title, risk description, etc.),
   powered by BYOK Anthropic key stored encrypted server-side. Earlier phases: Phase 3 added Task view
   (List/Kanban) and Calendar view (Week/Month); Phase 4 added daily reports (`/daily/*`) and weekly-import
   roll-up; Phase 5 added Settings with theme picker, prompt library, CSV templates; Phase 6 refactored to
   Zod (6a), added Project entity (6a), CSV import (6b), consolidation (6b); Phase 7a added Supabase schema +
   Auth; Phase 7b connected UI → Postgres with cross-machine sharing + two adversarial hardening passes.
-- **Later (Phase 8b):** OAuth for claude.ai (layers on top of Phase 8a's MCP server + `api_tokens` table, no new
-  tools); surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up).
+- **Later:** surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up); project
+  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now).
 - **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
@@ -71,6 +76,8 @@ app/
     daily/[id]/page.tsx              # /daily/:id                Daily report screen (Phase 4)
     tasks/page.tsx                    # /tasks                   Task view: List/Kanban (Phase 3)
     calendar/page.tsx                 # /calendar                Calendar view: Week/Month (Phase 3)
+    projects/page.tsx                 # /projects                Project list + create (Phase 8c)
+    projects/[id]/page.tsx            # /projects/:id             Project detail: rename/delete (admin-only), rollup (Phase 8c)
     consolidate/page.tsx              # /consolidate             Consolidate weeklies/dailies (Phase 6b)
     settings/page.tsx                 # /settings                Settings (theme, prompts, CSV templates, Phase 5; CSV import, Phase 6b)
   reports/[id]/present/page.tsx       # /reports/:id/present     Interactive slide-deck route (Phase 2; made interactive Phase 5, outside (shell))
@@ -100,14 +107,17 @@ thin wrappers around those. `DashboardScreen`/`DailyListScreen`/
 `WizardScreen` stay presentational (prop-driven), matching the pre-Phase-1
 convention. `app/(shell)/reports/[id]/page.tsx`, `app/(shell)/daily/
 [id]/page.tsx`, `app/(shell)/tasks/page.tsx`, `app/(shell)/calendar/
-page.tsx`, `app/(shell)/consolidate/page.tsx`, and `app/(shell)/settings/page.tsx`
+page.tsx`, `app/(shell)/consolidate/page.tsx`, `app/(shell)/settings/page.tsx`,
+`app/(shell)/projects/page.tsx`, and `app/(shell)/projects/[id]/page.tsx`
 break from that split on purpose (see "Report screen & presentation deck",
-"Task and Calendar views", "Consolidation (Phase 6b)", and "Settings" below) --
-each is small enough (one hook or none, no filter/pagination state, no
-repository calls, no dialog hosting) that a dedicated orchestrator would be
-pure ceremony; `TaskViewScreen`/`CalendarScreen`/`ConsolidateScreen`/
-`SettingsScreen` own their own small toggle/picker state directly, the same
-way `ReportScreen` owns its Share-dialog state.
+"Task and Calendar views", "Consolidation (Phase 6b)", "Settings", and
+"Project (client) management (Phase 8c)" below) -- each is small enough (one
+or a few hooks, no filter/pagination state, no dialog hosting beyond what
+the screen itself owns) that a dedicated orchestrator would be pure
+ceremony; `TaskViewScreen`/`CalendarScreen`/`ConsolidateScreen`/
+`SettingsScreen`/`ProjectsScreen`/`ProjectDetailScreen` own their own small
+toggle/picker/dialog state directly, the same way `ReportScreen` owns its
+Share-dialog state.
 
 - `DashboardPage`/`DailyPage` own filter/sort/search/pagination state
   locally — it resets on navigation away and back (acceptable; not
@@ -956,18 +966,184 @@ GET `/api/ai/key` returns `{ configured, hint, validatedAt, lastUsedAt }` (never
 `/api/ai/key` stores a new plaintext key (validated against Anthropic first). POST `/api/ai/polish`
 takes a `PolishRequest`, returns `{ polished: string }`.
 
-## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP)
+## Project (client) management (Phase 8c)
+
+The `Project { id, name }` entity (Phase 6a) had every consumer (daily
+buckets, CSV import target, consolidation buckets, `projectId` metadata) but
+no management UI — Phase 8c adds one: list, create, view, rename, delete.
+
+**THE CRUX — rename safety.** Renaming a project updates **exactly one
+field: `projects.name`. Nothing else, ever.**
+- `task.client`/`risk.client` strings are historical free text and are
+  **NEVER rewritten** on rename — they're the `(client, task)`/`(client,
+  description)` dedupe key across `useWizard`, `lib/aggregate.ts`, and
+  `lib/consolidate.ts`. Bulk-rewriting them on rename would corrupt that
+  dedupe model AND (in Supabase mode) require touching reports the renamer
+  doesn't own — an owner-or-admin RLS partial failure mid-rewrite. A
+  reviewer should grep any future diff touching this area for a write to
+  `task.client`/`risk.client` — there must be none.
+- The project `id` is **never** re-slugged on rename (it's the stable FK
+  link three tables point at; re-slugging is effectively delete+create and
+  breaks all three). A stale slug after a rename is fine — ids are opaque.
+- `projectId` is the stable link and survives rename untouched (it's keyed
+  on id, never name).
+- The one real, visible consequence: the dashboard's client filter used to
+  match `task.client === selectedName` — after a rename, filtering by the
+  NEW name would miss every pre-rename report. Fixed in
+  `DashboardScreen.tsx`'s `filtered` `useMemo` with an id-or-exact-name
+  predicate: `t.client === filterClient || t.projectId ===
+  projectIdForClientName(filterClient, projects)` (exact match only, no
+  fuzzy matching — `projectIdForClientName`, `lib/projects.ts`). Verified
+  live (demo mode): rename a project, then filter the dashboard by its NEW
+  name — pre-rename reports (whose tasks still carry the OLD `client`
+  string but the SAME `projectId`) still show up.
+
+**LOCKED DECISION: rename and delete are ADMIN-ONLY.** `projects_update`/
+`projects_delete` RLS (`public.is_admin()`) were already admin-only since
+Phase 7a — this phase does NOT loosen them (an earlier draft plan
+recommended loosening to all-authenticated; the user explicitly overrode
+that). `supabase/migrations/20260724000011_project_management.sql` adds
+exactly one thing: a column-level grant so that even an admin can only ever
+UPDATE `projects.name`, never `projects.id`, even via raw PostgREST
+(`revoke update on projects from authenticated; grant update (name) on
+projects to authenticated;`) — verified live via `\dp+ projects` (not
+`pg_proc.proacl`, which is the FUNCTION-grant catalog; this is a
+TABLE/column grant, a different catalog) and via a raw PostgREST `PATCH
+projects?id=eq.<id> {"id":"hacked"}` as `dev@` (admin) returning `42501`.
+Safe for `ensureProject` (`lib/server/reports-service.ts`) — it's
+INSERT-ON-CONFLICT-DO-NOTHING, never an UPDATE, so it needs no UPDATE
+privilege on any column. See `docs/database-schema.md`'s "Project
+management (Phase 8c)" for the full verification table (member vs. admin,
+raw PostgREST vs. this app's own route, every status code).
+
+Post-review SHOULD-FIX 1: the migration also does `revoke all on
+public.projects from anon` — `anon` was otherwise left holding the
+Supabase-baseline full-table grant (INSERT/SELECT/UPDATE/DELETE, every
+column) even though `projects` has no `anon`-targeted RLS policy at all
+(every `projects_*` policy is `to authenticated` only, so this was never
+exploitable — a pure grant-hygiene fix closing latent risk before it could
+ever matter, matching this schema's established "RLS is not the only gate"
+posture, e.g. the `is_admin()` function grant). Verified this doesn't touch
+the anon-reachable share/present-route path (`get_shared_report`, a
+SECURITY DEFINER function that queries `reports`/`tasks`/`risks` directly
+and never touches `projects`, and which runs as its OWNING role regardless
+of the caller's own table grants) or `ensureProject`'s create path (always
+runs as `authenticated`) — both re-verified live after the revoke.
+
+**UI admin gating** (`components/projects/ProjectDetailScreen.tsx`): in
+Supabase mode, `useSession().user.app_metadata?.role === 'admin'` — exactly
+what `public.is_admin()` reads server-side — decides whether Rename/Delete
+are enabled; a non-admin sees them disabled with an "Admins only" hint
+rather than hidden, so the feature isn't a mystery. The server/RLS is the
+real control (verified: a non-admin's direct `PATCH`/`DELETE` is rejected —
+see the table above); the UI gate is pure UX. **In demo mode**
+(`!isSupabaseConfigured()`) there is no session/auth concept at all — this
+app's data is per-browser `localStorage`, so `isAdmin` is unconditionally
+`true`: full access to your own local data is the sensible default,
+documented here rather than left as an unstated assumption.
+
+**Delete = only when unreferenced.** The `reports`/`tasks`/`risks`
+`.project_id` FK (`NO ACTION`, no cascade/set-null anywhere in this schema —
+supabase/migrations/20260718000003_projects.sql) is the sole authority; a
+referenced project's delete fails with sqlstate 23503, curated to "This
+project is still referenced by existing reports." (`lib/server/
+reports-service.ts`'s `deleteProject` intercepts 23503 before `mapPgError`'s
+generic mapping — see that function's own doc comment for why the generic
+23503→`'invalid'` mapping is wrong for this one case). Archive is deferred
+(not needed for 4 seeded projects; would need a column + Zod + a ripple
+through every consumer that currently assumes every project is "live").
+`lib/project-view.ts`'s `projectIsReferenced(project, weeklies, dailies)` is
+the pure, id-ONLY predicate (deliberately narrower than `projectRollup`'s
+id-or-name membership) that mirrors the FK exactly — it's what
+`ProjectDetailScreen`'s Delete confirmation uses to disable + explain
+BEFORE a doomed request round-trips, so the UI's disabled state and the
+server's actual rejection can never disagree. `projectRollup`'s BROADER
+id-or-name membership means a project can show associated reports (in its
+StatCard/reports table) while still being deletable (`projectIsReferenced`
+is false) — the non-referenced delete-confirmation copy calls this out
+explicitly (a report that mentions this client by name only, no `projectId`
+stamped, keeps its text as-is and is unaffected by the delete) so a PM
+isn't surprised by "3 associated reports" next to an enabled Delete button.
+
+**Repository + hook**: `renameProject`/`deleteProject` are explicit
+`ReportsRepository` interface methods (not piggybacked on `upsertProject`,
+whose insert-or-replace/insert-or-return-existing semantics genuinely
+diverge between the two implementations — see that method's own doc
+comment). `LocalStorageReportsRepository` re-implements both rules directly
+(no RLS/FK to lean on): `renameProject` throws on a missing id or an
+existing DIFFERENT project already holding that exact name; `deleteProject`
+scans every stored `AnyReport` for a `projectId` reference. `renameProject`
+(`useProjects.ts`) keeps the optimistic + rollback + `mutationError`
+contract every other mutation here uses — but `deleteProject` does NOT
+(post-review SHOULD-FIX 2): it awaits the repository call and only removes
+the project from `projects` state on success, never before. This is
+deliberate, not an inconsistency — `app/(shell)/projects/[id]/page.tsx`
+derives `notFound` from `projects` and redirects to `/projects` the instant
+an id disappears from it; an optimistic removal fired that redirect WHILE
+the delete request was still in flight, unmounting `ProjectDetailScreen`
+before a later rejection could ever render there. Verified live (forced a
+delete failure): with the optimistic version, the screen silently bounced
+to `/projects` with zero visible error even though nothing was actually
+deleted; with the non-optimistic fix, the screen stays mounted and
+`deleteError` renders. `ProjectDetailScreen.handleDelete` no longer calls
+`router.push` on success either (dropped as redundant, per the same
+review) — the route wrapper's own `notFound` effect is the single place
+that navigates away after a confirmed delete.
+
+**Shared create-name validation**: `lib/projects.ts`'s
+`resolveNewProjectName(rawName, projects)` — promoted out of
+`CsvImportSection.tsx`'s `resolveNewProject` (Phase 6b) so the Projects
+screen's "New Project" dialog and the CSV importer's "New project…" picker
+validate a typed name IDENTICALLY (blank / slugifies to an existing id,
+same name / slugifies to an existing id, different name — see that
+function's own doc comment for why each case matters). One shared
+validator, not two independent reimplementations that could silently
+drift; `CsvImportSection.tsx` now imports it instead of hand-rolling its
+own copy.
+
+**`lib/project-view.ts`** (pure derivation, style of `lib/view-utils.ts`):
+`projectRollup(project, weeklies, dailies)` — every associated report
+(id-or-exact-name membership: a task/risk belongs to a project if its
+`projectId` matches OR its `client` string still exactly equals the
+project's CURRENT name — the same id-or-name posture as the dashboard
+filter fix above, for the same reason), open tasks (not yet `'Complete'`),
+blocked tasks, and risks. Powers both `/projects`' per-row stats and
+`/projects/[id]`'s full detail view. `projectIsReferenced` (id-only, see
+above) is the narrower sibling used for the Delete gate.
+
+**Routes**: `/projects` (`components/projects/ProjectsScreen.tsx`) lists
+every project with `projectRollup`-derived stats (Name/Reports/Open
+Tasks/Blocked/View) and a "New Project" create dialog (create is
+all-authenticated, same as CSV import — no admin gating on this screen).
+`/projects/[id]` (`components/projects/ProjectDetailScreen.tsx`) is the
+name heading, admin-gated Rename/Delete, a StatCard row, the associated
+reports table (weeklies + dailies, linking out to `/reports/[id]`/
+`/daily/[id]` via `reportPeriodLabel`), and open-task/risk lists. Both
+routes are thin `app/(shell)/projects/**` wrappers (no-orchestrator
+pattern, like `ConsolidateScreen`) — `app/(shell)/projects/[id]/page.tsx`
+redirects to `/projects` on an unknown id, matching `/reports/[id]`'s
+precedent.
+
+**No MCP tool changes** — `rename_project`/`delete_project` are
+deliberately NOT in the locked 8-tool contract (`lib/prompts.ts`); adding
+admin-gated write tools to a bearer-token-authenticated surface (where
+every token is a plain `authenticated` member, never admin — see "Remote
+MCP server (Phase 8a)" above) was out of scope for this phase and deferred.
+
+## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Phase 8c adds Projects)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
   (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
-  (Phase 6b), `IconSettings`, `IconSignOut` (Phase 7a), `IconMenu` (mobile P2)),
-  deliberately NOT `lucide-react` (which is stroke-based with round caps/joins,
-  fighting this design system's "square corners everywhere" rule). Every icon
-  shares a 16×16 viewBox, uses `currentColor` (so the active-nav chip's
-  `--text-heading`/`--surface-page` inversion works with zero extra CSS), and
-  is marked `aria-hidden`. The sidebar's `.navIcon` slot is now 18×18 (was 8×8).
-- `components/app/Sidebar.tsx` gained a "Settings" nav item (Phase 5) and a
-  "Consolidate" nav item (Phase 6b); the Dark Mode switch was removed from
+  (Phase 6b), `IconProjects` (Phase 8c), `IconSettings`, `IconSignOut`
+  (Phase 7a), `IconMenu` (mobile P2)), deliberately NOT `lucide-react` (which
+  is stroke-based with round caps/joins, fighting this design system's
+  "square corners everywhere" rule). Every icon shares a 16×16 viewBox, uses
+  `currentColor` (so the active-nav chip's `--text-heading`/`--surface-page`
+  inversion works with zero extra CSS), and is marked `aria-hidden`. The
+  sidebar's `.navIcon` slot is now 18×18 (was 8×8).
+- `components/app/Sidebar.tsx` gained a "Settings" nav item (Phase 5), a
+  "Consolidate" nav item (Phase 6b), and a "Projects" nav item between
+  Calendar and Consolidate (Phase 8c); the Dark Mode switch was removed from
   the footer (theme control moved to `/settings`).
 
 ## PageHeader (Phase 5)
@@ -1031,6 +1207,14 @@ RLS on all verbs (deliberately no `is_admin()` branch — tighter than every oth
 column-level grant excluding `key_ciphertext` from `authenticated`'s SELECT (read-side
 access only via RPC).
 
+**Phase 8c**: `supabase/migrations/20260724000011_project_management.sql` — no
+`lib/types.ts`/domain shape change, no new table/column. The ONLY change is a
+column-level grant tightening `authenticated`'s existing UPDATE privilege on
+`projects` from every column to `name` only (`projects_update`/`projects_delete`
+RLS, already admin-only since Phase 7a, are UNCHANGED — see "Project (client)
+management (Phase 8c)" above for why this migration is smaller than an
+earlier draft plan that considered loosening them).
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -1042,17 +1226,20 @@ access only via RPC).
   `csv` (Phase 6b parsing + escaping), `csv-templates` (Phase 5 import contract),
   `prompts` (Phase 5 prompt library, locked MCP tool names, Phase 8a/7c house voice + polish fields),
   `seed` (7 weekly + 5 daily + 4 project seed records), `aggregate` (Phase 4 daily-into-draft,
-  Phase 6b generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `import`
+  Phase 6b generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `project-view`
+  (Phase 8c: `projectRollup`/`projectIsReferenced` derivation selectors), `import`
   (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic), `projects` (Phase 6a
-  project backfill), `data/` (repository interface + localStorage impl + HTTP impl (Phase 7b)
-  + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
-  (Phase 6a), `schema/` (Zod 4, Phase 6a), `server/` (Phase 7b: `reports-service`, `db-mapping`,
-  `route-helpers`, `request-guards`; Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`,
-  `ai-keys`, `ai-polish`), `supabase/` (Phase 7a: Supabase client factories including `anon.ts`
-  for token-based present routes).
+  project backfill; Phase 8c: `resolveNewProjectName`, shared by the CSV importer and the
+  Projects screen's create dialog), `data/` (repository interface + localStorage impl + HTTP impl
+  (Phase 7b) + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
+  (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `schema/` (Zod 4, Phase 6a),
+  `server/` (Phase 7b: `reports-service`, `db-mapping`, `route-helpers`, `request-guards`;
+  Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`, `ai-keys`, `ai-polish`; Phase 8c adds
+  `renameProject`/`deleteProject` to `reports-service`), `supabase/` (Phase 7a: Supabase client
+  factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
-  plus `icons.tsx` (hand-authored SVG nav icons, Phase 5).
+  plus `icons.tsx` (hand-authored SVG nav icons, Phase 5; `IconProjects` Phase 8c).
 - `components/theme/` — `ThemeProvider`/`useTheme`.
 - `components/app/` — `AppShell`, `Sidebar`, `PageHeader` (Phase 5, replaces
   per-screen brand headers), `MobileNav` (mobile P2, off-canvas drawer).
@@ -1070,6 +1257,8 @@ access only via RPC).
 - `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
   (Phase 3; see "Task and Calendar views").
 - `components/consolidate/` — `ConsolidateScreen` (Phase 6b; consolidation UI).
+- `components/projects/` — `ProjectsScreen` (list + create), `ProjectDetailScreen`
+  (rename/delete, admin-gated; rollup) (Phase 8c; see "Project (client) management").
 - `components/settings/` — `SettingsScreen` (Phase 5; theme picker, prompt library, CSV templates),
   `CsvImportSection` (Phase 6b; upload + importer UI), `McpAccessSection` (Phase 8a; token
   create/list/revoke), `AiKeySection` (Phase 7c; key upload), `LocalDataImportSection` (Phase 7b).

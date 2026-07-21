@@ -231,6 +231,51 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     return project;
   }
 
+  /**
+   * Phase 8c: renames EXACTLY the `name` field of the project with `id` --
+   * `id` itself and every other field are untouched, and no task/risk
+   * `client` string or `projectId` link anywhere in `ff.reports.v2` is ever
+   * read or written by this method (see CLAUDE.md's "THE CRUX -- rename
+   * safety"). Demo mode has no admin/session concept (see
+   * `components/projects/ProjectDetailScreen.tsx`'s own doc comment on how
+   * it decides who sees the Rename/Delete controls here) -- this method
+   * itself performs no such gating, matching every other localStorage
+   * repository method (there is no RLS-equivalent layer to enforce it at).
+   * Throws if `id` doesn't exist, or if a DIFFERENT existing project
+   * already has this exact `name` (mirrors SQL's `projects_name_key` unique
+   * constraint).
+   */
+  async renameProject(id: string, name: string): Promise<Project> {
+    const all = await this.loadProjects();
+    const existing = all.find((p) => p.id === id);
+    if (!existing) throw new Error(`Project ${id} not found.`);
+    const duplicate = all.find((p) => p.id !== id && p.name === name);
+    if (duplicate) throw new Error(`A project named "${name}" already exists.`);
+    const renamed: Project = { ...existing, name };
+    this.writeProjects(all.map((p) => (p.id === id ? renamed : p)));
+    return renamed;
+  }
+
+  /**
+   * Phase 8c: deletes a project only when UNREFERENCED -- scans every
+   * `AnyReport` in `ff.reports.v2` for a report-level `projectId === id`, or
+   * a task/risk within it whose `projectId === id`, and throws (rather than
+   * deleting) if any exist. This mirrors the SQL FK's `NO ACTION` authority
+   * (supabase/migrations/20260718000003_projects.sql) -- the DB is the real
+   * authority in Supabase mode; this scan is demo mode's own enforcement of
+   * the identical rule, since there is no FK to lean on here.
+   */
+  async deleteProject(id: string): Promise<void> {
+    const projects = await this.loadProjects();
+    if (!projects.some((p) => p.id === id)) throw new Error(`Project ${id} not found.`);
+    const reports = await this.loadAll();
+    const referenced = reports.some(
+      (r) => r.projectId === id || r.tasks.some((t) => t.projectId === id) || r.risks.some((rk) => rk.projectId === id)
+    );
+    if (referenced) throw new Error('This project is still referenced by existing reports.');
+    this.writeProjects(projects.filter((p) => p.id !== id));
+  }
+
   /** No write queue in this implementation -- every write above already resolves (or rejects, on a `localStorage` quota/serialization error) before its own promise settles, so there is nothing async left to wait on. Always resolves immediately. */
   async whenIdle(): Promise<void> {
     return;

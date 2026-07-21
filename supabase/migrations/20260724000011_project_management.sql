@@ -1,0 +1,81 @@
+-- Weekly Reports Dashboard -- Phase 8c delta: the project-management UI's
+-- ONLY schema change. Everything else this phase needed (list/create/
+-- rename/delete a project, per-project detail view) is served by EXISTING
+-- SQL surface -- `projects_select`/`projects_insert` (any authenticated
+-- user) and `projects_update`/`projects_delete` (admin-only,
+-- `public.is_admin()`) already landed in
+-- supabase/migrations/20260719000004_auth_ownership.sql and are
+-- UNCHANGED here. See CLAUDE.md's "Project (client) management (Phase 8c)"
+-- -- "LOCKED DECISION: rename/delete = ADMINS ONLY" -- for why this
+-- migration does NOT loosen those two policies (a prior draft plan
+-- considered that and was explicitly overridden by the user).
+--
+-- What IS new: a column-level privilege guard so that even an admin
+-- (`projects_update`'s `using(is_admin())`/`with check(is_admin())` already
+-- lets one through the ROW-level check) can only ever change the `name`
+-- column via a table UPDATE -- never `id`. This matters because `id` is the
+-- stable value every `reports.project_id`/`tasks.project_id`/
+-- `risks.project_id` FK points at; an `id` change would either violate
+-- those FKs outright or (worse, if ever loosened to `on update cascade`)
+-- silently re-point every historical report/task/risk at a different
+-- project. The application layer (`lib/server/reports-service.ts`'s
+-- `renameProject`) already only ever sends `{ name }` in its `.update()`
+-- call, but a column-level grant is what makes that true even for a raw
+-- PostgREST request, not just for this app's own code path -- the same
+-- "don't trust the client, enforce it in the one place that can't be
+-- bypassed" posture as every other grant in this schema (see
+-- supabase/migrations/20260720000005_post_review_hardening.sql's
+-- `share_token` column-grant precedent).
+--
+-- `authenticated` currently holds full table-level privileges on `projects`
+-- (verified via `\dp projects` -- `authenticated=arwdDxtm/postgres`, i.e.
+-- every privilege including UPDATE on every column) -- RLS policies gate
+-- WHICH ROWS, never WHICH COLUMNS. `revoke update ... from authenticated`
+-- removes the table-level UPDATE grant entirely; the immediately-following
+-- `grant update (name) ...` re-adds it scoped to exactly one column. A
+-- request naming any other column in its UPDATE's SET list (most
+-- importantly `id`) now fails with 42501 ("permission denied for table
+-- projects") BEFORE row-level security is even evaluated -- verify via
+-- `information_schema.column_privileges`/`\dp+ projects`, NOT `pg_proc`
+-- (that view is for FUNCTION grants -- docs/database-schema.md's "Function
+-- EXECUTE grants" section -- this migration grants a TABLE/column
+-- privilege instead, a different catalog).
+--
+-- Safe for `ensureProject` (`lib/server/reports-service.ts`): that function
+-- only ever does `upsert(project, { onConflict: 'id', ignoreDuplicates:
+-- true })`, i.e. INSERT ... ON CONFLICT DO NOTHING -- it never issues an
+-- UPDATE, so it needs no UPDATE privilege on any column, `name` included.
+
+revoke update on projects from authenticated;
+grant update (name) on projects to authenticated;
+
+-- SHOULD-FIX 1 (post-review): `anon` was left holding the Supabase-baseline
+-- full-table grant on `projects` (INSERT/SELECT/UPDATE/DELETE on every
+-- column, including `id`) -- verified live: `anon`'s grants on `projects`
+-- were STRICTLY BROADER than `authenticated`'s after the revoke/grant pair
+-- above. Not exploitable today (`projects` has no `anon`-targeted RLS
+-- policy of any kind -- `projects_select`/`projects_insert`/
+-- `projects_update`/`projects_delete` are all `to authenticated` only, so
+-- RLS default-denies every `anon` request regardless of these grants), but
+-- it's latent id-orphaning/deletion risk the instant anyone ever adds an
+-- `anon` policy here, and it contradicts this schema's own established
+-- "don't rely on RLS as the only gate" posture -- see
+-- supabase/migrations/20260719000004_auth_ownership.sql's `revoke ... from
+-- public, anon` on `is_admin()` (a real, previously-exploitable case: an
+-- unauthenticated caller could invoke it directly over PostgREST before
+-- that revoke landed). Pure grant-hygiene, zero behavior change: `anon`
+-- never had a policy path to actually use these grants.
+revoke all on public.projects from anon;
+-- Verified this does NOT affect the share/present-route path: the ONLY
+-- anon-reachable read in this schema is `get_shared_report(text)` (same
+-- migration as above), a SECURITY DEFINER function that queries
+-- `reports`/`tasks`/`risks` directly and never touches `projects` at all
+-- (it returns each row's `project_id` column verbatim, no join) -- and
+-- SECURITY DEFINER functions execute as their OWNING role for privilege-
+-- check purposes regardless of the caller's own table grants, so this
+-- revoke could not have broken it even if it did touch `projects`. Also
+-- verified `ensureProject`'s create path is unaffected -- it always runs as
+-- `authenticated` (every route handler requires a signed-in session before
+-- calling it; `anon` was never a caller here to begin with).
+
+comment on table projects is 'Foundation First Marketing''s clients/projects (lib/types.ts Project). Renamed from `clients` in Phase 6a -- client = project. FK''d from reports/tasks/risks. Phase 8c: any authenticated user may select/insert (unchanged); update/delete remain admin-only via projects_update/projects_delete (public.is_admin(), unchanged); `authenticated`''s UPDATE grant is additionally column-scoped to `name` ONLY (see this migration) -- even an admin can never move a project''s `id` via a table UPDATE, only its `name`. `anon` holds NO grants on this table at all (revoked in this migration -- projects has no anon-targeted RLS policy, so this is pure latent-risk removal). Renaming a project must NEVER rewrite `tasks.client`/`risks.client` strings or any `project_id` FK -- see CLAUDE.md''s "THE CRUX -- rename safety".';

@@ -80,6 +80,19 @@ export type ReportPatch = z.infer<typeof ReportPatchSchema>;
 export const ProjectInputSchema = ProjectSchema;
 export type ProjectInput = z.infer<typeof ProjectInputSchema>;
 
+/**
+ * Phase 8c: `PATCH /api/projects/[id]` body -- a rename touches EXACTLY the
+ * `name` field (never `id`, which comes from the URL and is immutable here
+ * by construction: there is nothing in this schema to even carry a
+ * client-supplied `id` through). Reuses `ProjectSchema.shape.name` rather
+ * than redeclaring `z.string().min(1).max(500)` so the two can never drift.
+ * Mirrors `supabase/migrations/20260724000011_project_management.sql`'s
+ * column-level grant (`authenticated` may only UPDATE `projects.name`) --
+ * this schema is the application-layer twin of that SQL-layer guarantee.
+ */
+export const ProjectRenameInputSchema = z.object({ name: ProjectSchema.shape.name });
+export type ProjectRenameInput = z.infer<typeof ProjectRenameInputSchema>;
+
 /** Shape of every non-2xx JSON body a route handler under `app/api/**` returns. `issues` (present only on a 400 from a failed Zod parse) is `ZodIssue[]`, typed loosely here since it's diagnostic-only -- no caller in this phase branches on its shape. */
 export interface ApiErrorBody {
   error: string;

@@ -14,6 +14,7 @@ import type { TableColumn } from '@/components/ui/Table';
 import { PAGE_SIZE_OPTIONS, SORT_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/constants';
 import { buildAllTasksCsv, downloadCsv } from '@/lib/csv';
 import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
+import { projectIdForClientName } from '@/lib/projects';
 import { onSchedule, openBlockers, statusTone } from '@/lib/report-utils';
 import type { Project, Report, SortKey } from '@/lib/types';
 import styles from './DashboardScreen.module.css';
@@ -73,11 +74,28 @@ export function DashboardScreen({
   onViewReport,
 }: DashboardScreenProps) {
   // Lines 650-660: filter + sort.
+  //
+  // Phase 8c (THE CRUX -- rename safety): `filterClient` is a project NAME
+  // (the <Select>'s options -- see `clientOptions` in DashboardPage.tsx),
+  // but a task's stable link to its project is `projectId`, not `client`
+  // (`client` is historical, free-text, and MUST NEVER be rewritten on
+  // rename -- see CLAUDE.md's "THE CRUX"). Matching `t.client ===
+  // filterClient` ALONE would silently stop matching every task recorded
+  // BEFORE a rename the instant that rename happens (the task's `client`
+  // string still says the OLD name; `filterClient` is now the NEW one).
+  // `filterProjectId` resolves the selected name to its CURRENT project id
+  // once per filter pass (not per task); a task matches if EITHER its own
+  // `client` string still equals the selected name (the common, un-renamed
+  // case) OR its `projectId` equals that same project's id (catches
+  // pre-rename tasks) -- exact matches only, no fuzzy matching, mirroring
+  // `projectIdForClientName`'s own contract.
   const filtered = useMemo(() => {
+    const filterProjectId = filterClient === 'All' ? undefined : projectIdForClientName(filterClient, projects ?? []);
     const list = reports.filter(
       (r) =>
         (filterStatus === 'All' || r.status === filterStatus) &&
-        (filterClient === 'All' || r.tasks.some((t) => t.client === filterClient)) &&
+        (filterClient === 'All' ||
+          r.tasks.some((t) => t.client === filterClient || (filterProjectId !== undefined && t.projectId === filterProjectId))) &&
         (search.trim() === '' ||
           (r.preparedFor + ' ' + fmtWeekLabel(r.weekStart, r.weekEnd)).toLowerCase().includes(search.toLowerCase()))
     );
@@ -87,7 +105,7 @@ export function DashboardScreen({
       if (sortBy === 'blockers_desc') return openBlockers(b) - openBlockers(a);
       return b.weekEnd.localeCompare(a.weekEnd);
     });
-  }, [reports, filterStatus, filterClient, search, sortBy]);
+  }, [reports, filterStatus, filterClient, search, sortBy, projects]);
 
   // Pagination: slice AFTER filter + sort. 'All' disables paging entirely.
   const totalPages = pageSize === 'All' ? 1 : Math.max(1, Math.ceil(filtered.length / Number(pageSize)));

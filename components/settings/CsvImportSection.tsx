@@ -12,7 +12,7 @@ import { useProjects } from '@/lib/hooks/useProjects';
 import { useReports } from '@/lib/hooks/useReports';
 import type { ImportIssue, ImportResult } from '@/lib/import';
 import { parseImportCsv } from '@/lib/import';
-import { isBlankProjectName, slugifyProjectName } from '@/lib/projects';
+import { resolveNewProjectName } from '@/lib/projects';
 import { reportPeriodLabel, statusTone } from '@/lib/report-utils';
 import type { Project } from '@/lib/types';
 import styles from './CsvImportSection.module.css';
@@ -23,59 +23,6 @@ const NEW_PROJECT_VALUE = '__new__';
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 const EMPTY_RESULT: ImportResult = { reports: [], issues: [] };
-
-interface NewProjectResolution {
-  id: string;
-  name: string;
-  error?: string;
-}
-
-/**
- * Validates a "New project…" name BEFORE it's ever slugified into a
- * persisted `Project.id` -- two failure modes this specifically closes
- * (found by the Phase 6b security review):
- *
- * 1. A name that slugifies to the SAME id as an ALREADY-EXISTING project
- *    (a casing/punctuation variant -- e.g. "DryRoot Waterproofing" and
- *    "dryroot waterproofing" both slugify to "dryroot-waterproofing")
- *    would silently overwrite that project's canonical `name` the moment
- *    it's `upsertProject`'d (insert-or-REPLACE-by-id) -- permanently
- *    renaming a seeded/existing project out from under every report that
- *    references it by name.
- * 2. A name with no letters/digits at all (e.g. `"..."`, an emoji-only
- *    string) slugifies to `''`, which collides with the house bucket's own
- *    key (`sameProjectBucket`'s `?? ''` coalesce) and crashes Radix's
- *    `Select` (rejects an empty-string item value) the next time
- *    `/settings`'s Project dropdown renders it -- a persistent, self-
- *    inflicted white-screen, since the bad project is already saved.
- *
- * Returns `null` only when `rawName` is blank (nothing typed yet -- not an
- * error state, just incomplete); otherwise always returns a resolution,
- * with `.error` set when the name can't be used as typed.
- */
-function resolveNewProject(rawName: string, projects: Project[]): NewProjectResolution | null {
-  const name = rawName.trim();
-  if (!name) return null;
-  // Checked BEFORE calling slugifyProjectName -- that function never returns
-  // `''` (it has its own uid() fallback, defense in depth), so checking its
-  // output could never observe this case; isBlankProjectName checks the raw
-  // slugification directly.
-  if (isBlankProjectName(name)) {
-    return { id: '', name, error: 'Project name must contain at least one letter or number.' };
-  }
-  const id = slugifyProjectName(name);
-  const existingById = projects.find((p) => p.id === id);
-  if (existingById) {
-    return existingById.name === name
-      ? { id, name, error: `"${name}" already exists -- pick it from the Project dropdown instead of creating it again.` }
-      : {
-          id,
-          name,
-          error: `"${name}" would collide with the existing project "${existingById.name}" -- pick it from the dropdown, or use a more distinct name.`,
-        };
-  }
-  return { id, name };
-}
 
 /**
  * Phase 6b: the live CSV importer -- upload a file built to the
@@ -144,9 +91,9 @@ export function CsvImportSection() {
   // Validated once here (not re-implemented at commit time) so the live
   // preview and the actual commit can never disagree about whether a new
   // project name is usable.
-  const newProjectResolution = projectChoice === NEW_PROJECT_VALUE && projects ? resolveNewProject(newProjectName, projects) : null;
+  const newProjectResolution = projectChoice === NEW_PROJECT_VALUE && projects ? resolveNewProjectName(newProjectName, projects) : null;
 
-  /** Resolves the effective target project id + project list for a parse, WITHOUT persisting a "New project…" name (see the class doc comment above). Null while incomplete (blank name) or invalid (a name resolveNewProject rejected). */
+  /** Resolves the effective target project id + project list for a parse, WITHOUT persisting a "New project…" name (see the class doc comment above). Null while incomplete (blank name) or invalid (a name resolveNewProjectName rejected). */
   function resolveTarget(): { targetProjectId: string | null; effectiveProjects: Project[] } | null {
     if (!projects) return null;
     if (projectChoice === HOUSE_VALUE) return { targetProjectId: null, effectiveProjects: projects };

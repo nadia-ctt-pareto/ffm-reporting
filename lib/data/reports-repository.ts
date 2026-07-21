@@ -63,6 +63,24 @@ export interface ReportsRepository {
   getProjects(): Promise<Project[]>;
   /** Ensures a project with this id exists; returns it. See each implementation's own doc comment for the exact insert-vs-replace semantics on an id collision -- they genuinely differ (`LocalStorageReportsRepository` replaces by id, i.e. supports rename; `HttpReportsRepository` returns the existing row unchanged, i.e. never renames). */
   upsertProject(project: Project): Promise<Project>;
+  /**
+   * Phase 8c: renames EXACTLY a project's `name` -- a dedicated method
+   * rather than piggybacking on `upsertProject` because the semantics
+   * genuinely diverge (see that method's own doc comment on the two
+   * implementations' different id-collision behavior). Never touches `id`;
+   * never rewrites any task/risk `client` string or `projectId` link -- see
+   * CLAUDE.md's "THE CRUX -- rename safety". Rejects (see each
+   * implementation's own doc comment) on a missing id or a duplicate name.
+   */
+  renameProject(id: string, name: string): Promise<Project>;
+  /**
+   * Phase 8c: deletes a project ONLY when unreferenced by any report/task/
+   * risk `projectId` -- rejects with a curated "still referenced" message
+   * otherwise. See each implementation's own doc comment for exactly how
+   * that's enforced (a DB FK in `HttpReportsRepository`'s case; a scan over
+   * every `AnyReport` in `LocalStorageReportsRepository`'s).
+   */
+  deleteProject(id: string): Promise<void>;
 
   /**
    * Post-review addition (SHOULD-FIX 13, Phase 7b): resolves once every

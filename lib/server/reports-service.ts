@@ -72,6 +72,22 @@ export function curatedMessage(code: ServiceErrorCode, rawMessage: string): stri
       if (/reports_one_daily_per_day/.test(rawMessage)) {
         return 'A daily report for this date already exists.';
       }
+      // Phase 8c: `renameProject`'s `.update({name})` -> mapPgError already
+      // routes a 23505 (unique-violation) here; this is the ONLY curation
+      // point that turns Postgres's raw "duplicate key value violates
+      // unique constraint \"projects_name_key\"" into user-facing copy.
+      if (/projects_name_key/.test(rawMessage)) {
+        return 'A project with this name already exists.';
+      }
+      // Phase 8c: `deleteProject` constructs this 'conflict' ServiceError
+      // itself (see that function's own doc comment for why it intercepts
+      // sqlstate 23503 BEFORE mapPgError's generic mapping) -- the raw
+      // Postgres FK-violation message names whichever of
+      // reports_project_id_fkey/tasks_project_id_fkey/risks_project_id_fkey
+      // fired; this regex matches all three without hardcoding table names.
+      if (/_project_id_fkey/.test(rawMessage)) {
+        return 'This project is still referenced by existing reports.';
+      }
       return 'This was changed by someone else since you loaded it. Reload and try again.';
     case 'not_found':
       return 'Not found.';
@@ -425,4 +441,70 @@ export async function ensureProject(db: SupabaseClient, project: Project): Promi
   // above. `handleServiceError` curates this before it reaches the wire.
   if (!data) throw new ServiceError('invalid', `Failed to ensure project ${project.id} -- upsert reported no error but the follow-up read found nothing.`);
   return data as Project;
+}
+
+/**
+ * Phase 8c: renames EXACTLY the `name` column -- see `app/api/projects/[id]/route.ts`'s
+ * PATCH handler (the only caller) and CLAUDE.md's "THE CRUX -- rename
+ * safety". Row-level access is `projects_update` RLS (admin-only,
+ * unchanged -- supabase/migrations/20260719000004_auth_ownership.sql);
+ * column-level access is the new grant in
+ * supabase/migrations/20260724000011_project_management.sql (`authenticated`
+ * may UPDATE `name` only, never `id`, even for an admin). Neither guard is
+ * re-implemented here -- this function just issues the UPDATE and lets
+ * Postgres enforce both.
+ *
+ * `.update({ name })` -- NOT `.update(project)` or any other shape that
+ * could carry an `id` field -- is itself a belt-and-braces guard: even if a
+ * future caller accidentally passed a whole `Project` object here, only
+ * `name` would ever be spread into this call's own object literal.
+ *
+ * `!data` (RLS filtered every row, OR the id genuinely doesn't exist) maps
+ * to 'not_found' -- see this file's `updateReport` for the identical
+ * `.maybeSingle()` "0 rows, no error" pattern. A 23505 (another project
+ * already has this exact name -- `projects_name_key`) flows through
+ * `mapPgError` -> 'conflict', curated by `curatedMessage` above.
+ */
+export async function renameProject(db: SupabaseClient, id: string, name: string): Promise<Project> {
+  const { data, error } = await db.from('projects').update({ name }).eq('id', id).select('id, name').maybeSingle();
+  if (error) throw mapPgError(error);
+  // Diagnostic-only (see updateReport's identical note) -- curated to "Not found." before it reaches the wire.
+  if (!data) throw new ServiceError('not_found', `Project ${id} not found (or not permitted).`);
+  return data as Project;
+}
+
+/**
+ * Phase 8c: deletes a project ONLY when unreferenced -- the
+ * `reports`/`tasks`/`risks`.`project_id` FK (`NO ACTION`, no `ON DELETE
+ * CASCADE`/`SET NULL` anywhere in this schema) is the sole authority for
+ * that rule; this function does not duplicate it with an application-level
+ * "is this referenced?" check of its own. Row-level access is
+ * `projects_delete` RLS (admin-only, unchanged).
+ *
+ * Sqlstate 23503 (foreign-key violation -- the project IS referenced) is
+ * intercepted HERE, before `mapPgError`'s generic mapping: that function
+ * maps 23503 -> 'invalid' (400) for every OTHER caller in this file (e.g.
+ * `replace_reports` rejecting a report that names a nonexistent
+ * `project_id` -- a genuinely malformed request), but a referenced
+ * project's delete being blocked is a 'conflict' (409, "this can't proceed
+ * because other data depends on it"), not a malformed request -- so this
+ * one case can't share `mapPgError`'s blanket 23503 branch.
+ *
+ * `.select('id')` after `.delete()` returns the deleted row(s); an empty
+ * array means either the id doesn't exist or `projects_delete`'s RLS
+ * filtered it out (not distinguished, same posture as `renameProject`
+ * above) -- both map to 'not_found'.
+ */
+export async function deleteProject(db: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await db.from('projects').delete().eq('id', id).select('id');
+  if (error) {
+    const sqlstate = (error as { code?: string }).code ?? '';
+    if (sqlstate === '23503') {
+      throw new ServiceError('conflict', error.message || `Project ${id} is still referenced by existing reports.`);
+    }
+    throw mapPgError(error);
+  }
+  if (!data || data.length === 0) {
+    throw new ServiceError('not_found', `Project ${id} not found (or not permitted).`);
+  }
 }

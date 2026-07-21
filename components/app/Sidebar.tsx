@@ -4,7 +4,7 @@ import type { ComponentType, SVGProps } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Tooltip } from 'radix-ui';
-import { IconCalendar, IconConsolidate, IconDaily, IconDashboard, IconSettings, IconSignOut, IconTasks } from '@/components/ui/icons';
+import { IconCalendar, IconConsolidate, IconDaily, IconDashboard, IconProjects, IconSettings, IconSignOut, IconTasks } from '@/components/ui/icons';
 import { useSession } from '@/lib/hooks/useSession';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
@@ -37,11 +37,13 @@ interface NavItem {
 // Phase 4: Daily Reports (/daily).
 // Phase 5: Settings (/settings) + hand-authored square icons (see components/ui/icons.tsx).
 // Phase 6b: Consolidate (/consolidate).
+// Phase 8c: Projects (/projects), between Calendar and Consolidate.
 const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: IconDashboard },
   { href: '/daily', label: 'Daily Reports', icon: IconDaily },
   { href: '/tasks', label: 'Tasks', icon: IconTasks },
   { href: '/calendar', label: 'Calendar', icon: IconCalendar },
+  { href: '/projects', label: 'Projects', icon: IconProjects },
   { href: '/consolidate', label: 'Consolidate', icon: IconConsolidate },
   { href: '/settings', label: 'Settings', icon: IconSettings },
 ];

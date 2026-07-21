@@ -55,6 +55,73 @@ export function projectIdForClientName(name: string, projects: Project[]): strin
   return projects.find((p) => p.name === name)?.id;
 }
 
+/** The shape `resolveNewProjectName` below returns -- `error` set means `name` can't be used as typed (see that function's doc comment for each case). */
+export interface ProjectNameResolution {
+  id: string;
+  name: string;
+  error?: string;
+}
+
+/**
+ * Phase 6b originally, promoted here in Phase 8c so BOTH the CSV importer
+ * (`CsvImportSection.tsx`'s "New project…" picker) and the Projects screen's
+ * "New Project" create dialog validate a typed name identically -- a single
+ * shared validator, rather than two independent reimplementations that
+ * could silently drift (the whole point: prevent the create flow from
+ * hitting `ensureProject`'s insert-or-RETURN-EXISTING behavior on a
+ * slug collision, which would otherwise look like a successful create while
+ * actually just handing back an unrelated existing project). Validates a
+ * "New project…" name BEFORE it's ever slugified into a persisted
+ * `Project.id` -- two failure modes this specifically closes (found by the
+ * Phase 6b security review):
+ *
+ * 1. A name that slugifies to the SAME id as an ALREADY-EXISTING project
+ *    (a casing/punctuation variant -- e.g. "DryRoot Waterproofing" and
+ *    "dryroot waterproofing" both slugify to "dryroot-waterproofing")
+ *    would silently overwrite that project's canonical `name` the moment
+ *    it's `upsertProject`'d (insert-or-REPLACE-by-id) -- permanently
+ *    renaming a seeded/existing project out from under every report that
+ *    references it by name.
+ * 2. A name with no letters/digits at all (e.g. `"..."`, an emoji-only
+ *    string) slugifies to `''`, which collides with the house bucket's own
+ *    key (`sameProjectBucket`'s `?? ''` coalesce) and crashes Radix's
+ *    `Select` (rejects an empty-string item value) the next time a project
+ *    dropdown renders it -- a persistent, self-inflicted white-screen,
+ *    since the bad project is already saved.
+ *
+ * Returns `null` only when `rawName` is blank (nothing typed yet -- not an
+ * error state, just incomplete); otherwise always returns a resolution,
+ * with `.error` set when the name can't be used as typed. NIT fix (Phase 8c
+ * post-review): the collision-error copy is deliberately caller-neutral
+ * ("select it instead of creating a new one") rather than naming a specific
+ * UI control (the pre-promotion version said "pick it from the Project
+ * dropdown", which was wrong once the Projects screen's create dialog --
+ * a plain list, not a dropdown -- became a second caller).
+ */
+export function resolveNewProjectName(rawName: string, projects: Project[]): ProjectNameResolution | null {
+  const name = rawName.trim();
+  if (!name) return null;
+  // Checked BEFORE calling slugifyProjectName -- that function never returns
+  // `''` (it has its own uid() fallback, defense in depth), so checking its
+  // output could never observe this case; isBlankProjectName checks the raw
+  // slugification directly.
+  if (isBlankProjectName(name)) {
+    return { id: '', name, error: 'Project name must contain at least one letter or number.' };
+  }
+  const id = slugifyProjectName(name);
+  const existingById = projects.find((p) => p.id === id);
+  if (existingById) {
+    return existingById.name === name
+      ? { id, name, error: `"${name}" already exists -- select it instead of creating a new one.` }
+      : {
+          id,
+          name,
+          error: `"${name}" would collide with the existing project "${existingById.name}" -- select that one, or use a more distinct name.`,
+        };
+  }
+  return { id, name };
+}
+
 function stampList<T extends Task | Risk>(items: T[], projects: Project[]): { items: T[]; changed: boolean } {
   let changed = false;
   const next = items.map((item) => {
