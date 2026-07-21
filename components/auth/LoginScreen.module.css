@@ -79,21 +79,3 @@
   color: #f0685c;
   border-color: #f0685c;
 }
-
-.sentMark {
-  font-family: var(--font-heading);
-  font-weight: 600;
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-heading);
-  margin: 0 0 8px;
-}
-
-.sentCopy {
-  font-family: var(--font-body);
-  font-size: 14px;
-  line-height: var(--leading-body);
-  color: var(--text-muted);
-  margin: 0;
-}
