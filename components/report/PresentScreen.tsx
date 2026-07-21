@@ -7,7 +7,8 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useReports } from '@/lib/hooks/useReports';
-import type { ReportKind } from '@/lib/types';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
+import type { AnyReport, ReportKind } from '@/lib/types';
 import { DECK_SLIDE_COUNT, DECK_SLIDE_HEIGHT, DECK_SLIDE_TITLES, DECK_SLIDE_WIDTH, ReportDeck } from './ReportDeck';
 import '@/styles/print.css';
 import styles from './PresentScreen.module.css';
@@ -16,6 +17,27 @@ export interface PresentScreenProps {
   id: string;
   /** Phase 4: which store to resolve `id` against and which route "Back to Report" points at. Defaults to 'weekly' -- the pre-Phase-4 call site (`/reports/[id]/present`) keeps working unchanged. */
   kind?: ReportKind;
+  /**
+   * Phase 7b (M3): the tokened-share resolution, computed server-side by
+   * `app/reports/[id]/present/page.tsx` / `app/daily/[id]/present/page.tsx`
+   * (see those files' `resolveShared`). Three distinct states, on purpose --
+   * this is CLAUDE.md's "carried trap #2": once a token is present, the
+   * session/hooks path must never be consulted, even for a signed-in
+   * visitor whose OWN session could otherwise read the report.
+   *
+   *   - `undefined` (the default): no token was present -- fall back to the
+   *     existing `useReports()`/`useDailyReports()` session-based path,
+   *     byte-for-byte unchanged from pre-M3.
+   *   - `null`: a token WAS present but didn't resolve (wrong id, wrong
+   *     kind, revoked, or genuinely invalid) -- render the not-found state
+   *     immediately. The hooks below are called with `enabled: false` in
+   *     this case too, so no guaranteed-401 (or, worse, session-satisfied)
+   *     fetch ever fires.
+   *   - an `AnyReport`: the token resolved to a real, matching, still-shared
+   *     report -- render it directly. Already resolved server-side, so this
+   *     renders on the very first pass (SSR included), with no loading gate.
+   */
+  shared?: AnyReport | null;
 }
 
 /** Minimum horizontal swipe distance (px) that counts as a slide-change gesture (vs. a tap/click). */
@@ -32,6 +54,25 @@ const DIGIT_KEY = new RegExp(`^[1-${DECK_SLIDE_COUNT}]$`);
 
 function clampSlide(n: number): number {
   return Math.min(Math.max(1, n), DECK_SLIDE_COUNT);
+}
+
+/**
+ * Phase 7b (M3): the pre-M3 not-found copy explained a localStorage-only
+ * limitation that stops being true once Supabase is configured (a report
+ * genuinely doesn't exist / isn't shared anymore -- not "wrong browser").
+ * Demo mode (`isSupabaseConfigured() === false`) keeps the exact original
+ * copy, byte-for-byte -- required by CLAUDE.md's "demo mode must keep
+ * working" constraint. Deliberately generic about WHY a tokened link failed
+ * (wrong id, wrong kind, revoked, malformed) -- distinguishing those to the
+ * visitor would turn this into an oracle for probing valid ids/tokens.
+ */
+function notFoundCopy(usingToken: boolean): string {
+  if (!isSupabaseConfigured()) {
+    return "This link doesn't resolve to a report in this browser. Shared links only resolve on a browser whose local storage has the report -- true cross-machine sharing arrives with Supabase.";
+  }
+  return usingToken
+    ? "This share link is no longer valid -- it may have been revoked, or it never matched this report. Ask the report's owner for a fresh link."
+    : "This report doesn't exist, or something went wrong loading it.";
 }
 
 /**
@@ -69,18 +110,28 @@ function clampSlide(n: number): number {
  * `<Suspense>`, which Next.js requires for that hook, or `next build`
  * fails prerendering this route.
  */
-export function PresentScreen({ id, kind = 'weekly' }: PresentScreenProps) {
-  const weeklyHook = useReports();
-  const dailyHook = useDailyReports();
+export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProps) {
+  // Phase 7b (M3): `shared !== undefined` means a token was present (valid
+  // or not) -- the session/hooks path must be short-circuited entirely in
+  // that case, not merely ignored, so both hooks are called with
+  // `enabled: false`. This is what makes "the token is the only key"
+  // structural rather than behavioral: a signed-in visitor's own session
+  // fetch simply never fires, so there is nothing for a wrong/missing token
+  // to accidentally fall back to. See CLAUDE.md's "carried trap #2".
+  const usingToken = shared !== undefined;
+  const weeklyHook = useReports({ enabled: !usingToken });
+  const dailyHook = useDailyReports({ enabled: !usingToken });
   const reports = kind === 'daily' ? dailyHook.reports : weeklyHook.reports;
+  const hookLoadError = kind === 'daily' ? dailyHook.loadError : weeklyHook.loadError;
   const searchParams = useSearchParams();
   const autoPrint = searchParams.get('print') === '1';
   const printedRef = useRef(false);
 
   // A callback ref (state, not a plain useRef) -- this component returns
-  // `null` on its very first render (see the `reports === null` early
-  // return below; `useReports`/`useDailyReports` start `reports` at
-  // `null`), so the stage `<div>` doesn't exist in the DOM on that pass. A
+  // `null` on its very first render in the session-based (no-token) path
+  // (see the "still-loading gate" below; `useReports`/`useDailyReports`
+  // start `reports` at `null`), so the stage `<div>` doesn't exist in the
+  // DOM on that pass. A
   // plain `useRef` + `useEffect(..., [])` reads `stageRef.current` while
   // it's still `null` on the ONE time that effect runs and never re-runs --
   // the ResizeObserver never attaches and `scale` stays permanently `1`
@@ -140,8 +191,16 @@ export function PresentScreen({ id, kind = 'weekly' }: PresentScreenProps) {
     return () => observer.disconnect();
   }, [stageEl]);
 
-  const report = reports?.find((r) => r.id === id) ?? null;
-  const notFound = reports !== null && report === null;
+  // Phase 7b (M3): the token path's `report` is already fully resolved
+  // (server-side, before this component even mounted -- see `shared`'s doc
+  // comment above) -- it never depends on `reports`/`hookLoadError` at all.
+  const report = usingToken ? (shared ?? null) : (reports?.find((r) => r.id === id) ?? null);
+  // A failed session-based load (`hookLoadError` set, e.g. Supabase
+  // unreachable, a non-401 server error) used to leave this route blank
+  // forever (`reports` stays `null`, so the "still loading" gate below never
+  // clears) -- now surfaces the same not-found state a missing id would,
+  // rather than a permanent blank page.
+  const notFound = usingToken ? report === null : report === null || Boolean(hookLoadError);
 
   // Deep-link sync: `history.replaceState` (never `router.replace`, and
   // never mixed with it for this same param) so a slide change never
@@ -281,23 +340,33 @@ export function PresentScreen({ id, kind = 'weekly' }: PresentScreenProps) {
     };
   }, [autoPrint, report]);
 
-  // Reports haven't loaded yet: render nothing (matches every other route's
-  // useReports-loading convention -- no hydration mismatch).
-  if (reports === null) return null;
+  // Still-loading gate: only the session-based path (no token) ever needs to
+  // wait for a fetch. The token path's `report`/`notFound` are already fully
+  // resolved above (see `shared`'s doc comment) -- there is nothing to wait
+  // for, so a tokened visit never blocks here, even while the deliberately
+  // disabled (`enabled: false`) hooks sit at their initial `reports === null`
+  // state forever. `!hookLoadError` in the guard is what lets a genuinely
+  // failed session-based load fall through to the `notFound` render below
+  // instead of staying blank forever (see `notFound`'s own comment above).
+  if (!usingToken && reports === null && !hookLoadError) return null;
 
   if (notFound) {
     return (
       <div className={styles.notFoundWrap}>
         <div className={styles.notFoundMark}>Foundation First Marketing</div>
         <h1 className={styles.notFoundTitle}>Report Not Found</h1>
-        <p className={styles.notFoundCopy}>
-          {
-            "This link doesn't resolve to a report in this browser. Shared links only resolve on a browser whose local storage has the report -- true cross-machine sharing arrives with Supabase."
-          }
-        </p>
-        <Link href={kind === 'daily' ? '/daily' : '/'} className={styles.notFoundLink}>
-          Back to {kind === 'daily' ? 'Daily Reports' : 'Dashboard'}
-        </Link>
+        <p className={styles.notFoundCopy}>{notFoundCopy(usingToken)}</p>
+        {/* Post-review fix: an anonymous tokened visitor has no account in
+            this app -- `/`/`/daily` are NOT in middleware.ts's public path
+            list (only the present routes themselves are), so this link was
+            a login dead-end for exactly the person this route exists to
+            serve. There is nowhere sensible to send them, so the session
+            path keeps the link and the token path shows nothing. */}
+        {!usingToken ? (
+          <Link href={kind === 'daily' ? '/daily' : '/'} className={styles.notFoundLink}>
+            Back to {kind === 'daily' ? 'Daily Reports' : 'Dashboard'}
+          </Link>
+        ) : null}
       </div>
     );
   }
@@ -307,9 +376,25 @@ export function PresentScreen({ id, kind = 'weekly' }: PresentScreenProps) {
   return (
     <div className={`${styles.page} presentPage`}>
       <div className={`${styles.toolbar} presentToolbar`}>
-        <Link href={`${kind === 'daily' ? '/daily' : '/reports'}/${report.id}`} className={styles.backLink}>
-          &larr; Back to Report
-        </Link>
+        {/* Post-review fix (the real SHOULD-FIX from the M3 review):
+            `/reports/[id]`/`/daily/[id]` are NOT in middleware.ts's public
+            path list (only `/reports/[id]/present`/`/daily/[id]/present`
+            are) -- an anonymous tokened visitor clicking this used to hit
+            `/login?next=/reports/[id]` for an app they have no account in,
+            exactly the person M3 exists to serve. Gated on `!usingToken` so
+            it only ever renders in the session-based path, where the
+            visitor is already signed in and the destination is real. An
+            empty `<span>` keeps this a two-child flex row (`.toolbar` is
+            `justify-content: space-between`) so `.toolbarRight` stays
+            pinned to the right edge instead of collapsing to the left when
+            this slot renders nothing. */}
+        {usingToken ? (
+          <span aria-hidden="true" />
+        ) : (
+          <Link href={`${kind === 'daily' ? '/daily' : '/reports'}/${report.id}`} className={styles.backLink}>
+            &larr; Back to Report
+          </Link>
+        )}
         <div className={styles.toolbarRight}>
           <span className={styles.toolbarHint}>Export via Chrome or Edge for a pixel-perfect PDF.</span>
           <Button variant="dark" size="sm" onClick={() => window.print()}>

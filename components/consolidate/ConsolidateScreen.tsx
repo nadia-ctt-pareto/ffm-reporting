@@ -72,8 +72,13 @@ const LOG_COLUMNS: TableColumn[] = [
  * `/consolidate` -- three stages, top to bottom: (1) pick a Mon-Sun week
  * (same anchor pattern as `CalendarScreen`); (2) every weekly/daily report
  * touching that week, grouped by project bucket, each with an include
- * checkbox (all checked by default); (3) a live merged preview of the
- * checked sources, with sanitization (client-name normalization
+ * checkbox -- house-bucket sources (no `projectId`) default CHECKED,
+ * project-bucket sources default UNCHECKED (Phase 7b M4: the output is
+ * always a house `WeeklyReport`, see `handleCreate` below, so silently
+ * pulling in another project's tasks/risks by default was the wrong
+ * default -- pulling in a different project's work is an explicit opt-in,
+ * not a surprise; see `isChecked`'s own doc comment); (3) a live merged
+ * preview of the checked sources, with sanitization (client-name normalization
  * suggestions, empty-row drops) applied only to the merged OUTPUT --
  * sources themselves are never mutated, never re-persisted, and never
  * deleted, no matter what's checked/unchecked or accepted/declined here.
@@ -113,7 +118,23 @@ export function ConsolidateScreen({ weeklies, dailies, projects, onCreateReport 
 
   const sourcesById = useMemo(() => new Map(allSources.map((s) => [s.id, s])), [allSources]);
 
-  const isChecked = useCallback((id: string) => readFlag(checked, id, true), [checked]);
+  // Phase 7b (M4): bucket opt-in default -- house sources (`bucketKey === ''`)
+  // default CHECKED, project-bucket sources default UNCHECKED. The output is
+  // always a house `WeeklyReport` (see `handleCreate` below), so silently
+  // pulling in another project's tasks/risks by default was the wrong
+  // default; a user who genuinely wants a cross-bucket rollup still can, by
+  // explicitly checking those rows (documented Phase 6 follow-up, resolved
+  // here). `readFlag` still wins once the user has actually clicked a
+  // checkbox for this id -- this only changes the FALLBACK when `checked`
+  // has no entry for it yet.
+  const isChecked = useCallback(
+    (id: string) => {
+      const source = sourcesById.get(id);
+      const defaultChecked = source ? bucketKey(source) === '' : true;
+      return readFlag(checked, id, defaultChecked);
+    },
+    [checked, sourcesById]
+  );
   const toggleChecked = (id: string) => setChecked((c) => ({ ...c, [id]: !isChecked(id) }));
 
   const includedSources = useMemo(() => allSources.filter((s) => isChecked(s.id)), [allSources, isChecked]);

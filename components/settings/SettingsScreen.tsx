@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/Button';
 import { downloadCsv } from '@/lib/csv';
 import { buildDailyImportTemplateCsv, buildWeeklyImportTemplateCsv } from '@/lib/csv-templates';
 import { PROMPT_TEMPLATES } from '@/lib/prompts';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { CsvImportSection } from './CsvImportSection';
+import { LocalDataImportSection } from './LocalDataImportSection';
 import styles from './SettingsScreen.module.css';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
@@ -18,16 +20,21 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 ];
 
 /**
- * `/settings` -- four sections: (a) an Appearance theme picker
- * (Light/Dark/System, built from existing `Button`s with `aria-pressed` --
- * no new Radix wrapper needed, `Tabs` implies content panels and `Select`
- * is overkill for 3 mutually-exclusive options), (b) a static prompt
- * library for the future Claude connector (copy-to-clipboard, reusing
- * `ReportScreen`'s clipboard + 1800ms copied-state pattern), (c) two CSV
- * import template downloads (the import contract, see lib/csv-templates.ts),
- * and (d) the live CSV importer (Phase 6b) directly below the templates --
- * `CsvImportSection` is its own component (not inlined here) so this screen
- * stays thin; it owns all of its own upload/preview/project-choice state.
+ * `/settings` -- four sections, plus a fifth in Supabase mode: (a) an
+ * Appearance theme picker (Light/Dark/System, built from existing `Button`s
+ * with `aria-pressed` -- no new Radix wrapper needed, `Tabs` implies content
+ * panels and `Select` is overkill for 3 mutually-exclusive options), (b) a
+ * static prompt library for the future Claude connector (copy-to-clipboard,
+ * reusing `ReportScreen`'s clipboard + 1800ms copied-state pattern), (c) two
+ * CSV import template downloads (the import contract, see
+ * lib/csv-templates.ts), (d) the live CSV importer (Phase 6b) directly below
+ * the templates, and (e, Phase 7b M4) `LocalDataImportSection` -- rendered
+ * only when `isSupabaseConfigured()`, since it's a one-time
+ * localStorage-to-Postgres migration tool with nothing to do in demo mode
+ * (there is no "elsewhere" for demo mode's own localStorage data to move
+ * to). `CsvImportSection`/`LocalDataImportSection` are their own components
+ * (not inlined here) so this screen stays thin; each owns all of its own
+ * upload/preview/project-choice or import-progress state.
  */
 export function SettingsScreen() {
   const { preference, setPreference } = useTheme();
@@ -116,6 +123,8 @@ export function SettingsScreen() {
         </section>
 
         <CsvImportSection />
+
+        {isSupabaseConfigured() ? <LocalDataImportSection /> : null}
       </div>
     </div>
   );

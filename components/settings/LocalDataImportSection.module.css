@@ -1,0 +1,81 @@
+.section {
+  margin-bottom: 44px;
+}
+
+.sectionKicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 14px;
+}
+
+.sectionCopy {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0 0 18px;
+}
+
+.templateRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fieldError {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--negative);
+  margin: 16px 0 0;
+}
+
+.resultPanel {
+  border: 1px solid var(--border-subtle);
+  padding: 14px 16px;
+  margin-top: 16px;
+}
+
+.resultHeading {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-heading);
+  margin-bottom: 10px;
+}
+
+.resultBlock {
+  margin-top: 12px;
+}
+
+.resultBlock:first-of-type {
+  margin-top: 0;
+}
+
+.resultLabel {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 8px;
+}
+
+.resultListItems {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resultItem {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-body);
+}
