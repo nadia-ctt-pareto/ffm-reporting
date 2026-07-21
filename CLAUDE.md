@@ -27,26 +27,25 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (Phase 7 complete):** Full stack with optional Supabase backend. **Demo mode** (no
-  `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in
-  `ff.projects.v1`), seeded with 7 weekly + 5 daily reports. **Supabase mode** (env set)
-  uses Postgres + HTTP repository with Auth (magic-link sign-in), per-user ownership, RLS,
-  and **cross-machine share links** via per-report public tokens. Share links resolve to an
-  interactive branded HTML slide-deck route (`/reports/[id]/present` or `/daily/[id]/present`,
-  outside the shell) with keyboard nav, touch swipe, deep links, fullscreen, and token-based
-  anon access; "PDF export" is real browser print-to-PDF (exact 6 pages in Chromium, letterboxed
-  in Firefox/Safari). Task (List/Kanban) and Calendar (Week/Month) views (Phase 3) derive from
-  `Report[]` (weeklies only; dailies in these views are a documented Phase 4 follow-up). Phase 4
-  added daily reports (`/daily/*`) and the weekly wizard's "Import This Week's Daily Reports"
-  roll-up. Phase 5 added Settings (`/settings`) with theme picker (Light/Dark/System),
-  prompt library, CSV import templates; report screen is now the working document. Phase 6
-  refactored the type system to Zod (6a), added the Project entity (6a), built CSV import
-  (6b), and added report consolidation (6b). Phase 7a added the Supabase schema + Auth layer.
-  Phase 7b connected the UI → Postgres (M1 server plane, M2 cutover, M3 cross-machine sharing,
-  M4 local import) with two rounds of adversarial hardening.
-- **Later (Phase 8):** remote MCP server + Claude Skill (locked tool names already documented in
-  `lib/prompts.ts`; Phase 8's `update_report` will use `expectedUpdatedAt` CAS for optimistic
-  concurrency).
+- **Now (Phase 8a + 7c complete):** Full stack with optional Supabase backend + Claude connectivity. **Demo mode**
+  (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`),
+  seeded with 7 weekly + 5 daily reports; MCP server and AI polish 404 in demo mode. **Supabase mode** (env set)
+  uses Postgres + HTTP repository with Auth (magic-link sign-in), per-user ownership, RLS, and **cross-machine
+  share links** via per-report public tokens. Share links resolve to an interactive branded HTML slide-deck route
+  (`/reports/[id]/present` or `/daily/[id]/present`, outside the shell) with keyboard nav, touch swipe, deep links,
+  fullscreen, and token-based anon access; "PDF export" is real browser print-to-PDF (exact 6 pages in Chromium,
+  letterboxed in Firefox/Safari). **Phase 8a: Remote MCP server** — Claude Code / Desktop / CLI can now read/write
+  reports under the user's own ownership via bearer-token auth; the Skill teaches the domain model and workflows.
+  8 locked tools (list_reports, get_report, list_projects, get_week_rollup, create_report, update_report,
+  create_project, create_weekly_from_dailies; no delete_report). **Phase 7c: BYOK AI field polish** — a
+  "Polish" button on prose fields in the wizard (summary, win narrative, task title, risk description, etc.),
+  powered by BYOK Anthropic key stored encrypted server-side. Earlier phases: Phase 3 added Task view
+  (List/Kanban) and Calendar view (Week/Month); Phase 4 added daily reports (`/daily/*`) and weekly-import
+  roll-up; Phase 5 added Settings with theme picker, prompt library, CSV templates; Phase 6 refactored to
+  Zod (6a), added Project entity (6a), CSV import (6b), consolidation (6b); Phase 7a added Supabase schema +
+  Auth; Phase 7b connected UI → Postgres with cross-machine sharing + two adversarial hardening passes.
+- **Later (Phase 8b):** OAuth for claude.ai (layers on top of Phase 8a's MCP server + `api_tokens` table, no new
+  tools); surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up).
 - **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
@@ -803,21 +802,21 @@ installing it against React 19 / Next 15.
 - **`Popover`** (Phase 3): a `{trigger, children, align?}` wrapper, used by
   the Calendar month grid's "+N more" day-overflow disclosure.
 
-## Settings (Phase 5; CSV import Phase 6b)
+## Settings (Phase 5; CSV import Phase 6b; MCP Phase 8a; AI polish Phase 7c)
 
-`/settings` (`components/settings/SettingsScreen.tsx`) provides four sections:
+`/settings` (`components/settings/SettingsScreen.tsx`) provides six sections:
 
 - **Appearance**: a theme picker with three mutually-exclusive buttons (Light /
   Dark / System), wired to `useTheme().setPreference` (replaces the Dark Mode
   switch that used to live in the sidebar footer).
 - **Prompt Library**: a static, copy-to-clipboard card list of prompt templates
-  for driving reports through the future Claude connector (Phase 8's `app/api/mcp`).
-  Tool names referenced here (`list_reports`, `get_report`, `list_projects`,
-  `get_week_rollup`, `create_report`, `update_report`, `create_project`,
-  `create_weekly_from_dailies`) are the locked contract that Phase 8 and the
-  skills/ directory must match exactly (see `lib/prompts.ts` for the full list).
-- **CSV Import Templates**: downloadable example CSVs for both weekly and daily
-  imports, exercising all four `row_type`s (report, task, risk, priority).
+  for driving reports through Claude via MCP (Phase 8a's `/api/mcp`). Tool names
+  referenced here (`list_reports`, `get_report`, `list_projects`, `get_week_rollup`,
+  `create_report`, `update_report`, `create_project`, `create_weekly_from_dailies`)
+  are the locked contract that Phase 8a and the skills/ directory must match
+  exactly (see `lib/prompts.ts` for the full list).
+- **CSV Import Templates** (Phase 6b): downloadable example CSVs for both weekly and
+  daily imports, exercising all four `row_type`s (report, task, risk, priority).
   `lib/csv-templates.ts` exports `IMPORT_COLUMNS` (the exact column order +
   semantics), `buildWeeklyImportTemplateCsv()`, and `buildDailyImportTemplateCsv()`.
   This is a **contract**: Phase 6b's CSV importer must import `IMPORT_COLUMNS`
@@ -828,13 +827,136 @@ installing it against React 19 / Next 15.
   success confirmation. `lib/import.ts`'s `parseImportCsv` is pure (no storage,
   no React); the component reads the file via `FileReader`, resolves/creates the
   target project, persists via `useReports().upsertMany()` if `issues` is empty.
+- **MCP Access** (Phase 8a): `McpAccessSection.tsx` — bearer-token create (show-once),
+  list (hash-only), revoke. Warns when `SUPABASE_JWT_SECRET` is unset (endpoint
+  not yet ready). Setup instructions and a link to the Prompt Library above.
+- **AI Polish** (Phase 7c): `AiKeySection.tsx` — BYOK Anthropic key entry (plaintext,
+  validated against Anthropic before storage, never persisted plaintext). Displays
+  a fingerprint + `validatedAt`/`lastUsedAt` timestamps. Muted note if
+  `isAiPolishConfigured()` is false (no Supabase or `AI_BYOK_ENCRYPTION_KEY` unset).
 
 Follows the same pattern as `ReportScreen`/`TaskViewScreen`/`CalendarScreen`: no
 separate route-level orchestrator (no filter/sort/pagination state, no hooks),
-`SettingsScreen` owns its own small theme-picker and copy-confirmation state
-directly, `app/(shell)/settings/page.tsx` is a thin thin wrapper.
+`SettingsScreen` owns its own small state directly, `app/(shell)/settings/page.tsx`
+is a thin thin wrapper. Supabase mode only: `LocalDataImportSection` (Phase 7b)
+ensures local reports migrate to Postgres on the first run.
 
-## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate)
+## Remote MCP server (Phase 8a)
+
+The app now bridges bearer-token auth into MCP tools, enabling Claude Code, Claude Desktop, and future
+claude.ai to read/write reports under the user's own ownership.
+
+**Auth bridge** (`lib/server/mcp-auth.ts`, the security core):
+- **Bearer token → JWT pipeline**: `Authorization: Bearer ffmcp_<256-bit-token>` → a SECURITY DEFINER
+  `verify_api_token` RPC (called via the bare anon client) that hashes the token, rejects
+  revoked/expired matches, stamps `last_used_at`, and returns only the owning `user_id`. **All privilege
+  elevation is confined to this single SQL function**. From that id, the server mints a 5-minute HS256 JWT
+  signed with the server-only `SUPABASE_JWT_SECRET` (role: `authenticated`, NO `app_metadata`, so
+  `is_admin()` is structurally false for every MCP call — machine tokens are always plain members, even
+  for admin users' tokens). That JWT scopes a per-request Supabase client handed to the tools, so every
+  MCP write runs as the `authenticated` role under the **identical RLS** as the web cookie path. No
+  service-role key exists anywhere.
+- **Token model** (`app/api/tokens/*`): show-once creation (bearer + secret, user copies the bearer half),
+  list (hash-only, never plaintext again), revoke. Tokens never expire by default; offboarding = revoke.
+  Hash-only storage (sha-256 hex, matching the `verify_api_token` RPC's own hash algorithm
+  byte-for-byte).
+
+**The 8 tools** (`lib/server/mcp-tools.ts`, names locked to `lib/prompts.ts` and machine-checked by
+`scripts/check-mcp-tool-contract.ts`):
+- **Reads**: `list_reports` (kind/prepared_for/week_start range filter, limit cap), `get_report` (full
+  report + `updatedAt`), `list_projects`, `get_week_rollup` (read-only preview: weeklies + dailies for a
+  week, same merge rules as consolidation).
+- **Writes**: `create_report` (kind-discriminated, refuse-duplicate guard unless `allow_duplicate: true`),
+  `update_report` (camelCase, requires `expectedUpdatedAt` for optimistic concurrency — compare-and-swap),
+  `create_project` (idempotent by name), `create_weekly_from_dailies` (dailies-only rollup, not weeklies).
+- **Deliberately no `delete_report`** — see the Skill's "Access model" section.
+- Every tool validates bounded `*InputSchema` (no incoming ids; fresh `uid()` on create). `ServiceError` is
+  curated by `curatedMessage` before reaching the MCP client — never raw Postgres errors.
+- **Org-wide reads, owner-only writes**: `list_reports` and `get_report` return every report (same as web
+  dashboard), but create/update only touch rows the token's owner created. Attempting to edit someone
+  else's report returns "you don't have permission" — no way around it, including for admin tokens.
+
+**Transport** (`app/api/[transport]/route.ts`): stateless Streamable HTTP at `/api/mcp`, `withMcpAuth`-gated,
+404 in demo mode (no MCP if Supabase not configured or `SUPABASE_JWT_SECRET` unset).
+
+**Token UI** (`components/settings/McpAccessSection.tsx`): create (show-once), list, revoke. Warns when
+`SUPABASE_JWT_SECRET` is unset (endpoint not ready for tokens to work yet). Setup instructions included.
+
+**The Skill** (`skills/weekly-reports/SKILL.md`): teaches the domain model (weekly/daily discriminant, one
+daily per day per project bucket, project vs. house buckets), the access model (org-wide reads, owner-only
+writes, no admin escalation for tokens, no delete), merge semantics (tasks/risks latest-wins, priorities
+first-wins, touchpoints sum, win carries from latest source if draft doesn't have one), the 8 tool reference,
+CAS discipline (always read before write, re-read on conflict rather than force), and workflows (draft
+roll-up from dailies, weekly status digest, blocker triage, consolidate across projects, CSV import
+assistance). Imports `HOUSE_VOICE` from `lib/prompts.ts` (shared with Phase 7c's polish), so the web app
+and Claude-via-MCP can never drift into two different voices.
+
+**Dependencies**: `@modelcontextprotocol/sdk@1.26.0` + `mcp-handler@1.1.0` (no hand-rolled MCP, mirroring
+the hand-rolled CSV parser's dependency-light ethos elsewhere).
+
+## BYOK AI field polish (Phase 7c)
+
+A "Polish" button on prose fields in the wizard — re-write under Foundation First's house voice via BYOK
+Anthropic key, server-proxied and encrypted at rest.
+
+**Key storage** (`lib/server/ai-crypto.ts` + `lib/server/ai-keys.ts`):
+- **Never reaches the browser**: Stored per-user in `ai_keys` table, AES-256-GCM-encrypted under server-only
+  `AI_BYOK_ENCRYPTION_KEY` (32 raw bytes, base64-encoded, generated with `openssl rand -base64 32`).
+  Plaintext lives ONLY inside `polishField`'s call frame — read once from the encrypted RPC result,
+  used for one fetch to Anthropic, never assigned anywhere else, never logged.
+- **Owner-only RLS, no admin branch**: `ai_keys` table RLS is stricter than every other table — deliberately
+  no `is_admin()` on any verb. An admin can manage reports but must never read another user's key, even
+  as ciphertext (which would be useless without the server-only encryption key anyway).
+- **Read RPC** (`get_own_ai_key_ciphertext`): SECURITY DEFINER, `auth.uid()`-scoped (no id param), stamps
+  `last_used_at` atomically with the read.
+- **Write RPC** (`set_own_ai_key`): SECURITY DEFINER, validates the key against Anthropic BEFORE
+  encrypting/storing (invalid key never persists), stamps `validated_at` with server `now()` (client
+  clock never trusted). Uses a second function because `ON CONFLICT DO UPDATE SET col = EXCLUDED.col`
+  requires SELECT on the column — `authenticated` has no SELECT on `key_ciphertext`, so authenticated-role
+  upsert is impossible; the DEFINER function bypasses this (verified live as a load-bearing gotcha).
+- **Decrypt failure degrades gracefully**: "re-enter your key" marker, never a 500 or crash.
+
+**Per-field registry** (`lib/prompts.ts`, `POLISH_FIELDS` + `HOUSE_VOICE`):
+- 7 polishable fields: summary (executive overview), win narrative (story behind the stat), touchpoints
+  narrative (communication cadence), risk description (specific, non-alarmist), risk next step
+  (action-oriented), priority (verb-first deliverable), task title (normalize messy imports).
+- `client` is **hard-excluded** — it's the dedupe key (`(client, task)` / `(client, description)` in
+  `useWizard`'s Import panels and `lib/aggregate.ts`). Rewriting it would break dedupe and project
+  stamping.
+- Each field gets distinct editorial instructions appended to `HOUSE_VOICE` in the system prompt
+  (`lib/server/ai-polish.ts`'s `buildSystemPrompt`) — "Polish" means something different for a risk
+  description than for a win narrative.
+- `HOUSE_VOICE` is the shared house-writing-style constant (concise, concrete, client-appropriate; plain
+  business English, active voice, specific outcomes and numbers over vague adjectives; no corporate
+  filler, no hype, no exclamation marks, no internal jargon). Verbatim referenced by both the BYOK polish
+  system prompt and the MCP Skill's "Voice" section (see above), so the web app and Claude-via-MCP can
+  never describe two different voices.
+
+**Polish UX** (`components/ai/PolishButton.tsx`):
+- Inline "Polish" button on each polishable field (disabled if no key or encryption key unset).
+- Suggestion appears below the field (Accept / Discard / Undo). Original text never touched until Accept.
+- Mid-flight edit discards the now-stale suggestion (three guard points), so Accept can never apply a
+  rewrite of text the user has since changed.
+- `isAiPolishConfigured()`: Supabase configured AND `AI_BYOK_ENCRYPTION_KEY` set → routes exist and
+  buttons render. Otherwise, `/api/ai/*` return 404, Settings shows a muted note, demo mode unchanged.
+
+**Polish server** (`lib/server/ai-polish.ts`, model: `claude-sonnet-5`):
+- `polishField`: rate-limit check → decrypt key → build system/user prompts → call Anthropic →
+  extract/clean result. Per-user in-memory rate limiter (10 requests per minute, 2 concurrent max —
+  honest caveat: per-Node-process, so multi-instance serverless exceeds limits easily; Redis/Upstash
+  upgrade is the documented path, not built here).
+- Anthropic response body never logged (can echo back a bad key's last chars). Key never logged. Crypto
+  errors carry no key material. Invalid keys validated against Anthropic before storage. Anthropic errors
+  mapped to marker tokens (`anthropic_invalid_key`, `anthropic_rate_limited`, `anthropic_unavailable`,
+  `anthropic_timeout`, `ai_key_unreadable`), then curated by `curatedMessage` in
+  `lib/server/reports-service.ts`.
+
+**Routes** (`app/api/ai/key/route.ts`, `app/api/ai/polish/route.ts`): gated on `isAiPolishConfigured()`.
+GET `/api/ai/key` returns `{ configured, hint, validatedAt, lastUsedAt }` (never plaintext). PUT
+`/api/ai/key` stores a new plaintext key (validated against Anthropic first). POST `/api/ai/polish`
+takes a `PolishRequest`, returns `{ polished: string }`.
+
+## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
   (`IconDashboard`, `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
@@ -897,6 +1019,18 @@ ownership, RLS, per-report share tokens, `replace_reports` RPC, `created_at`/
     names, narratives, touch counts); child-row-count cap trigger; `replace_reports`
     returns the real `updated_at` it stamped.
 
+**Phase 8a**: `supabase/migrations/20260721000007_mcp_tokens.sql` — `verify_api_token`
+SECURITY DEFINER RPC (the entire auth bridge for bearer tokens), `api_tokens` table
+enhancements (`created_at`, `last_used_at`, `expires_at`, `revoked_at`), RLS
+(owner-only on all verbs; no update policy — tokens are create/revoke only).
+
+**Phase 7c**: `supabase/migrations/20260722000008_ai_keys.sql` — `ai_keys` table
+(user_id, key_ciphertext, key_hint, created_at, updated_at, validated_at, last_used_at),
+`get_own_ai_key_ciphertext()` and `set_own_ai_key()` SECURITY DEFINER RPCs, owner-only
+RLS on all verbs (deliberately no `is_admin()` branch — tighter than every other table),
+column-level grant excluding `key_ciphertext` from `authenticated`'s SELECT (read-side
+access only via RPC).
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -906,16 +1040,16 @@ ownership, RLS, per-report share tokens, `replace_reports` RPC, `created_at`/
   "Dark mode"). `print.css` — global rules for the presentation deck.
 - `lib/` — `types` (z.infer facade, Phase 6a), `constants`, `format`, `report-utils`,
   `csv` (Phase 6b parsing + escaping), `csv-templates` (Phase 5 import contract),
-  `prompts` (Phase 5 prompt library, locked MCP tool names), `seed` (7 weekly +
-  5 daily + 4 project seed records), `aggregate` (Phase 4 daily-into-draft, Phase 6b
-  generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `import`
-  (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic),
-  `projects` (Phase 6a project backfill), `data/` (repository interface +
-  localStorage impl + HTTP impl (Phase 7b) + factory), `hooks/useReports`, 
-  `hooks/useDailyReports` (Phase 4), `hooks/useProjects` (Phase 6a),
-  `schema/` (Zod 4, Phase 6a), `server/` (Phase 7b: `reports-service`, 
-  `db-mapping`, `route-helpers`, `request-guards`), `supabase/` (Phase 7a: 
-  Supabase client factories including `anon.ts` for token-based present routes).
+  `prompts` (Phase 5 prompt library, locked MCP tool names, Phase 8a/7c house voice + polish fields),
+  `seed` (7 weekly + 5 daily + 4 project seed records), `aggregate` (Phase 4 daily-into-draft,
+  Phase 6b generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `import`
+  (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic), `projects` (Phase 6a
+  project backfill), `data/` (repository interface + localStorage impl + HTTP impl (Phase 7b)
+  + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
+  (Phase 6a), `schema/` (Zod 4, Phase 6a), `server/` (Phase 7b: `reports-service`, `db-mapping`,
+  `route-helpers`, `request-guards`; Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`,
+  `ai-keys`, `ai-polish`), `supabase/` (Phase 7a: Supabase client factories including `anon.ts`
+  for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
   plus `icons.tsx` (hand-authored SVG nav icons, Phase 5).
@@ -936,8 +1070,10 @@ ownership, RLS, per-report share tokens, `replace_reports` RPC, `created_at`/
 - `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
   (Phase 3; see "Task and Calendar views").
 - `components/consolidate/` — `ConsolidateScreen` (Phase 6b; consolidation UI).
-- `components/settings/` — `SettingsScreen` (Phase 5; theme picker, prompt
-  library, CSV templates), `CsvImportSection` (Phase 6b; upload + importer UI).
+- `components/settings/` — `SettingsScreen` (Phase 5; theme picker, prompt library, CSV templates),
+  `CsvImportSection` (Phase 6b; upload + importer UI), `McpAccessSection` (Phase 8a; token
+  create/list/revoke), `AiKeySection` (Phase 7c; key upload), `LocalDataImportSection` (Phase 7b).
+- `components/ai/` — `PolishButton` (Phase 7c; prose field rewrite button).
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.
 - `supabase/migrations/` — versioned SQL schema (see "Migrations discipline").
