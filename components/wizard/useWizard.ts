@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { nowDate, uid } from '@/lib/format';
 import { aggregateDailiesIntoDraft } from '@/lib/aggregate';
 import { projectIdForClientName } from '@/lib/projects';
-import { blankDailyDraft, blankDraft, dailyDateConflict, reportPeriodEnd, reportPeriodLabel, validateStep } from '@/lib/report-utils';
-import type { AnyReport, DailyReport, Draft, Priority, Project, ReportKind, ReportStatus, Risk, Task } from '@/lib/types';
+import { blankDailyDraft, blankDraft, dailyDateConflict, draftToReport, reportPeriodEnd, reportPeriodLabel, validateStep } from '@/lib/report-utils';
+import type { AnyReport, DailyReport, Draft, Priority, Project, ReportKind, Risk, Task } from '@/lib/types';
 
 export interface ImportCandidate {
   id: string;
@@ -32,35 +32,6 @@ function blankImportSel(): ImportSelState {
 function reportToDraft(report: AnyReport): Draft {
   if (report.kind === 'daily') return { ...report, weekStart: '', weekEnd: '' };
   return { ...report, date: '' };
-}
-
-/**
- * The inverse of reportToDraft: builds the AnyReport to persist from a
- * Draft, an id, and a status. Only the fields relevant to `draft.kind` are
- * carried into the result. Phase 6a: `projectId` must be carried explicitly
- * here (unlike reportToDraft, which gets it for free via its `{...report}`
- * spread) -- otherwise resuming an imported draft-status report through the
- * wizard would silently strip its project on the next save.
- */
-function draftToReport(draft: Draft, id: string, status: ReportStatus, now: string): AnyReport {
-  const core = {
-    id,
-    status,
-    preparedFor: draft.preparedFor,
-    preparedBy: draft.preparedBy,
-    createdAt: draft.createdAt || now,
-    updatedAt: now,
-    summaryNarrative: draft.summaryNarrative,
-    tasks: draft.tasks,
-    risks: draft.risks,
-    win: draft.win,
-    touchpoints: draft.touchpoints,
-    priorities: draft.priorities,
-    projectId: draft.projectId,
-  };
-  return draft.kind === 'daily'
-    ? { ...core, kind: 'daily', date: draft.date }
-    : { ...core, kind: 'weekly', weekStart: draft.weekStart, weekEnd: draft.weekEnd };
 }
 
 export interface UseWizardOptions {

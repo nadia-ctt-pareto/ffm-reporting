@@ -11,6 +11,7 @@ import { PROMPT_TEMPLATES } from '@/lib/prompts';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { CsvImportSection } from './CsvImportSection';
 import { LocalDataImportSection } from './LocalDataImportSection';
+import { McpAccessSection } from './McpAccessSection';
 import styles from './SettingsScreen.module.css';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
@@ -20,21 +21,23 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 ];
 
 /**
- * `/settings` -- four sections, plus a fifth in Supabase mode: (a) an
+ * `/settings` -- four sections, plus two more in Supabase mode: (a) an
  * Appearance theme picker (Light/Dark/System, built from existing `Button`s
  * with `aria-pressed` -- no new Radix wrapper needed, `Tabs` implies content
  * panels and `Select` is overkill for 3 mutually-exclusive options), (b) a
- * static prompt library for the future Claude connector (copy-to-clipboard,
+ * static prompt library for the Claude connector (copy-to-clipboard,
  * reusing `ReportScreen`'s clipboard + 1800ms copied-state pattern), (c) two
  * CSV import template downloads (the import contract, see
  * lib/csv-templates.ts), (d) the live CSV importer (Phase 6b) directly below
- * the templates, and (e, Phase 7b M4) `LocalDataImportSection` -- rendered
- * only when `isSupabaseConfigured()`, since it's a one-time
- * localStorage-to-Postgres migration tool with nothing to do in demo mode
- * (there is no "elsewhere" for demo mode's own localStorage data to move
- * to). `CsvImportSection`/`LocalDataImportSection` are their own components
- * (not inlined here) so this screen stays thin; each owns all of its own
- * upload/preview/project-choice or import-progress state.
+ * the templates, (e, Phase 7b M4) `LocalDataImportSection`, and (f, Phase
+ * 8a) `McpAccessSection` -- the latter two rendered only when
+ * `isSupabaseConfigured()`, since both are meaningless without per-user
+ * ownership to scope against (no "elsewhere" for demo mode's own
+ * localStorage data to move to; no user to own an MCP bearer token).
+ * `CsvImportSection`/`LocalDataImportSection`/`McpAccessSection` are their
+ * own components (not inlined here) so this screen stays thin; each owns
+ * all of its own upload/preview/project-choice, import-progress, or
+ * token-CRUD state.
  */
 export function SettingsScreen() {
   const { preference, setPreference } = useTheme();
@@ -81,7 +84,9 @@ export function SettingsScreen() {
 
         <section className={styles.section}>
           <div className={styles.sectionKicker}>Prompt Library</div>
-          <p className={styles.sectionCopy}>For use with the Claude connector (arriving in a later phase).</p>
+          <p className={styles.sectionCopy}>
+            For use with the Claude connector -- create a token below (Supabase mode) and paste one of these into Claude.
+          </p>
           <div className={styles.promptList}>
             {PROMPT_TEMPLATES.map((prompt) => (
               <div key={prompt.id} className={styles.promptCard}>
@@ -125,6 +130,7 @@ export function SettingsScreen() {
         <CsvImportSection />
 
         {isSupabaseConfigured() ? <LocalDataImportSection /> : null}
+        {isSupabaseConfigured() ? <McpAccessSection /> : null}
       </div>
     </div>
   );

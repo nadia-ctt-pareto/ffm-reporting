@@ -1,15 +1,28 @@
 // Phase 5 (Settings): a static library of prompt templates for driving this
-// app's data through the Claude connector -- not wired to anything yet (the
-// connector itself is Phase 8's `app/api/mcp`). Rendered as a copy-to-
-// clipboard card list on `/settings`.
+// app's data through the Claude connector. Rendered as a copy-to-clipboard
+// card list on `/settings`, directly above Phase 8a's `McpAccessSection`
+// (create a token, then paste one of these into Claude).
 //
-// Tool names referenced below are the contract for app/api/mcp (Phase 8)
-// and skills/ -- change all three together.
+// Tool names referenced below are the contract for app/api/[transport]
+// (Phase 8a's `/api/mcp`, `lib/server/mcp-tools.ts`'s `MCP_TOOL_NAMES`) and
+// `skills/weekly-reports/SKILL.md` -- change all three together.
+// `scripts/check-mcp-tool-contract.ts` machine-checks this comment block
+// against `MCP_TOOL_NAMES` (parsing the "Read:"/"Write:" lines below
+// directly, since this file stays comment-only by design -- no exported
+// const list lives here) -- keep the "Read:"/"Write:" line shape intact if
+// you ever edit this block, or that script's parser needs a matching update.
 //
 // Canonical MCP tool names:
 //   Read:  list_reports, get_report, list_projects, get_week_rollup
 //   Write: create_report, update_report, create_project, create_weekly_from_dailies
-//   (there is deliberately no delete_report)
+//   (there is deliberately no delete_report -- see SKILL.md's "Access model")
+//
+// Future (Phase 7c, not built yet): a `HOUSE_VOICE` constant somewhere in
+// this codebase is meant to capture Foundation First's house writing style
+// (tone, structure) for narrative fields (summaries, wins, next-step text)
+// -- once it exists, both these prompt templates and
+// `skills/weekly-reports/SKILL.md`'s "Voice" section should reference it by
+// name rather than restating tone guidance ad hoc in two places.
 
 export interface PromptTemplate {
   id: string;

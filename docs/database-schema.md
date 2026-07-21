@@ -14,12 +14,15 @@ ownership, and RLS (Phase 7a)" below — a Phase 7b post-review-hardening
 delta (closing a share-token read leak found in code review, plus
 server-stamping `updated_at`) at
 `supabase/migrations/20260720000005_post_review_hardening.sql` — see
-"Post-review hardening (Phase 7b)" below — and a Phase 7b round-2
+"Post-review hardening (Phase 7b)" below — a Phase 7b round-2
 post-review-hardening delta (matching SQL CHECK constraints + a child-row
 count cap for the app's write-boundary length caps, plus `replace_reports`
 returning the real `updated_at` it wrote) at
 `supabase/migrations/20260720000006_post_review_hardening_round2.sql` — see
-"Post-review hardening, round 2 (Phase 7b)" below.
+"Post-review hardening, round 2 (Phase 7b)" below — and a Phase 8a delta
+(the MCP bearer-token verify/revoke RPCs) at
+`supabase/migrations/20260721000007_mcp_tokens.sql` — see "`verify_api_token`
+/ `revoke_api_token` (Phase 8a)" below.
 
 ## Discriminated union ↔ single table (Phase 4)
 
@@ -281,6 +284,8 @@ statement) to confirm:
 | `enable_report_share(text)` / `revoke_report_share(text)` | `authenticated` only | Owner-or-admin-gated internally; `anon` has no account to own a report with. |
 | `before_user_created_hook(jsonb)` | `supabase_auth_admin` only | The auth hook oracle above — must NOT be reachable via `/rest/v1/rpc/*` by anyone, including `authenticated`. |
 | `get_report_share_token(text)` (Phase 7b, 20260720000005) | `authenticated` only | Same rationale as `enable_report_share`/`revoke_report_share` — owner-or-admin-gated internally, `anon` has no account to own a report with. See "Post-review hardening (Phase 7b)" below. |
+| `verify_api_token(text)` (Phase 8a, 20260721000007) | `anon` only | The MCP auth bridge's bare anon client is the only real caller — see "`verify_api_token` / `revoke_api_token` (Phase 8a)" below. |
+| `revoke_api_token(text)` (Phase 8a, 20260721000007) | `authenticated` only | Owner-gated internally, same rationale as `enable_report_share`/`revoke_report_share`. |
 
 ```sql
 select p.proname, p.proacl from pg_proc p
@@ -290,8 +295,9 @@ where p.pronamespace = 'public'::regnamespace order by p.proname;
 ### `search_path` hardening on every `SECURITY DEFINER` function
 
 Every `SECURITY DEFINER` function (`get_shared_report`,
-`enable_report_share`, `revoke_report_share`, `before_user_created_hook`)
-sets `search_path = ''` (empty), not `= public`, and every relation/function
+`enable_report_share`, `revoke_report_share`, `before_user_created_hook`,
+`get_report_share_token` (Phase 7b), `verify_api_token`/`revoke_api_token`
+(Phase 8a)) sets `search_path = ''` (empty), not `= public`, and every relation/function
 reference inside them is schema-qualified (`public.reports`,
 `extensions.gen_random_bytes`, ...) — Supabase's own linter recommendation.
 An empty search_path means Postgres can never resolve an unqualified name
@@ -421,7 +427,7 @@ discovered in 7b. **Follow-up for Phase 7b**: `lib/server/db-mapping.ts`
 should own the read-side normalization, and `updateReport` should add the
 actual optimistic-concurrency check against `updated_at`.
 
-### `api_tokens` (schema only — Phase 8 feature)
+### `api_tokens` (schema landed Phase 7a; wired up in Phase 8a)
 
 ```sql
 create table api_tokens (
@@ -431,28 +437,89 @@ create table api_tokens (
   label text not null default '',
   created_at timestamptz not null default now(),
   last_used_at timestamptz,
-  expires_at timestamptz,   -- post-review addition, unused in Phase 7
-  revoked_at timestamptz    -- post-review addition, unused in Phase 7
+  expires_at timestamptz,   -- post-review addition, unused until Phase 8a (still unset by anything in this app -- no UI writes it)
+  revoked_at timestamptz    -- post-review addition, set by revoke_api_token() (Phase 8a) below
 );
 ```
 
-`expires_at`/`revoked_at` were added post-review, while the table is still
-empty (cheapest possible time): without them, "revoke" would have had to be
-a bare `DELETE` (no audit trail of when/that a token was ever revoked).
-Both are nullable and untouched by anything in Phase 7 — Phase 8 designs
-the actual revoke/expiry UX and validator logic against them.
+`expires_at`/`revoked_at` were added post-review in Phase 7a, while the
+table was still empty (cheapest possible time): without them, "revoke"
+would have had to be a bare `DELETE` (no audit trail of when/that a token
+was ever revoked). `revoked_at` is now live (Phase 8a, see
+`revoke_api_token` below); `expires_at` is still nullable and unset by
+anything in this app — a future phase could add an optional expiry UI
+without a schema change.
 
 RLS: a user may `select`/`insert`/`delete` only their own tokens (`user_id =
-auth.uid()`); there is no `update` policy — tokens are create/revoke only,
-and Phase 8's service-role token validator is what updates `last_used_at`
-(service-role bypasses RLS). **`SELECT` is column-restricted** (post-review
-hardening, same rationale as `reports.share_token`): `token_hash` is a
-verifier, never something a client should read back, so `authenticated`'s
-column-level grant excludes it — `revoke select on api_tokens from
-authenticated; grant select (id, user_id, label, created_at, last_used_at,
-expires_at, revoked_at) on api_tokens to authenticated;`. No UI or
-validation reads/writes this table in Phase 7 — the schema lands now purely
-so it's versioned alongside the rest of the auth domain.
+auth.uid()`); there is no `update` policy — tokens are create/revoke only.
+Phase 8a's `verify_api_token`/`revoke_api_token` (both `SECURITY DEFINER`,
+below) are the only paths that can write `last_used_at`/`revoked_at`
+despite that — see each function's own comment for why a `DEFINER` function
+is what a missing `UPDATE` policy actually forces here. **`SELECT` is
+column-restricted** (post-review hardening, same rationale as
+`reports.share_token`): `token_hash` is a verifier, never something a
+client should read back, so `authenticated`'s column-level grant excludes
+it — `revoke select on api_tokens from authenticated; grant select (id,
+user_id, label, created_at, last_used_at, expires_at, revoked_at) on
+api_tokens to authenticated;`. `app/api/tokens/route.ts`'s GET is the only
+reader in this app, and it selects exactly that column list (never `*`).
+
+### `verify_api_token` / `revoke_api_token` (Phase 8a)
+
+`supabase/migrations/20260721000007_mcp_tokens.sql` — the SQL half of the
+MCP bearer-token auth bridge (`lib/server/mcp-auth.ts` is the other half;
+read that file's header comment for the full per-request flow and the
+explicit security argument). Both functions follow `enable_report_share`'s
+exact posture (`security definer`, `set search_path = ''`, schema-qualified
+names, hand-written ownership/validity checks, `revoke ... from public,
+anon, authenticated` then a narrow, explicit `grant`).
+
+```sql
+create function public.verify_api_token(p_token text) returns uuid
+  security definer set search_path = ''
+-- Hashes p_token (extensions.digest(..., 'sha256'), hex-encoded --
+-- byte-for-byte the same algorithm/encoding as
+-- lib/server/mcp-auth.ts's hashApiTokenForStorage), looks it up in
+-- api_tokens, rejects a revoked/expired match, stamps last_used_at,
+-- returns the owning user_id (or NULL for anything else -- missing,
+-- garbage, revoked, expired; the caller never learns WHICH). A single
+-- atomic `UPDATE ... RETURNING` (not a SELECT then a separate UPDATE)
+-- closes the obvious TOCTOU window between checking validity and
+-- stamping last_used_at.
+
+create function public.revoke_api_token(p_token_id text) returns void
+  security definer set search_path = ''
+-- Owner-only (auth.uid() = api_tokens.user_id). Sets revoked_at = now()
+-- (idempotent via coalesce(revoked_at, now()) -- a second call on an
+-- already-revoked token of your own keeps the original timestamp and
+-- still succeeds) -- never a DELETE, preserving the audit trail. Raises
+-- 42501 if the id does not exist or is not owned by the caller.
+```
+
+**Grants** (verified via `pg_proc.proacl`, matching this document's existing
+"verify, never just re-read the `revoke` statement" discipline):
+`verify_api_token` → `anon` only (the MCP bridge always calls it via the
+bare, cookie-less anon client, lib/supabase/anon.ts — there is no session to
+be "authenticated" as at that point; deliberately narrower than
+`get_shared_report`'s `anon, authenticated` grant, since nothing in this app
+ever calls `verify_api_token` from an authenticated session).
+`revoke_api_token` → `authenticated` only (mirrors
+`enable_report_share`/`revoke_report_share` — `anon` has no account, so no
+token to revoke).
+
+| Function | Reachable by | Rationale |
+|---|---|---|
+| `verify_api_token(text)` | `anon` only | The whole point — the bare anon client is the ONLY caller (lib/supabase/anon.ts); 256-bit token entropy makes online guessing moot, same posture as `get_shared_report`'s share tokens. |
+| `revoke_api_token(text)` | `authenticated` only | Owner-gated internally; `anon` has no account to own a token with. |
+
+**Route handlers**: `app/api/tokens/route.ts` (GET list / POST create —
+POST server-generates the token, `node:crypto.randomBytes(32)` base64url,
+`ffmcp_`-prefixed, hashed via `hashApiTokenForStorage` before a plain
+`INSERT` through the cookie-bound client under `api_tokens_insert` RLS —
+`verify_api_token` is never called from this route, it exists purely for
+the MCP bridge) and `app/api/tokens/[id]/route.ts` (DELETE → calls
+`revoke_api_token` via the cookie-bound client, since `api_tokens` has no
+`UPDATE` policy of its own for a plain `PATCH` to use instead).
 
 ### `public.replace_reports(payload jsonb, skip_existing boolean default false)`
 

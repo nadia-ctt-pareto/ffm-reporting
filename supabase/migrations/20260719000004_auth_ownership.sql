@@ -377,7 +377,13 @@ alter table api_tokens enable row level security;
 create policy api_tokens_select on api_tokens for select to authenticated using (user_id = (select auth.uid()));
 create policy api_tokens_insert on api_tokens for insert to authenticated with check (user_id = (select auth.uid()));
 create policy api_tokens_delete on api_tokens for delete to authenticated using (user_id = (select auth.uid()));
--- No UPDATE policy: tokens are create/revoke only; Phase 8's service-role validator updates last_used_at.
+-- No UPDATE policy: tokens are create/revoke only. Comment corrected in
+-- Phase 8a (this line originally speculated a "service-role validator"
+-- would update last_used_at -- the shipped design is narrower than that:
+-- `verify_api_token`/`revoke_api_token`, both SECURITY DEFINER RPCs added
+-- in supabase/migrations/20260721000007_mcp_tokens.sql, are the only paths
+-- that write last_used_at/revoked_at despite the missing UPDATE policy --
+-- there is no service-role validator anywhere in this app.
 
 -- Post-review hardening, same rationale as reports.share_token above:
 -- `token_hash` is a verifier, never something a client needs to read back

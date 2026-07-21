@@ -90,6 +90,46 @@ export function draftPeriodLabel(draft: Draft): string {
   return draft.kind === 'weekly' ? fmtWeekLabel(draft.weekStart, draft.weekEnd) : fmtDateShort(draft.date);
 }
 
+/**
+ * Phase 8a: promoted out of `components/wizard/useWizard.ts` (a pure
+ * function had no business living in a `'use client'` hook module -- Phase
+ * 8's `create_weekly_from_dailies` MCP tool needs this exact assembly logic
+ * server-side, and duplicating it there would risk the wizard and the MCP
+ * tool silently drifting apart on what "build a report from a draft" means).
+ * `useWizard.ts` now imports this back, unchanged -- see its own
+ * `saveDraft`/`publish`, which are the only call sites this move had to stay
+ * byte-identical for.
+ *
+ * The inverse of `reportToDraft` (still private to useWizard.ts, since
+ * nothing outside the wizard resumes a saved report INTO a Draft): builds
+ * the `AnyReport` to persist from a Draft, an id, and a status. Only the
+ * fields relevant to `draft.kind` are carried into the result. `projectId`
+ * must be carried explicitly here (unlike `reportToDraft`, which gets it for
+ * free via its `{...report}` spread) -- otherwise resuming an imported
+ * draft-status report through the wizard would silently strip its project on
+ * the next save.
+ */
+export function draftToReport(draft: Draft, id: string, status: ReportStatus, now: string): AnyReport {
+  const core = {
+    id,
+    status,
+    preparedFor: draft.preparedFor,
+    preparedBy: draft.preparedBy,
+    createdAt: draft.createdAt || now,
+    updatedAt: now,
+    summaryNarrative: draft.summaryNarrative,
+    tasks: draft.tasks,
+    risks: draft.risks,
+    win: draft.win,
+    touchpoints: draft.touchpoints,
+    priorities: draft.priorities,
+    projectId: draft.projectId,
+  };
+  return draft.kind === 'daily'
+    ? { ...core, kind: 'daily', date: draft.date }
+    : { ...core, kind: 'weekly', weekStart: draft.weekStart, weekEnd: draft.weekEnd };
+}
+
 /** Phase 4: the ISO string to sort/compare an AnyReport's period by (weekEnd for weekly, date for daily) -- both are ISO strings, so plain `localeCompare` stays correct (see CLAUDE.md "Conventions"). */
 export function reportPeriodEnd(report: AnyReport): string {
   return report.kind === 'weekly' ? report.weekEnd : report.date;

@@ -43,7 +43,19 @@ import { isSupabaseConfigured } from './lib/supabase/config';
 // HTML instead of JavaScript, rejects the update, and survives -- continuing
 // to serve this app stale chunks. Belt-and-braces alongside the matcher's
 // static-extension exclusion below.
-const PUBLIC_EXACT_OR_PREFIX = [/^\/login$/, /^\/auth\//, /^\/sw\.js$/];
+// Phase 8a: `/api/mcp` is deliberately public here -- it has its OWN auth
+// (a bearer token, checked by `withMcpAuth` inside
+// app/api/[transport]/route.ts, not a session cookie). Without this
+// exemption, an MCP client's cookie-less request would be 401'd by THIS
+// middleware before ever reaching that route's own bearer-token check,
+// since every other `/api/*` path requires a signed-in session cookie (see
+// the `pathname.startsWith('/api/')` branch below). Do NOT widen this to
+// match any other `/api/*` path -- every other route handler's session-
+// cookie auth is exactly what this middleware exists to enforce early;
+// `/api/mcp` is the one deliberate, narrow exception, matched by exact
+// pathname (not a prefix) so it can never accidentally cover a future
+// sibling route under `/api/` that DOES need the cookie check.
+const PUBLIC_EXACT_OR_PREFIX = [/^\/login$/, /^\/auth\//, /^\/sw\.js$/, /^\/api\/mcp$/];
 const PUBLIC_PRESENT = [/^\/reports\/[^/]+\/present$/, /^\/daily\/[^/]+\/present$/];
 
 function isPublicPath(pathname: string): boolean {
