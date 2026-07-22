@@ -145,6 +145,24 @@
   border-color: var(--text-heading);
 }
 
+/* WP5 (calendar task lens): a separate row of task chips below each week's
+   report-bar lanes -- deliberately its own grid, not folded into
+   `.barLanes` above, so report bars stay byte-identical (CLAUDE.md: "Report
+   bars stay untouched"). */
+.taskChipRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px 6px;
+  padding: 2px 8px 8px;
+}
+
+.taskChipCell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
 /*
  * Mobile P5: compress in place, keeping the 22px lanes (`.barLanes`'s
  * `grid-template-rows: repeat(3, 22px)` is untouched -- a month is
@@ -173,5 +191,10 @@
   .bar {
     padding: 0 5px;
     font-size: 10px;
+  }
+
+  .taskChipRow {
+    gap: 2px 4px;
+    padding: 2px 4px 6px;
   }
 }

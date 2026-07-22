@@ -12,14 +12,26 @@ import type { TableColumn } from '@/components/ui/Table';
 import { fmtDateShort, nowDate } from '@/lib/format';
 import { attentionTasks } from '@/lib/needs-attention';
 import { reportPeriodEnd, reportPeriodLabel, statusTone, taskTone } from '@/lib/report-utils';
+import { groupMergedTasksByStatus } from '@/lib/task-merge';
+import type { MergedTaskEntry } from '@/lib/task-merge';
 import type { AnyReport, DailyReport, Report } from '@/lib/types';
-import { allTasks, groupTasksByStatus } from '@/lib/view-utils';
 import styles from './HomeScreen.module.css';
 
 export interface HomeScreenProps {
   /** Weeklies (Report = WeeklyReport, see lib/types.ts). */
   weeklies: Report[];
   dailies: DailyReport[];
+  /**
+   * WP4 (the access flip's task-surface follow-up): the ONE shared merged
+   * task set (`mergeTaskSources`, lib/task-merge.ts), built once by
+   * `HomePage` from `weeklies` + `dailies` + the viewer's own
+   * assigned-elsewhere tasks. Both the stat cards (Open/Blocked) and Needs
+   * Attention derive from THIS, not from `weeklies` alone -- keeping them
+   * consistent with each other (pre-WP4, the stat cards silently only ever
+   * counted weekly tasks while Needs Attention already counted weekly+daily
+   * -- an inconsistency this fixes as a side effect of sharing one set).
+   */
+  mergedTasks: MergedTaskEntry[];
 }
 
 const RECENT_COLUMNS: TableColumn[] = [
@@ -36,6 +48,7 @@ const ATTENTION_COLUMNS: TableColumn[] = [
   { key: 'task', label: 'Task' },
   { key: 'status', label: 'Status' },
   { key: 'deadline', label: 'Deadline' },
+  { key: 'actions', label: '', align: 'right', isAction: true },
 ];
 
 /**
@@ -49,35 +62,41 @@ const ATTENTION_LIMIT = 8;
 /**
  * `/` -- a light, read-only landing overview (nav IA restructure). The weekly
  * list it used to be now lives at `/reports` (`DashboardScreen`). Everything
- * here is a pure derivation over the two report lists: at-a-glance counts (open
- * tasks via the existing `lib/view-utils` selectors), an actionable Needs
- * Attention list (see below), and the most-recent few reports across both
- * kinds, each linking to its real report route. Quick-create actions live in
- * the header. No filter/sort/pagination state -- `HomePage` is a thin
- * orchestrator, this screen is presentational.
+ * here is a pure derivation: at-a-glance counts (open tasks via the shared
+ * `mergedTasks`, WP4), an actionable Needs Attention list (see below), and
+ * the most-recent few reports across both kinds, each linking to its real
+ * report route. Quick-create actions live in the header. No filter/sort/
+ * pagination state -- `HomePage` is a thin orchestrator, this screen is
+ * presentational.
  *
- * **Needs Attention**: every Blocked/In Progress task across BOTH weeklies
- * AND dailies (`lib/needs-attention.ts`'s `attentionTasks` -- unlike `/tasks`,
- * which stays weekly-only, see CLAUDE.md "Task and Calendar views (Phase 3)"),
- * capped at `ATTENTION_LIMIT` with a "+N more" link into `/tasks` that always
- * reports the TRUE remaining count. Clicking a row navigates to that task's
- * parent report (`Table`'s `onRowClick`, reused rather than hand-rolled --
- * see Table.tsx's own doc comment on why a nested link would need to stop
- * its own click from bubbling, which isn't needed here since the whole row
- * IS the single navigation target). The `attentionRemaining` "+N more" link
- * points at plain `/tasks` (not `/tasks?view=schedule`) -- the section
- * header's own link is the `?view=schedule` one. Note `/tasks` itself stays
- * weekly-only (see CLAUDE.md), so a daily-only task past the cap won't
+ * **Needs Attention**: every Blocked/In Progress task in `mergedTasks`
+ * (`lib/needs-attention.ts`'s `attentionTasks`) -- unlike `/tasks` (weekly-
+ * only, see CLAUDE.md "Task and Calendar views (Phase 3)"), Home has always
+ * covered weeklies AND dailies together, and WP4 additionally folds in the
+ * viewer's own assigned-elsewhere tasks (ones living in a report they
+ * cannot open at all). Capped at `ATTENTION_LIMIT` with a "+N more" link
+ * into `/tasks` that always reports the TRUE remaining count.
+ *
+ * WP4: rows are no longer whole-row-clickable (`Table`'s `onRowClick`) --
+ * an assigned-elsewhere entry has no report to navigate to at all
+ * (`source.canOpen === false`), so this now renders an explicit `actions`
+ * column instead (mirroring `RECENT_COLUMNS`/`TaskList.tsx`'s own pattern):
+ * a "View" link when `canOpen`, or a muted "Assigned to you" label
+ * explaining why the row is here despite having nowhere to click when it
+ * isn't. The `attentionRemaining` "+N more" link points at plain `/tasks`
+ * (not `/tasks?view=schedule`) -- the section header's own link is the
+ * `?view=schedule` one. `/tasks` itself stays weekly-only for OWN reports
+ * (see CLAUDE.md), so a daily-only (non-assigned) task past the cap won't
  * literally appear there -- same pre-existing, documented gap as `/tasks`
- * and `/calendar` not surfacing dailies at all (CLAUDE.md's own "Dailies
+ * and `/calendar` not surfacing owned dailies (CLAUDE.md's own "Dailies
  * aren't surfaced here yet" note); `/tasks` is still the closest existing
  * "see everything" destination, and this is not a new problem this feature
  * introduces.
  */
-export function HomeScreen({ weeklies, dailies }: HomeScreenProps) {
+export function HomeScreen({ weeklies, dailies, mergedTasks }: HomeScreenProps) {
   const router = useRouter();
 
-  const grouped = groupTasksByStatus(allTasks(weeklies));
+  const grouped = groupMergedTasksByStatus(mergedTasks);
   const openTasks = grouped.Blocked.length + grouped['In Progress'].length;
   const blocked = grouped.Blocked.length;
 
@@ -102,26 +121,28 @@ export function HomeScreen({ weeklies, dailies }: HomeScreenProps) {
   // both report lists having loaded, so this never runs on the very first
   // paint.
   const [today] = useState(() => nowDate());
-  const attention = useMemo(() => attentionTasks(weeklies, dailies, today), [weeklies, dailies, today]);
+  const attention = useMemo(() => attentionTasks(mergedTasks, today), [mergedTasks, today]);
   const attentionShown = attention.slice(0, ATTENTION_LIMIT);
   const attentionRemaining = attention.length - attentionShown.length;
 
-  const attentionRows = attentionShown.map((entry) => ({
+  const attentionRows = attentionShown.map(({ entry, overdue }) => ({
     client: entry.task.client,
     task: entry.task.task,
     status: <Badge tone={taskTone(entry.task.status)}>{entry.task.status}</Badge>,
     deadline: (
       <span className={styles.deadlineCell}>
         {fmtDateShort(entry.task.deadline)}
-        {entry.overdue ? <span className={styles.overdueMarker}>Overdue</span> : null}
+        {overdue ? <span className={styles.overdueMarker}>Overdue</span> : null}
       </span>
     ),
+    actions: entry.source.canOpen ? (
+      <Link href={entry.source.kind === 'weekly' ? `/reports/${entry.source.reportId}` : `/daily/${entry.source.reportId}`} className={styles.rowAction}>
+        View
+      </Link>
+    ) : (
+      <span className={styles.noAccessLabel}>Assigned to you</span>
+    ),
   }));
-
-  function goToAttentionEntry(index: number) {
-    const entry = attentionShown[index];
-    router.push(entry.report.kind === 'weekly' ? `/reports/${entry.report.id}` : `/daily/${entry.report.id}`);
-  }
 
   return (
     <div>
@@ -161,7 +182,7 @@ export function HomeScreen({ weeklies, dailies }: HomeScreenProps) {
             </div>
           ) : (
             <>
-              <Table columns={ATTENTION_COLUMNS} rows={attentionRows} stacked onRowClick={goToAttentionEntry} />
+              <Table columns={ATTENTION_COLUMNS} rows={attentionRows} stacked />
               {attentionRemaining > 0 ? (
                 <Link href="/tasks" className={styles.moreLink}>
                   +{attentionRemaining} more

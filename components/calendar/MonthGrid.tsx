@@ -3,8 +3,10 @@ import { Popover } from '@/components/ui/Popover';
 import { isSameMonth, isoWeekday, monthGridDays } from '@/lib/calendar';
 import { parseISO } from '@/lib/format';
 import { statusTone } from '@/lib/report-utils';
+import type { MergedTaskEntry } from '@/lib/task-merge';
 import type { Report } from '@/lib/types';
 import { reportsOverlappingRange } from '@/lib/view-utils';
+import { TaskChip } from './TaskChip';
 import styles from './MonthGrid.module.css';
 
 export interface MonthGridProps {
@@ -13,12 +15,19 @@ export interface MonthGridProps {
   reports: Report[];
   today: string;
   onViewReport: (id: string) => void;
+  /** WP5 (calendar task lens): every day in the displayed 42-cell grid, keyed by ISO date -- see `WeekGrid.tsx`'s identical prop doc comment. */
+  tasksByDayISO: Record<string, MergedTaskEntry[]>;
+  /** Navigates to `/reports/[id]` or `/daily/[id]` for a task chip -- only ever called for a chip whose `source.canOpen` is true (see `TaskChip.tsx`). */
+  onOpenTask: (reportId: string, kind: 'weekly' | 'daily') => void;
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /** Report bars stacked per week-row before the rest collapse into a "+N more" popover -- keeps every row a uniform height regardless of report count. */
 const MAX_VISIBLE_LANES = 2;
+
+/** Same idea as `MAX_VISIBLE_LANES`, but for task chips (a separate cap -- a busy day's tasks shouldn't be limited by how many report bars happen to overlap that same week). */
+const MAX_VISIBLE_DAY_CHIPS = 2;
 
 interface LaneBar {
   report: Report;
@@ -63,8 +72,16 @@ function packLanes(rowStart: string, rowEnd: string, reports: Report[]): LaneBar
  * row is one Mon–Sun calendar week, so a Mon–Fri seed report always sits
  * inside a single row by construction. Reports beyond `MAX_VISIBLE_LANES`
  * in a row collapse into a "+N more" `Popover` trigger.
+ *
+ * WP5 (calendar task lens): a SEPARATE row of task chips renders below each
+ * week's report-bar lanes -- report bars themselves are completely
+ * untouched (still driven only by `reports`/`reportsOverlappingRange`/
+ * `packLanes`, weekly-only). Each day cell shows up to
+ * `MAX_VISIBLE_DAY_CHIPS` chips (a smaller cap than `WeekGrid`'s -- a month
+ * cell is narrower), with the rest behind the SAME "+N more" `Popover` idiom
+ * report-bar overflow already established here.
  */
-export function MonthGrid({ monthStart, reports, today, onViewReport }: MonthGridProps) {
+export function MonthGrid({ monthStart, reports, today, onViewReport, tasksByDayISO, onOpenTask }: MonthGridProps) {
   const gridDays = monthGridDays(monthStart);
   const rows = Array.from({ length: 6 }, (_, r) => gridDays.slice(r * 7, r * 7 + 7));
 
@@ -144,6 +161,36 @@ export function MonthGrid({ monthStart, reports, today, onViewReport }: MonthGri
                   </Popover>
                 </div>
               ) : null}
+            </div>
+
+            <div className={styles.taskChipRow}>
+              {row.map((day) => {
+                const dayEntries = tasksByDayISO[day] ?? [];
+                const visible = dayEntries.slice(0, MAX_VISIBLE_DAY_CHIPS);
+                const overflow = dayEntries.slice(MAX_VISIBLE_DAY_CHIPS);
+                return (
+                  <div key={day} className={styles.taskChipCell}>
+                    {visible.map((entry) => (
+                      <TaskChip key={`${entry.source.reportId}::${entry.task.id}`} entry={entry} onOpen={onOpenTask} />
+                    ))}
+                    {overflow.length > 0 ? (
+                      <Popover
+                        trigger={
+                          <button type="button" className={styles.overflowTrigger}>
+                            +{overflow.length} more
+                          </button>
+                        }
+                      >
+                        <div className={styles.overflowList}>
+                          {overflow.map((entry) => (
+                            <TaskChip key={`${entry.source.reportId}::${entry.task.id}`} entry={entry} onOpen={onOpenTask} />
+                          ))}
+                        </div>
+                      </Popover>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );

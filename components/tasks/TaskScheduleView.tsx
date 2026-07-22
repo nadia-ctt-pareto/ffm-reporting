@@ -121,7 +121,9 @@ export function TaskScheduleView({ reports, initialFilter }: TaskScheduleViewPro
         to the INFERRED case only: weekly reporting resolves to a <strong>week, not a day</strong>, so a task first
         reported complete in the same week as its deadline, with no recorded date to fall back on, lands in
         &ldquo;Timing Unclear&rdquo; rather than a guessed on-time/late call; and a task is tracked across reports by
-        its <strong>client + task text</strong>, so renaming a task&rsquo;s title starts a new tracking chain.
+        its <strong>client + task text</strong>, so renaming a task&rsquo;s title starts a new tracking chain. This
+        view only considers weekly reports you already have full access to -- a task assigned to you on a report you
+        can&rsquo;t otherwise open shows up in List/Kanban instead, not here.
       </p>
 
       {BUCKET_GROUPS.map((group) => (

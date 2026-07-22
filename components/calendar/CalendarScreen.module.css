@@ -43,6 +43,32 @@
   gap: 10px;
 }
 
+/* WP5 (calendar task lens): the lens/project/member filter row -- three
+   `Select`s, same width-sharing approach as other filter bars in this app
+   (e.g. DashboardScreen's toolbar). Independent of `.toolbar`/`.nav` above,
+   which stay report-bar navigation only. */
+.taskFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.taskFilters > * {
+  min-width: 180px;
+  flex: 1 1 180px;
+}
+
+@media screen and (max-width: 767px) {
+  .taskFilters {
+    gap: 12px;
+  }
+
+  .taskFilters > * {
+    min-width: 140px;
+  }
+}
+
 .tabsRow {
   margin-bottom: 4px;
 }

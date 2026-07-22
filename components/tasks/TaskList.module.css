@@ -48,6 +48,17 @@
   color: var(--surface-page);
 }
 
+/* WP4: shown instead of the "View Report" link when the row's parent report
+   isn't openable (`MergedTaskEntry.source.canOpen === false`, lib/
+   task-merge.ts) -- an assigned-elsewhere task genuinely has nowhere for a
+   link to go; this explains why, rather than leaving a blank cell. */
+.noAccessLabel {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* Mobile P7: bigger touch target for this non-Button action element (see
    --row-action-pad-mobile, styles/theme.css). */
 @media screen and (max-width: 767px) {

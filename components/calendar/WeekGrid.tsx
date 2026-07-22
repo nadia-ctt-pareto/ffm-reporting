@@ -1,8 +1,11 @@
 import { Badge } from '@/components/ui/Badge';
+import { Popover } from '@/components/ui/Popover';
 import { addDaysISO, isoWeekday, shortDayLabel } from '@/lib/calendar';
 import { statusTone } from '@/lib/report-utils';
+import type { MergedTaskEntry } from '@/lib/task-merge';
 import type { Report } from '@/lib/types';
 import { reportsOverlappingRange } from '@/lib/view-utils';
+import { TaskChip } from './TaskChip';
 import styles from './WeekGrid.module.css';
 
 export interface WeekGridProps {
@@ -11,9 +14,23 @@ export interface WeekGridProps {
   reports: Report[];
   today: string;
   onViewReport: (id: string) => void;
+  /**
+   * WP5 (calendar task lens): every day in the displayed week, keyed by ISO
+   * date, already filtered/grouped by the active lens/project/member
+   * filters (`CalendarScreen`'s `lib/task-calendar.ts` call) -- a day
+   * absent from this map (or mapped to `[]`) simply renders no chips, same
+   * "honest-empty, never invent a placement" posture `lib/task-calendar.ts`
+   * itself documents.
+   */
+  tasksByDayISO: Record<string, MergedTaskEntry[]>;
+  /** Navigates to `/reports/[id]` or `/daily/[id]` for a task chip -- only ever called for a chip whose `source.canOpen` is true (see `TaskChip.tsx`). */
+  onOpenTask: (reportId: string, kind: 'weekly' | 'daily') => void;
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** Caps a day's VISIBLE task chips before the rest collapse into a "+N more" popover -- a week has plenty of horizontal room for report bars (no cap there), but a single day cell is narrow, so tasks get their own, smaller cap. */
+const MAX_VISIBLE_DAY_CHIPS = 4;
 
 /**
  * This Week: a single Mon–Sun, 7-column row. Weekly reports overlapping
@@ -23,11 +40,17 @@ const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
  * via `.barRow { display: contents }` + CSS auto-placement, so day-disjoint
  * bars may share a visual row (column-packed) while overlapping ones flow to
  * new rows -- there's no lane cap/overflow here, unlike `MonthGrid`, since a
- * single week has plenty of vertical room. (Phase 4 note: sub-week daily
- * chips will column-pack into shared rows too -- force `grid-row` if that's
- * not the desired stacking.)
+ * single week has plenty of vertical room.
+ *
+ * WP5 (calendar task lens): a SEPARATE 7-column row of task chips renders
+ * below the report bars -- report bars themselves are completely untouched
+ * (still driven only by `reports`/`reportsOverlappingRange`, weekly-only,
+ * see CLAUDE.md "Task and Calendar views (Phase 3)"). Each day cell shows up
+ * to `MAX_VISIBLE_DAY_CHIPS` chips, with the rest behind a "+N more"
+ * `Popover` -- the exact idiom `MonthGrid`'s report-bar overflow already
+ * established, reused here for tasks.
  */
-export function WeekGrid({ weekStart, reports, today, onViewReport }: WeekGridProps) {
+export function WeekGrid({ weekStart, reports, today, onViewReport, tasksByDayISO, onOpenTask }: WeekGridProps) {
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
   const weekEnd = days[6];
 
@@ -70,6 +93,36 @@ export function WeekGrid({ weekStart, reports, today, onViewReport }: WeekGridPr
             );
           })
         )}
+      </div>
+
+      <div className={styles.taskRow}>
+        {days.map((day) => {
+          const dayEntries = tasksByDayISO[day] ?? [];
+          const visible = dayEntries.slice(0, MAX_VISIBLE_DAY_CHIPS);
+          const overflow = dayEntries.slice(MAX_VISIBLE_DAY_CHIPS);
+          return (
+            <div key={day} className={styles.taskCell}>
+              {visible.map((entry) => (
+                <TaskChip key={`${entry.source.reportId}::${entry.task.id}`} entry={entry} onOpen={onOpenTask} />
+              ))}
+              {overflow.length > 0 ? (
+                <Popover
+                  trigger={
+                    <button type="button" className={styles.overflowTrigger}>
+                      +{overflow.length} more
+                    </button>
+                  }
+                >
+                  <div className={styles.overflowList}>
+                    {overflow.map((entry) => (
+                      <TaskChip key={`${entry.source.reportId}::${entry.task.id}`} entry={entry} onOpen={onOpenTask} />
+                    ))}
+                  </div>
+                </Popover>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

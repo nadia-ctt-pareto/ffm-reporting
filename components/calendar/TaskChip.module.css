@@ -1,0 +1,50 @@
+.chip {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+  padding: 3px 6px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-heading);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.chip:hover {
+  border-color: var(--text-heading);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--ff-green);
+  outline-offset: 2px;
+}
+
+/* An assigned-elsewhere task with nowhere to navigate to (`canOpen: false`,
+   TaskChip.tsx) -- a plain, inert chip, not a button pretending to do
+   something on click. */
+.chipStatic {
+  cursor: default;
+}
+
+.chipStatic:hover {
+  border-color: var(--border-subtle);
+}
+
+.chipLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media screen and (max-width: 767px) {
+  .chip {
+    font-size: 10px;
+    padding: 2px 4px;
+  }
+}

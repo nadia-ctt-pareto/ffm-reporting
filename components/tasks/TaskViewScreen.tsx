@@ -5,14 +5,18 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { IconPlus } from '@/components/ui/icons';
 import { Tabs } from '@/components/ui/Tabs';
-import { nowDate } from '@/lib/format';
+import { useAssignedTasks } from '@/lib/hooks/useAssignedTasks';
 import { useTeamMembers } from '@/lib/hooks/useTeamMembers';
+import { useSession } from '@/lib/hooks/useSession';
+import { nowDate } from '@/lib/format';
+import { canEditReport } from '@/lib/report-access';
 import { withTaskStatus } from '@/lib/report-utils';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { groupMergedTasksByStatus, mergeTaskSources } from '@/lib/task-merge';
+import type { MergedTaskEntry } from '@/lib/task-merge';
 import { isScheduleBucket } from '@/lib/task-schedule';
 import type { ScheduleBucket } from '@/lib/task-schedule';
-import type { Report, TaskStatus } from '@/lib/types';
-import { allTasks, groupTasksByStatus } from '@/lib/view-utils';
-import type { TaskEntry } from '@/lib/view-utils';
+import type { AssignedTaskPatch, Report, TaskStatus } from '@/lib/types';
 import { KanbanBoard } from './KanbanBoard';
 import { TaskDialog } from './TaskDialog';
 import type { TaskDialogMode } from './TaskDialog';
@@ -48,12 +52,15 @@ export interface TaskViewScreenProps {
    * This reuses the SAME "let it fail, surface `mutationError`, the
    * optimistic update reverts" pattern BLOCKER 3 already established for
    * that non-owner-member case, rather than adding a NEW per-card
-   * disabled-drag gate (which `ReportScreen`/`WizardPage`/the list
-   * screens' "Continue" affordance DO get, see `lib/report-access.ts`'s
-   * `canEditReport`) -- a deliberate, narrower choice for this screen
-   * specifically, not an oversight: threading per-card ownership into
-   * `KanbanBoard`/`TaskCard`'s `@dnd-kit` draggable wiring is real
-   * additional surface this package left out of scope.
+   * disabled-drag gate. WP4 (the access flip's task-surface follow-up)
+   * DOES now add that per-card gate (`MergedTaskEntry.canEditFull`/
+   * `canEditAssigned`, see `lib/task-merge.ts`) -- `TaskCard` disables
+   * dragging outright for a card with neither capability, so this comment's
+   * pre-WP4 reasoning ("no per-card gate") no longer fully describes this
+   * screen; it's kept because the "let a genuinely-owned-but-rejected write
+   * fail and surface `mutationError`" fallback below is still real (e.g. a
+   * stale optimistic `reports` snapshot momentarily disagreeing with a
+   * since-changed server truth).
    */
   mutationError?: string | null;
 }
@@ -66,7 +73,7 @@ function isTaskViewMode(value: string | null): value is TaskViewMode {
 }
 
 /** Task CRUD: which flavor of `TaskDialog` is open, and (for Edit) which task it targets. `null` = closed. */
-type TaskDialogState = { mode: TaskDialogMode; entry: TaskEntry | null };
+type TaskDialogState = { mode: TaskDialogMode; entry: MergedTaskEntry | null };
 
 /**
  * `/tasks` -- every task across every report, in three modes (List, Kanban,
@@ -77,6 +84,18 @@ type TaskDialogState = { mode: TaskDialogMode; entry: TaskEntry | null };
  * made by the thin page wrapper) that a separate route-level orchestrator
  * would be pure ceremony. Task CRUD adds one more small piece of directly-
  * owned state (`dialogState`, below) for the same reason.
+ *
+ * WP4 (the access flip's task-surface follow-up): also calls
+ * `useAssignedTasks()` (the viewer's own tasks living in reports they can't
+ * otherwise open -- always `[]` in demo mode) and `useSession()` (for
+ * `canEditReport`'s ownership check) directly, the same way it already
+ * calls `useTeamMembers()` -- no new route-level orchestrator needed for
+ * these either. `entries`/`grouped` now derive from the ONE shared
+ * `mergeTaskSources` (lib/task-merge.ts) instead of `lib/view-utils.ts`'s
+ * weekly-only `allTasks`/`groupTasksByStatus` -- List and Kanban both see
+ * assigned-elsewhere tasks now; Schedule (`TaskScheduleView`) deliberately
+ * still reads `reports` directly and stays weekly-own-only (see that
+ * component's own doc comment) -- no classifier change there.
  *
  * `?view=<mode>` is deep-linked, synced with `window.history.replaceState`
  * -- the exact `?tab=` idiom `SettingsScreen.tsx` established (shallow, no
@@ -107,11 +126,38 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
   // until this resolves) -- mirrors how `reports`/other hook results are
   // consumed elsewhere on this screen without a separate loading gate.
   const { members: teamMembers } = useTeamMembers();
+  // WP4: the viewer's own assigned-elsewhere tasks, and the session needed
+  // to evaluate `canEditReport` per report -- same "harmless default while
+  // loading" posture as `teamMembers` above (`assignedTasks ?? []`).
+  const { tasks: assignedTasks, mutationError: assignedMutationError, updateTask: updateAssignedTask } = useAssignedTasks();
+  const { user, loading: sessionLoading } = useSession();
 
-  const entries = useMemo(() => allTasks(reports), [reports]);
-  const grouped = useMemo(() => groupTasksByStatus(entries), [entries]);
+  // A fresh object every render on purpose -- `canEditReport`/
+  // `mergeTaskSources` only ever READ it synchronously during this render,
+  // so its identity doesn't need to be stable; the `useMemo`s below
+  // deliberately depend on the underlying PRIMITIVES (`user`/
+  // `sessionLoading`), not on `access` itself, so they still memoize
+  // correctly across renders where neither primitive changed.
+  const access = { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() };
 
-  const openEditDialog = (entry: TaskEntry) => setDialogState({ mode: 'edit', entry });
+  const entries = useMemo(
+    () => mergeTaskSources(reports, assignedTasks ?? [], access),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reports, assignedTasks, user, sessionLoading]
+  );
+  const grouped = useMemo(() => groupMergedTasksByStatus(entries), [entries]);
+  // Add mode's Report picker (and canEditFull edit-mode lookups inside
+  // TaskDialog) must only ever offer a report the viewer can actually write
+  // to -- see TaskDialog's own `reports` prop doc comment for why filtering
+  // here (once) beats letting the picker offer a report `tasks_insert` RLS
+  // is guaranteed to reject.
+  const editableReports = useMemo(
+    () => reports.filter((r) => canEditReport(r, access)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reports, user, sessionLoading]
+  );
+
+  const openEditDialog = (entry: MergedTaskEntry) => setDialogState({ mode: 'edit', entry });
   const openAddDialog = () => setDialogState({ mode: 'add', entry: null });
   const closeDialog = () => setDialogState(null);
 
@@ -123,7 +169,9 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
    * needs to `await`. A denied drag (e.g. a non-owner dragging a card under
    * Supabase RLS) still just reverts optimistically and surfaces
    * `mutationError` above -- see that prop's doc comment; this function's
-   * behavior is byte-for-byte what it was before this change.
+   * behavior is byte-for-byte what it was before this change. Used when the
+   * dropped card's `canEditFull` is true (see `KanbanBoard`'s own doc
+   * comment).
    */
   const handleTaskStatusChange = (reportId: string, taskId: string, status: TaskStatus) => {
     const report = reports.find((r) => r.id === reportId);
@@ -132,16 +180,31 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
   };
 
   /**
+   * WP4: the narrow assignee-only sibling of `handleTaskStatusChange` --
+   * used when the dropped card's `canEditAssigned` is true (and
+   * `canEditFull` is false). Same "swallow the rejection, let
+   * `mutationError` surface it" behavior; `useAssignedTasks().updateTask`
+   * already does its own optimistic update + rollback.
+   */
+  const handleAssignedTaskStatusChange = (taskId: string, status: TaskStatus) => {
+    updateAssignedTask(taskId, { status }).catch(() => {});
+  };
+
+  /**
    * Task CRUD: the one write path every `TaskDialog` action (Save in Edit
-   * mode, Add in Add mode, Delete) funnels through. `TaskDialog` itself
-   * computes the final `tasks[]` (via `withTaskEdited`/`withTaskAdded`/
-   * `withTaskRemoved`, `lib/report-utils.ts`) and hands it here -- this is
-   * just the thin adapter to `onUpdateReportFields`, unlike
-   * `handleTaskStatusChange` above, this one does NOT swallow a rejection:
-   * `TaskDialog` awaits it directly so it can surface the failure inline
-   * and stay open (see that component's own doc comment).
+   * mode, Add in Add mode, Delete) funnels through when `canEditFull` is
+   * true. `TaskDialog` itself computes the final `tasks[]` (via
+   * `withTaskEdited`/`withTaskAdded`/`withTaskRemoved`, `lib/report-utils.ts`)
+   * and hands it here -- this is just the thin adapter to
+   * `onUpdateReportFields`, unlike `handleTaskStatusChange` above, this one
+   * does NOT swallow a rejection: `TaskDialog` awaits it directly so it can
+   * surface the failure inline and stay open (see that component's own doc
+   * comment).
    */
   const handleDialogSubmit = (reportId: string, tasks: Report['tasks']) => onUpdateReportFields(reportId, { tasks });
+
+  /** WP4: `TaskDialog`'s narrow assignee-only Save path -- see that component's own `onSubmitAssigned` doc comment. */
+  const handleDialogSubmitAssigned = (taskId: string, patch: AssignedTaskPatch) => updateAssignedTask(taskId, patch);
 
   /**
    * `?view=` sync -- the `SettingsScreen.tsx` `?tab=` idiom verbatim: shallow
@@ -161,6 +224,8 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
   };
 
+  const combinedMutationError = mutationError ?? assignedMutationError;
+
   return (
     <div>
       <div className={styles.header}>
@@ -170,8 +235,8 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
           size="sm"
           icon={<IconPlus />}
           onClick={openAddDialog}
-          disabled={reports.length === 0}
-          title={reports.length === 0 ? 'Create a weekly report first -- there is nowhere to add a task to yet.' : undefined}
+          disabled={editableReports.length === 0}
+          title={editableReports.length === 0 ? 'Create a weekly report first -- there is nowhere to add a task to yet.' : undefined}
         >
           Add Task
         </Button>
@@ -186,14 +251,14 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
         <p className={styles.subtitle}>
           {mode === 'schedule'
             ? 'Every task across every report, grouped by whether it landed on time -- and what held it up.'
-            : 'Every task across every report, grouped by status.'}
+            : 'Every task across every report you can read, plus any task assigned to you elsewhere, grouped by status.'}
         </p>
 
-        {reports.length === 0 ? (
+        {editableReports.length === 0 ? (
           <div className={styles.addTaskHint}>Create a weekly report first -- there is nowhere to add a task to yet.</div>
         ) : null}
 
-        {mutationError ? (
+        {combinedMutationError ? (
           // NIT fix (post-review round 2): `role="alert"` (implicit
           // `aria-live="assertive"`), not `role="status"` -- a dedicated
           // failure block needing action shouldn't queue behind other
@@ -201,7 +266,7 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
           // stays `status` on purpose (see that component) -- this is a
           // different pattern (a block that only appears on failure).
           <div className={styles.mutationError} role="alert">
-            {mutationError}
+            {combinedMutationError}
           </div>
         ) : null}
 
@@ -224,7 +289,12 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
               label: 'Kanban',
               content: (
                 <div className={styles.panel}>
-                  <KanbanBoard grouped={grouped} onTaskOpen={openEditDialog} onTaskStatusChange={handleTaskStatusChange} />
+                  <KanbanBoard
+                    grouped={grouped}
+                    onTaskOpen={openEditDialog}
+                    onTaskStatusChange={handleTaskStatusChange}
+                    onAssignedTaskStatusChange={handleAssignedTaskStatusChange}
+                  />
                 </div>
               ),
             },
@@ -245,10 +315,11 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
         mode={dialogState?.mode ?? 'add'}
         open={dialogState !== null}
         entry={dialogState?.entry ?? null}
-        reports={reports}
+        reports={editableReports}
         teamMembers={teamMembers ?? []}
         onClose={closeDialog}
         onSubmit={handleDialogSubmit}
+        onSubmitAssigned={handleDialogSubmitAssigned}
       />
     </div>
   );

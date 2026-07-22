@@ -2,13 +2,13 @@
 
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
-import type { TaskEntry } from '@/lib/view-utils';
+import { fmtDateShort } from '@/lib/format';
+import type { MergedTaskEntry } from '@/lib/task-merge';
 import { taskCardId } from './taskCardId';
 import styles from './TaskCard.module.css';
 
 export interface TaskCardProps {
-  entry: TaskEntry;
+  entry: MergedTaskEntry;
   /** Task CRUD: opens the edit dialog for this card's task (was `onView`, which navigated to the parent report -- see this component's own doc comment for why that destination moved, not disappeared). */
   onOpen: () => void;
   /** Rendered inside `<DragOverlay>` -- the floating copy needs no drag ref/listeners of its own. */
@@ -32,11 +32,23 @@ export interface TaskCardProps {
  * on the same element would fight that, not complement it. A keyboard user
  * opens the edit dialog from List mode instead; Kanban's keyboard
  * interaction stays drag-only, unchanged from before this feature.
+ *
+ * WP4 (the access flip's task-surface follow-up): `useDraggable`'s own
+ * `disabled` option is what makes a card the viewer can neither own nor is
+ * assigned to (a pm/admin browsing under org-wide reads) non-draggable --
+ * `disabled: true` makes dnd-kit return `listeners: undefined`, so the
+ * pointer/touch/keyboard sensors never even see a drag start on this
+ * element (verified against `@dnd-kit/core`'s own `useDraggable`
+ * implementation). Clicking still opens the dialog either way -- `onOpen`
+ * is never gated on drag capability -- `TaskDialog` itself is what renders
+ * every field read-only for a card with no write capability at all (see
+ * that component's own doc comment).
  */
 export function TaskCard({ entry, onOpen, overlay = false }: TaskCardProps) {
-  const { report, task } = entry;
-  const id = taskCardId(report.id, task.id);
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+  const { task, source } = entry;
+  const canDrag = entry.canEditFull || entry.canEditAssigned;
+  const id = taskCardId(source.reportId, task.id);
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id, disabled: !canDrag });
 
   const style = overlay
     ? undefined
@@ -48,7 +60,7 @@ export function TaskCard({ entry, onOpen, overlay = false }: TaskCardProps) {
   return (
     <div
       ref={overlay ? undefined : setNodeRef}
-      className={`${styles.card} ${overlay ? styles.overlay : ''}`}
+      className={`${styles.card} ${overlay ? styles.overlay : ''} ${!overlay && !canDrag ? styles.readOnly : ''}`}
       data-status={task.status}
       style={style}
       onClick={overlay ? undefined : onOpen}
@@ -58,9 +70,13 @@ export function TaskCard({ entry, onOpen, overlay = false }: TaskCardProps) {
       <div className={styles.cardTask}>{task.task}</div>
       <div className={styles.cardMeta}>{task.client}</div>
       <div className={styles.cardFooter}>
-        <span>{fmtWeekLabel(report.weekStart, report.weekEnd)}</span>
+        <span>{source.periodLabel}</span>
         <span>{fmtDateShort(task.deadline)}</span>
       </div>
+      {/* WP4: explains why this card can't be dragged -- a pm/admin browsing
+          a report they neither own nor are assigned a task on, under
+          org-wide reads. Absent entirely for a normal, fully-editable card. */}
+      {!overlay && !canDrag ? <div className={styles.readOnlyHint}>View only</div> : null}
     </div>
   );
 }

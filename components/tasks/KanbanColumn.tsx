@@ -3,16 +3,17 @@
 import { useDroppable } from '@dnd-kit/core';
 import { Badge } from '@/components/ui/Badge';
 import { taskTone } from '@/lib/report-utils';
+import type { MergedTaskEntry } from '@/lib/task-merge';
 import type { TaskStatus } from '@/lib/types';
-import type { TaskEntry } from '@/lib/view-utils';
 import { TaskCard } from './TaskCard';
+import { taskCardId } from './taskCardId';
 import styles from './KanbanColumn.module.css';
 
 export interface KanbanColumnProps {
   status: TaskStatus;
-  entries: TaskEntry[];
+  entries: MergedTaskEntry[];
   /** Task CRUD: opens the edit dialog for a clicked card (was `onViewReport`, which navigated -- see TaskCard's own doc comment). */
-  onTaskOpen: (entry: TaskEntry) => void;
+  onTaskOpen: (entry: MergedTaskEntry) => void;
 }
 
 /** One `useDroppable` zone keyed by `status` -- `KanbanBoard`'s `onDragEnd` reads the dropped-over `status` straight off `over.id`. */
@@ -30,7 +31,7 @@ export function KanbanColumn({ status, entries, onTaskOpen }: KanbanColumnProps)
           <div className={styles.emptyState}>No tasks</div>
         ) : (
           entries.map((entry) => (
-            <TaskCard key={`${entry.report.id}::${entry.task.id}`} entry={entry} onOpen={() => onTaskOpen(entry)} />
+            <TaskCard key={taskCardId(entry.source.reportId, entry.task.id)} entry={entry} onOpen={() => onTaskOpen(entry)} />
           ))
         )}
       </div>

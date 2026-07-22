@@ -100,6 +100,49 @@
   font-family: var(--font-body);
 }
 
+/* WP5 (calendar task lens): a separate 7-column row of task chips, below the
+   report bars -- deliberately its own grid, not folded into `.bars` above,
+   so report bars stay byte-identical (CLAUDE.md: "Report bars stay
+   untouched"). */
+.taskRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.taskCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 12px;
+}
+
+.overflowTrigger {
+  all: unset;
+  box-sizing: border-box;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--link);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.overflowTrigger:hover {
+  color: var(--link-hover);
+}
+
+.overflowList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 200px;
+}
+
 /*
  * Mobile P5: compress in place, not horizontal scroll or an agenda
  * restructure. A report bar spans `weekStart→weekEnd` -- typically 5-7 of
@@ -124,5 +167,15 @@
 
   .barLabel {
     font-size: 11.5px;
+  }
+
+  .taskRow {
+    gap: 4px;
+    padding: 0 10px 10px;
+  }
+
+  .taskCell {
+    gap: 3px;
+    padding-top: 8px;
   }
 }

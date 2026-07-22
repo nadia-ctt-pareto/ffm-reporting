@@ -85,3 +85,20 @@
   cursor: grabbing;
   box-shadow: var(--shadow-dialog);
 }
+
+/* WP4: a card the viewer can neither own nor is assigned to -- non-draggable
+   (see TaskCard.tsx's `canDrag`), so the drag cursor would be a lie; a plain
+   pointer (still clickable, to open the read-only dialog) is honest here. */
+.readOnly {
+  cursor: pointer;
+}
+
+.readOnlyHint {
+  margin-top: 8px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
