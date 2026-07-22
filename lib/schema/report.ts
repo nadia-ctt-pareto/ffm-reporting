@@ -102,6 +102,39 @@ export const TaskSchema = z.object({
    * on-time/late classification when present.
    */
   completedAt: isoDateOrEmpty.nullish(),
+  /**
+   * WP2: optional FK to a `TeamMember` (supabase/migrations/
+   * 20260726000017_task_assignee.sql's `tasks.assignee_id`), the SAME
+   * `.nullish()` optional-key treatment `projectId` gets immediately above
+   * (uncapped on THIS read schema -- see BLOCKER A's doc comment further
+   * down for why a length cap belongs only on `TaskInputSchema`'s write-
+   * boundary twin, never here) -- pure task-ownership metadata, never a
+   * permission grant by itself (see that migration's header comment and
+   * `lib/schema/team.ts`'s identical disclaimer for `TeamMember.role`).
+   * `undefined`/`null`/absent all mean "unassigned". An MCP caller must
+   * never invent or guess an id here -- see `skills/weekly-reports/
+   * SKILL.md`'s Task-shape guidance.
+   */
+  assigneeId: z.string().nullish(),
+  /**
+   * WP2: the day THIS task ROW was first authored (supabase/migrations/
+   * 20260726000017_task_assignee.sql's `tasks.created_at`) -- the SAME
+   * `isoDateOrEmpty`-then-`.nullish()` convention `completedAt` uses
+   * immediately above (an already-existing task object with no key here
+   * stays a valid `Task`, zero migration/backfill needed). Stamped ONLY at
+   * genuine creation (wizard "Add Task", the `/tasks` Add Task dialog, a
+   * CSV import row, an MCP `create_report` call) -- deliberately NEVER
+   * re-stamped or preserved on a carry-forward/import-selected/aggregated
+   * task copy (see `lib/aggregate.ts`'s `carryForwardUnfinishedTasks`/
+   * `aggregateReportsIntoDraft` and `components/wizard/useWizard.ts`'s
+   * `importSelectedTasks` for the design reasoning: those copies already
+   * mint a fresh `id` and drop `completedAt`, i.e. they are already treated
+   * as new, independent task records, not literal continuations -- but
+   * stamping "today" on a task that is clearly OLD, carried-forward work
+   * would misrepresent it as freshly authored, which is worse than the
+   * honest "not recorded" this leaves it as).
+   */
+  createdAt: isoDateOrEmpty.nullish(),
 });
 
 export const RiskSchema = z.object({
@@ -246,6 +279,10 @@ export const TaskInputSchema = z.object({
   deadline: isoDateOrEmpty,
   /** See TaskSchema.completedAt above -- same bounded-write-boundary treatment `deadline` gets (no separate `.max()` needed; `isoDateOrEmpty` is already a fixed-shape regex, not free text). */
   completedAt: isoDateOrEmpty.nullish(),
+  /** See TaskSchema.assigneeId above -- `.max(MAX_ID_LEN)` here mirrors `projectId`'s own write-boundary bound immediately above (an FK-style id string, not free text). */
+  assigneeId: z.string().max(MAX_ID_LEN).nullish(),
+  /** See TaskSchema.createdAt above -- same bounded-write-boundary treatment `deadline`/`completedAt` get (no separate `.max()` needed; `isoDateOrEmpty` is already a fixed-shape regex). */
+  createdAt: isoDateOrEmpty.nullish(),
 });
 
 export const RiskInputSchema = z.object({

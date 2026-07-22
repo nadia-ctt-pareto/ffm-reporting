@@ -13,7 +13,8 @@ import type { ImportCandidateProps } from '@/components/wizard/ImportPanel';
 import type { CarryForwardNoteState } from '@/components/wizard/useWizard';
 import { TASK_STATUS_OPTIONS } from '@/lib/constants';
 import { draftPeriodLabel } from '@/lib/report-utils';
-import type { Draft, Task } from '@/lib/types';
+import { assigneeSelectOptions, assigneeSelectValue, resolveAssigneeId } from '@/lib/team';
+import type { Draft, Task, TeamMember } from '@/lib/types';
 import styles from './Step.module.css';
 
 export interface StepTasksProps {
@@ -23,6 +24,8 @@ export interface StepTasksProps {
   addTask: () => void;
   /** Phase 6a: known project names, offered as native datalist autocomplete on the Client field. */
   clientSuggestions?: string[];
+  /** WP2: the team directory, for each row's Assignee `<Select>`. */
+  teamMembers?: TeamMember[];
   sourceOptions: { value: string; label: string }[];
   importTaskSource: string;
   onImportTaskSourceChange: (value: string) => void;
@@ -54,6 +57,8 @@ interface TaskRowProps {
   updateTask: <F extends keyof Task>(id: string, field: F, value: Task[F]) => void;
   removeTask: (id: string) => void;
   clientSuggestions?: string[];
+  /** WP2: the team directory, for this row's Assignee `<Select>`. */
+  teamMembers?: TeamMember[];
   kind: Draft['kind'];
   period: string;
 }
@@ -73,7 +78,7 @@ interface TaskRowProps {
  * the Remove button -- not nested inside the Task field's wrapper -- so it
  * spans the row's full width instead of just the Task column's.
  */
-function TaskRow({ task: t, updateTask, removeTask, clientSuggestions, kind, period }: TaskRowProps) {
+function TaskRow({ task: t, updateTask, removeTask, clientSuggestions, teamMembers, kind, period }: TaskRowProps) {
   const polish = usePolishField({
     field: 'taskTitle',
     value: t.task,
@@ -133,6 +138,19 @@ function TaskRow({ task: t, updateTask, removeTask, clientSuggestions, kind, per
           />
         </div>
       ) : null}
+      {/* WP2: same "further grid sibling spanning the row's full width" technique
+          `.completedOnField` uses above -- unconditional (an assignee is
+          meaningful regardless of status), which is why this is its own row
+          below the 5 dense columns rather than a permanent 6th column on
+          every row (would crowd Client/Task/Status/Deadline/Remove). */}
+      <div className={styles.assigneeField}>
+        <Select
+          label="Assignee"
+          options={assigneeSelectOptions(teamMembers ?? [])}
+          value={assigneeSelectValue(t.assigneeId)}
+          onChange={(value) => updateTask(t.id, 'assigneeId', resolveAssigneeId(value))}
+        />
+      </div>
     </div>
   );
 }
@@ -144,6 +162,7 @@ export function StepTasks({
   removeTask,
   addTask,
   clientSuggestions,
+  teamMembers,
   sourceOptions,
   importTaskSource,
   onImportTaskSourceChange,
@@ -192,6 +211,7 @@ export function StepTasks({
             updateTask={updateTask}
             removeTask={removeTask}
             clientSuggestions={clientSuggestions}
+            teamMembers={teamMembers}
             kind={draft.kind}
             period={period}
           />

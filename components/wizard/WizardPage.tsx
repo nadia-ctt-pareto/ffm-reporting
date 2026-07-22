@@ -8,6 +8,7 @@ import { WizardScreen } from '@/components/wizard/WizardScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useProjects } from '@/lib/hooks/useProjects';
 import { useReports } from '@/lib/hooks/useReports';
+import { useTeamMembers } from '@/lib/hooks/useTeamMembers';
 import type { AnyReport, ReportKind } from '@/lib/types';
 
 export interface WizardPageProps {
@@ -43,12 +44,21 @@ export interface WizardPageProps {
  * loading just means no suggestions/stamping for a moment, never a blocked
  * render (unlike `weeklyReports`/`dailyReports`, which the wizard cannot
  * function without).
+ *
+ * WP2: also calls `useTeamMembers()` and passes the list through to
+ * `WizardScreen` -> `StepTasks`' Assignee `<Select>` -- same "not part of
+ * the `loaded` gate" posture as `projects` immediately above.
  */
 export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
   const router = useRouter();
   const { reports: weeklyReports, upsertReport: upsertWeekly, loadError: weeklyLoadError } = useReports();
   const { reports: dailyReports, upsertReport: upsertDaily, loadError: dailyLoadError } = useDailyReports();
   const { projects } = useProjects();
+  // WP2: the team directory, for StepTasks' Assignee picker -- same
+  // graceful-degrade posture as `projects` immediately above (not part of
+  // the `loaded` gate below; an empty/still-loading list just means no
+  // options besides "Unassigned" for a moment, never a blocked render).
+  const { members: teamMembers } = useTeamMembers();
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareReportId, setShareReportId] = useState<string | null>(null);
@@ -150,6 +160,7 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
         reports={sameKindReports ?? []}
         dailies={kind === 'weekly' ? (dailyReports ?? []) : undefined}
         projects={projects ?? []}
+        teamMembers={teamMembers ?? []}
         initialReport={initialReport}
         onExit={exitWizard}
         onSaveDraft={handleSaveDraft}

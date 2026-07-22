@@ -27,12 +27,16 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (WP0 + WP1 complete):** Full stack with optional Supabase backend + Claude connectivity, plus the
-  first two packages of a role/team-directory rollout. **WP0/WP1: role ladder + team directory** — a
+- **Now (WP0 + WP1 + WP2 complete):** Full stack with optional Supabase backend + Claude connectivity, plus the
+  first three packages of a role/team-directory rollout. **WP0/WP1: role ladder + team directory** — a
   three-tier `member`/`pm`/`admin` role ladder (`public.role_rank()`/`has_role_at_least()`, infrastructure
   only — no existing policy changed) and a standalone `team_members` directory (list/create/rename/delete,
   admin-gated, Settings → Team tab) with a verified-email self-link RPC for account linking; see "Role ladder
-  and team directory (WP0 + WP1)" below. Both migrations are written but NOT applied. **Demo mode**
+  and team directory (WP0 + WP1)" below. **WP2: task assignee + creation date** — `tasks` gained an optional
+  `assigneeId` (FK → `team_members`, `NO ACTION`) and `createdAt` (stamped ONLY at genuine task creation,
+  never re-stamped/preserved on a carry-forward/import/aggregation copy); an Assignee picker in both
+  `TaskDialog` and the wizard's Task Status step; see "Task assignee and creation date (WP2)" below. All
+  three migrations are written but NOT applied. **Demo mode**
   (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`,
   team directory in `ff.team.v1`), seeded with 7 weekly + 5 daily reports + 3 team members; MCP server and
   AI polish 404 in demo mode. **Supabase mode** (env set)
@@ -57,9 +61,10 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
   Auth; Phase 7b connected UI → Postgres with cross-machine sharing + two adversarial hardening passes.
 - **Later:** surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up); project
   archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now); the remaining
-  RBAC/team packages after WP0/WP1 — task assignee fields, the RLS access flip (graduating specific policies
-  from `is_admin()` to `has_role_at_least()`), task surfaces + Calendar showing assignees, and a "My Week"
-  export.
+  RBAC/team packages after WP0/WP1/WP2 — the RLS access flip (graduating specific policies from
+  `is_admin()` to `has_role_at_least()`), Task view/Calendar surfacing assignees (filter/group by assignee,
+  not just the picker WP2 already added), a "My Week" export, and a possible future `list_team_members` MCP
+  read tool (flagged, not decided, by WP2 — see "Task assignee and creation date (WP2)" below).
 - **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
@@ -1409,6 +1414,132 @@ browser in demo mode (create → rename → delete, `ff.team.v1` inspected at
 each step, duplicate-name creation rejected) — see `docs/database-schema.md`'s
 matching section for exactly what was run vs. reasoned about.
 
+## Task assignee and creation date (WP2)
+
+**Status: written but NOT applied** (same posture as WP0/WP1 and
+`20260725000014_task_completed_at.sql` — the user applies migrations
+themselves). `supabase/migrations/20260726000017_task_assignee.sql` adds
+two nullable columns to `tasks`: `assignee_id text references team_members
+(id)` (an OPTIONAL FK into WP1's team directory, `NO ACTION` — deliberately,
+matching the `project_id` FK precedent on this same table: deleting a
+team member who still has tasks assigned must FAIL, not silently orphan
+or cascade) and `created_at date` (the day THIS task row was first
+authored, same `''` ↔ `NULL` convention `completed_at` already uses). Both
+are pure task-ownership/authorship metadata — neither carries any
+permission meaning by itself (nothing here grants an assignee special
+access to their task's report; that's the explicitly out-of-scope RLS
+access flip), and neither replaces `client`. **No RLS policy was touched**
+— WP3 (the RLS access flip) owns any future policy change, not this
+package.
+
+**Zero changes needed to `curatedMessage`/`deleteTeamMember`.** WP1
+forward-declared BOTH sides of this FK before it existed: `deleteTeamMember`
+already intercepts sqlstate 23503 itself, and `curatedMessage`'s
+`'conflict'` branch already matches `/_assignee_id_fkey|_team_member_id_fkey/`.
+Postgres's default constraint-naming convention names this migration's FK
+`tasks_assignee_id_fkey`, which that regex matches verbatim — confirmed by
+re-reading both functions, neither needed editing.
+
+**`replace_reports` re-declaration**: same reason as every prior delta that
+touched a `tasks` column — the function inserts `tasks` via an explicit
+column list, so `assignee_id`/`created_at` would silently never persist
+through the transactional write path otherwise. Copied from the NEWEST
+prior version (`...014`'s, confirmed via `grep -l "create or replace
+function public.replace_reports" supabase/migrations/*.sql | tail -1`),
+byte-identical except the `tasks` insert also carries the two new columns.
+
+**The `createdAt` design decision (the interesting part of this package).**
+`createdAt` is stamped ONLY at genuine creation — `useWizard.ts`'s
+`addTask()`, `TaskDialog.tsx`'s Add-mode branch, `lib/import.ts`'s
+`buildTask` (one `now` per import batch), `lib/server/mcp-tools.ts`'s
+`create_report` (same "one `now` per batch" convention). It is
+DELIBERATELY OMITTED — never re-stamped to today, never copied from a
+source task — on every path that produces a task COPY from an existing one:
+`lib/aggregate.ts`'s `carryForwardUnfinishedTasks` (auto carry-forward on a
+new report) and `aggregateReportsIntoDraft`'s merge (the weekly wizard's
+daily import, `get_week_rollup`, `create_weekly_from_dailies`,
+consolidation), plus `useWizard.ts`'s `importSelectedTasks` (the manual
+Import panels). Reasoning: every one of these paths ALREADY mints a fresh
+`id` and ALREADY drops `completedAt` outright for the copy — i.e. this
+codebase's own established position is that a carried-forward/imported/
+aggregated task is a new, independent record sharing only `(client,
+task-text)` with its predecessor, not a literal continuation of the same
+row. Stamping `createdAt` to TODAY on visibly old, still-open work would
+misrepresent it as freshly authored — worse than the honest "not recorded"
+this omission leaves it as. Preserving the SOURCE's `createdAt` verbatim
+was considered and rejected too: unreliable in general (a source task with
+no recorded `createdAt` — every pre-WP2 task, or one that already passed
+through this same omission on an earlier hop — has nothing to copy), and it
+would be a genuinely new asymmetric rule (nothing else on these paths is
+ever "copied from the furthest-back source"). **`assigneeId`, by contrast,
+IS carried through verbatim** on all of these paths — durable ownership
+metadata like `projectId`, not a point-in-time event, so a task still
+unfinished next week almost certainly still belongs to whoever it was
+assigned to. See `docs/database-schema.md`'s matching section and the
+functions' own doc comments (`lib/aggregate.ts`, `components/wizard/
+useWizard.ts`) for the full argument.
+
+**Zod / mapping**: `lib/schema/report.ts`'s `TaskSchema` gains `assigneeId:
+z.string().nullish()` (uncapped — the permissive READ schema, per
+`ReportCoreSchema`'s own BLOCKER A doc comment) and `createdAt:
+isoDateOrEmpty.nullish()`; `TaskInputSchema` (the bounded write boundary)
+gains `assigneeId: z.string().max(200).nullish()` and the same `createdAt`.
+`lib/schema/api.ts` needed NO changes — `ReportPatchSchema` composes
+`TaskInputSchema` through `ReportCoreInputSchema.partial()` automatically.
+`lib/server/db-mapping.ts`'s `TaskRow`/`mapTaskRow`/`reportToRow` map both
+columns both directions (`assigneeId` follows `projectId`'s `?? undefined`
+FK convention; `createdAt` follows `deadline`/`completedAt`'s `?? ''`
+date convention). **Deliberately NOT added to `SharedReportJson`/
+`get_shared_report`** — an anonymous share-link viewer must never learn
+who a task is assigned to or when it was authored, following the exact
+precedent `completedAt` already set there.
+
+**UI**: `lib/team.ts` gains three small `<Select>` helpers shared by
+`TaskDialog.tsx` and `StepTasks.tsx`'s `TaskRow` — `UNASSIGNED_VALUE` (a
+non-empty sentinel, since Radix `Select.Item` rejects `''`, mirroring
+`CsvImportSection.tsx`'s `HOUSE_VALUE`), `assigneeSelectOptions`, and
+`assigneeSelectValue`/`resolveAssigneeId`. `TaskDialog` gets an
+unconditional Assignee field (stamps `createdAt` only on its Add-mode
+branch); `StepTasks`' `TaskRow` gets an unconditional Assignee `<Select>`
+as a further grid sibling spanning the row's full width — the wizard's
+5-column task row was already dense, so this is its own row below, not a
+6th column, the same technique the status-gated "Completed On" field
+already uses. Both surfaces source the team directory via
+`useTeamMembers()` (`TaskViewScreen.tsx`; `WizardPage.tsx` →
+`WizardScreen` → `StepTasks`).
+
+**CSV**: `lib/csv-templates.ts`'s `IMPORT_COLUMNS` contract gained NO new
+column (extending a locked download-template contract was out of scope) —
+every imported task starts unassigned; `createdAt` is still stamped
+(app-internal, not spreadsheet-authored).
+
+**MCP**: `create_report`'s task input gains an optional `assignee_id`;
+`update_report` inherits both new fields automatically (reuses
+`ReportPatchSchema` verbatim). No tool added/renamed/removed —
+`scripts/check-mcp-tool-contract.ts` still reports 8, no `delete_report`.
+`skills/weekly-reports/SKILL.md` tells a connecting model there is
+currently **no `list_team_members` (or equivalent) read tool** — it cannot
+resolve a person's name to a directory id, so it must omit `assigneeId`
+unless the user (or a prior tool result) supplies a real one, never guess.
+**Whether a future `list_team_members` MCP read tool is warranted is an
+open question this package flags but does not decide** — a connecting
+model currently has no way to assign a task to a named person by request
+alone, only by an id the user already has in hand; a small, org-wide,
+read-only `list_team_members` tool (mirroring `list_projects`' posture)
+would close that gap cheaply, but adding it was out of scope here.
+
+**Verification**: all three gates, `npm run verify:print` (8/8), and
+`npx tsx scripts/check-mcp-tool-contract.ts` (8 tools, unchanged) all pass.
+The migration was statically re-read end to end (not applied) confirming
+the FK's `NO ACTION` behavior, the constraint-name/regex match, and that
+`replace_reports` carries both new columns. A real browser (demo mode)
+drove: assigning a member in `TaskDialog` persists `assigneeId` to
+`ff.reports.v2`; a newly created task gets a `createdAt`; editing an
+existing task leaves its `createdAt` untouched; the assignee `<Select>`
+lists the seeded team members plus "Unassigned", and picking "Unassigned"
+clears a previously-set assignee. See `docs/database-schema.md`'s matching
+section for the full story across every layer.
+
 ## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
@@ -1540,6 +1671,19 @@ and `docs/database-schema.md`'s matching section for the full story
 (function grants, RLS, the account-linking design, and the full
 repository/service/route/UI clone of the Project entity).
 
+**WP2 (task assignee + creation date)**: `supabase/migrations/
+20260726000017_task_assignee.sql` — **written but NOT applied**. Two new
+nullable columns on `tasks` (`assignee_id` FK → `team_members`, `NO
+ACTION`; `created_at date`), a matching index, and a re-declaration of
+`replace_reports` (same reason `...014` needed one). **No RLS policy
+touched** — WP3 owns any future policy change. New domain fields
+(`TaskSchema`/`TaskInputSchema` gain `assigneeId`/`createdAt`) landed
+alongside this migration, per this section's own rule. See "Task assignee
+and creation date (WP2)" below and `docs/database-schema.md`'s matching
+section for the full story (the FK/curatedMessage forward-declaration
+payoff, the `createdAt` stamp-vs-omit design decision, and the full
+Zod/mapping/UI/CSV/MCP story).
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -1556,7 +1700,9 @@ repository/service/route/UI clone of the Project entity).
   (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic), `projects` (Phase 6a
   project backfill; Phase 8c: `resolveNewProjectName`, shared by the CSV importer and the
   Settings Projects tab), `team` (WP1: `resolveNewTeamMemberName`, a deliberate near-copy of
-  `projects`'s validator — see "Role ladder and team directory (WP0 + WP1)" above for why),
+  `projects`'s validator — see "Role ladder and team directory (WP0 + WP1)" above for why;
+  WP2 adds `UNASSIGNED_VALUE`/`assigneeSelectOptions`/`assigneeSelectValue`/`resolveAssigneeId`,
+  the Assignee `<Select>` helpers shared by `TaskDialog` and the wizard's `StepTasks`),
   `roles` (WP0: client-side role-ladder mirror — `Role`/`roleRank`/`hasRoleAtLeast`),
   `report-sections` (Phase 8d: per-kind section headings + grouping),
   `deck-slides` (Phase 8d: paginated deck builder + deterministic height estimation),
@@ -1568,7 +1714,9 @@ repository/service/route/UI clone of the Project entity).
   Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`, `ai-keys`, `ai-polish`; Phase 8c adds
   `renameProject`/`deleteProject` to `reports-service`; Phase 8d: `deleteReport` to `reports-service`;
   WP1 adds `listTeamMembers`/`ensureTeamMember`/`renameTeamMember`/`deleteTeamMember` to
-  `reports-service` and a `TeamMemberRow`/mappers pair to `db-mapping`), `supabase/` (Phase 7a: Supabase client
+  `reports-service` and a `TeamMemberRow`/mappers pair to `db-mapping`; WP2 adds
+  `assignee_id`/`created_at` to `db-mapping`'s `TaskRow`/`mapTaskRow`/`reportToRow` and an
+  `assignee_id` input field to `mcp-tools`'s `create_report`), `supabase/` (Phase 7a: Supabase client
   factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
@@ -1580,15 +1728,18 @@ repository/service/route/UI clone of the Project entity).
   Navigation IA restructure; stat cards + recent reports table).
 - `components/dashboard|daily|wizard|dialogs/` — screens + route-level
   orchestration (`DashboardPage`, `DailyPage` (Phase 4), `WizardPage`, now
-  `kind`-aware) + `ShareDialog` (the only dialog left; Detail/Pdf dialogs
-  were superseded by the report screen + real print flow, see "Report
-  screen & presentation deck") + `ConfirmDeleteReportDialog` (Phase 8d: delete confirmation).
+  `kind`-aware and, WP2, `useTeamMembers()`-aware) + `ShareDialog` (the only
+  dialog left; Detail/Pdf dialogs were superseded by the report screen + real
+  print flow, see "Report screen & presentation deck") +
+  `ConfirmDeleteReportDialog` (Phase 8d: delete confirmation). `wizard/steps/
+  StepTasks.tsx`'s `TaskRow` gained an Assignee `<Select>` (WP2).
 - `components/report/` — `ReportScreen`, `ReportDeck`, `PresentScreen`
   (Phase 2; made interactive Phase 5; generalized to `AnyReport`/`kind` in
   Phase 4, see "Daily reports & the weekly import (Phase 4)").
 - `components/tasks/` — `TaskViewScreen`, `TaskList`, `KanbanBoard`,
   `KanbanColumn`, `TaskCard`, `taskCardId` (Phase 3; see "Task and Calendar
-  views").
+  views"). `TaskDialog` gained an Assignee `<Select>` (WP2; `TaskViewScreen`
+  now also calls `useTeamMembers()`).
 - `components/calendar/` — `CalendarScreen`, `WeekGrid`, `MonthGrid`
   (Phase 3; see "Task and Calendar views").
 - `components/consolidate/` — `ConsolidateScreen` (Phase 6b; now a 4-step wizard,

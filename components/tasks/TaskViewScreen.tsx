@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { IconPlus } from '@/components/ui/icons';
 import { Tabs } from '@/components/ui/Tabs';
 import { nowDate } from '@/lib/format';
+import { useTeamMembers } from '@/lib/hooks/useTeamMembers';
 import { withTaskStatus } from '@/lib/report-utils';
 import { isScheduleBucket } from '@/lib/task-schedule';
 import type { ScheduleBucket } from '@/lib/task-schedule';
@@ -82,6 +83,11 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
   // render.
   const initialScheduleFilter: ScheduleBucket | null = isScheduleBucket(paramFilter) ? paramFilter : null;
   const [dialogState, setDialogState] = useState<TaskDialogState | null>(null);
+  // WP2: the team directory, for TaskDialog's Assignee picker. `[]` while
+  // still loading is a harmless default (the Select just shows "Unassigned"
+  // until this resolves) -- mirrors how `reports`/other hook results are
+  // consumed elsewhere on this screen without a separate loading gate.
+  const { members: teamMembers } = useTeamMembers();
 
   const entries = useMemo(() => allTasks(reports), [reports]);
   const grouped = useMemo(() => groupTasksByStatus(entries), [entries]);
@@ -221,6 +227,7 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
         open={dialogState !== null}
         entry={dialogState?.entry ?? null}
         reports={reports}
+        teamMembers={teamMembers ?? []}
         onClose={closeDialog}
         onSubmit={handleDialogSubmit}
       />

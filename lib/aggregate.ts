@@ -82,7 +82,11 @@ export interface AggregateResult {
  *   a weekly ending on the same date.
  * - **tasks**: deduped by (client, task); when the same pair appears in
  *   multiple sources, the LATEST-sorted source's version (status/deadline,
- *   AND `projectId`) wins. Skips any pair already present in `draft.tasks`.
+ *   `projectId`, AND WP2's `assigneeId`) wins. Skips any pair already
+ *   present in `draft.tasks`. WP2's `createdAt` is deliberately never
+ *   carried into the merged result -- see `carryForwardUnfinishedTasks`'s
+ *   doc comment below for the full reasoning (shared verbatim by this
+ *   function).
  * - **risks**: deduped by (client, description), latest source's version
  *   (severity/nextStep/projectId) wins. Skips any pair already present in
  *   `draft.risks`.
@@ -128,11 +132,17 @@ export function aggregateReportsIntoDraft(sources: AnyReport[], draft: Draft): A
       taskContributors.set(key, set);
     }
   }
+  // WP2: `assigneeId` carries through verbatim (durable ownership metadata,
+  // like `projectId`); `createdAt` is deliberately OMITTED -- see
+  // `carryForwardUnfinishedTasks`'s doc comment above for the full
+  // reasoning (a merged task is, by this codebase's own established
+  // position, a new/independent record, and stamping today's date would
+  // misrepresent old work as freshly authored).
   const newTasks: Task[] = [...taskByKey.entries()]
     .filter(([, t]) => !draft.tasks.some((dt) => dt.client === t.client && dt.task === t.task))
     .map(([key, t]) => {
       log.push({ type: 'task', key, keptFromId: taskKeptFrom.get(key)!, mergedFromIds: [...taskContributors.get(key)!] });
-      return { id: uid('t'), client: t.client, projectId: t.projectId, task: t.task, status: t.status, deadline: t.deadline };
+      return { id: uid('t'), client: t.client, projectId: t.projectId, task: t.task, status: t.status, deadline: t.deadline, assigneeId: t.assigneeId };
     });
 
   // ---- risks: last write (in `ordered` order) wins ----
@@ -265,6 +275,30 @@ export interface CarryForwardResult {
  * this function has no notion of; this is purely the AUTOMATIC, whole-batch
  * "carry everything unfinished" path used once, at wizard mount, for a
  * genuinely new report only (see useWizard.ts's own doc comment on this).
+ *
+ * WP2 (task assignee + creation date): `assigneeId` carries verbatim, like
+ * `projectId`/`client`/`status`/`deadline` immediately above -- it's durable
+ * ownership metadata about the work itself, not a point-in-time event, so
+ * there's no reason a carry-forward would clear it (a PM who assigned this
+ * task to someone almost certainly still wants that assignment to hold once
+ * it's still unfinished next report). `createdAt`, by contrast, is
+ * DELIBERATELY OMITTED here -- never re-stamped to today, never copied from
+ * `source`'s own `createdAt`. Reasoning: this function already mints a
+ * FRESH `id` for every carried task and drops `completedAt` outright (see
+ * above), i.e. the codebase's own established position is that a
+ * carried-forward task is "a new, independent task record" sharing only
+ * (client, task-text) with its predecessor, not a literal continuation of
+ * the same row. Given that, stamping `createdAt` to TODAY would misrepresent
+ * genuinely old, still-open work as freshly authored -- arguably worse than
+ * the honest "not recorded" this omission leaves it as; and copying
+ * `source`'s `createdAt` verbatim would be unreliable in the general case
+ * (a task with no recorded `createdAt` at all -- every pre-WP2 task, or one
+ * that already passed through this same omission on an EARLIER carry-forward
+ * hop -- has nothing to copy). Omitting it is also the path of least
+ * surprise: it's the exact same treatment `completedAt` already gets here,
+ * just for a different underlying reason (that one clears because the task
+ * is by definition unfinished; this one omits because "when was this
+ * authored" genuinely isn't known for a copied row).
  */
 export function carryForwardUnfinishedTasks(source: AnyReport, existingTasks: Task[]): CarryForwardResult {
   const candidates = source.tasks.filter(
@@ -277,7 +311,8 @@ export function carryForwardUnfinishedTasks(source: AnyReport, existingTasks: Ta
     task: t.task,
     status: t.status,
     deadline: t.deadline,
-    // completedAt deliberately omitted -- see this function's doc comment.
+    assigneeId: t.assigneeId,
+    // completedAt/createdAt deliberately omitted -- see this function's doc comment.
   }));
   return {
     source,

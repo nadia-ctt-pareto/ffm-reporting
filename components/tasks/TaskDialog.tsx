@@ -11,7 +11,8 @@ import { Select } from '@/components/ui/Select';
 import { nowDate, uid } from '@/lib/format';
 import { TASK_STATUS_OPTIONS } from '@/lib/constants';
 import { reportPeriodLabel, taskCompletionStamp, withTaskAdded, withTaskEdited, withTaskRemoved } from '@/lib/report-utils';
-import type { Report, Task, TaskStatus } from '@/lib/types';
+import { assigneeSelectOptions, assigneeSelectValue, resolveAssigneeId } from '@/lib/team';
+import type { Report, Task, TaskStatus, TeamMember } from '@/lib/types';
 import type { TaskEntry } from '@/lib/view-utils';
 import styles from './TaskDialog.module.css';
 
@@ -43,6 +44,8 @@ export interface TaskDialogProps {
    * `handleDelete`.
    */
   onSubmit: (reportId: string, tasks: Task[]) => Promise<void>;
+  /** WP2: the team directory, for the Assignee `<Select>` below -- `useTeamMembers()` at the call site (TaskViewScreen). Always defined, may be `[]` while still loading (the Select then shows only "Unassigned", same graceful-degrade posture `clientSuggestions` gets elsewhere). */
+  teamMembers: TeamMember[];
 }
 
 /** The Add-mode Report picker's default selection: the most recent report by `weekEnd` desc (CLAUDE.md's DECIDED #1). `''` when `reports` is empty -- callers must disable the Add Task trigger entirely in that case (see TaskViewScreen), this is only a defensive fallback. */
@@ -74,11 +77,18 @@ function errorMessage(err: unknown, fallback: string): string {
  * (`completedAt`), appears ONLY while Status reads 'Complete' -- prefilled
  * from `entry.task.completedAt`, auto-stamped/cleared live as Status
  * changes (see the Select's own `onChange`), and independently editable
- * afterward for a PM's correction.
+ * afterward for a PM's correction. WP2 adds a sixth field, "Assignee" (a
+ * `<Select>` over the team directory + an "Unassigned" option -- see
+ * `lib/team.ts`'s `assigneeSelectOptions`/`assigneeSelectValue`/
+ * `resolveAssigneeId`), unconditional (unlike "Completed On", it's always
+ * shown, not gated on Status).
  *
  * **Add mode**: the same fields (blank, `status` defaulting to
  * `'In Progress'` -- matching `useWizard.ts`'s own `addTask()` default)
- * PLUS a Report picker, defaulting to `mostRecentReportId(reports)`.
+ * PLUS a Report picker, defaulting to `mostRecentReportId(reports)`. WP2:
+ * Add mode is a genuine creation site, so `handleSave` stamps a fresh
+ * `createdAt` here (never on the Edit-mode branch -- see that function's
+ * own comment).
  *
  * **Validation is deliberately absent beyond the Report picker.** The
  * wizard's own `validateStep` (`lib/report-utils.ts`) never requires a
@@ -97,11 +107,13 @@ function errorMessage(err: unknown, fallback: string): string {
  * drag on an unrelated card -- could otherwise wipe out whatever the user
  * had already typed into an open Add Task dialog).
  */
-export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: TaskDialogProps) {
+export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit, teamMembers }: TaskDialogProps) {
   const [client, setClient] = useState('');
   const [taskText, setTaskText] = useState('');
   const [status, setStatus] = useState<TaskStatus>('In Progress');
   const [deadline, setDeadline] = useState('');
+  /** WP2: mirrors `deadline`'s plain-string convention -- the sentinel-normalized `assigneeId`, `''`/undefined meaning "unassigned" once resolved via `resolveAssigneeId` on Save. Prefilled from `entry.task.assigneeId` on open (Edit mode); blank (Unassigned) on Add. */
+  const [assigneeId, setAssigneeId] = useState('');
   /**
    * Task completion date: mirrors `deadline`'s plain-string convention
    * exactly ('' = unset). Prefilled from `entry.task.completedAt` on open
@@ -127,12 +139,14 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
       setStatus(entry.task.status);
       setDeadline(entry.task.deadline);
       setCompletedAt(entry.task.completedAt ?? '');
+      setAssigneeId(entry.task.assigneeId ?? '');
     } else {
       setClient('');
       setTaskText('');
       setStatus('In Progress');
       setDeadline('');
       setCompletedAt('');
+      setAssigneeId('');
       setReportId(mostRecentReportId(reports));
     }
     setConfirmingDelete(false);
@@ -153,11 +167,16 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
     if (!targetReport || submitting) return;
     setSubmitting(true);
     setError(null);
-    const fields = { client, task: taskText, status, deadline, completedAt };
+    const fields = { client, task: taskText, status, deadline, completedAt, assigneeId: assigneeId || undefined };
+    // WP2: `createdAt` is stamped ONLY on the Add-mode branch below (a
+    // genuine creation site) -- never included in `fields`/passed to
+    // `withTaskEdited`, so editing an existing task can never touch its
+    // recorded creation date (see lib/schema/report.ts's `TaskSchema.
+    // createdAt` doc comment: stamped once, at creation, never after).
     const nextTasks =
       mode === 'edit' && entry
         ? withTaskEdited(targetReport, entry.task.id, fields, nowDate())
-        : withTaskAdded(targetReport, { id: uid('t'), ...fields });
+        : withTaskAdded(targetReport, { id: uid('t'), ...fields, createdAt: nowDate() });
     try {
       await onSubmit(targetReport.id, nextTasks);
       onClose();
@@ -246,6 +265,15 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
                 />
               </div>
             ) : null}
+            {/* WP2: full-width, unconditional (unlike "Completed On" above, which only shows for a Complete-status row) -- an assignee is meaningful regardless of status. */}
+            <div className={styles.fieldFull}>
+              <Select
+                label="Assignee"
+                options={assigneeSelectOptions(teamMembers)}
+                value={assigneeSelectValue(assigneeId)}
+                onChange={(value) => setAssigneeId(resolveAssigneeId(value) ?? '')}
+              />
+            </div>
             {mode === 'add' ? (
               <div className={styles.fieldFull}>
                 <Select label="Report" options={reportOptions} value={reportId} onChange={setReportId} />

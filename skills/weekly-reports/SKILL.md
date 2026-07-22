@@ -33,18 +33,41 @@ narrative}`), and `touchpoints` (`{calls, emails, escalations,
 narrative}`).
 
 - **Task**: `{client, task, status: "Complete"|"In Progress"|"Blocked",
-  deadline, completedAt?}`. `completedAt` (`yyyy-mm-dd`, optional) is the
-  task's recorded completion date -- the app itself stamps this
-  automatically the moment a task's status becomes `"Complete"` through any
-  of its own write paths (the wizard, the task modal, a Kanban drag). **Do
-  not invent or guess a completion date.** Omit `completedAt` and let the
-  app's own auto-stamp apply (this is the right default for
-  `create_report`/`update_report` whenever the user hasn't told you a
-  specific completion day), or pass the real date ONLY if the user
+  deadline, completedAt?, assigneeId?, createdAt?}`. `completedAt`
+  (`yyyy-mm-dd`, optional) is the task's recorded completion date -- the app
+  itself stamps this automatically the moment a task's status becomes
+  `"Complete"` through any of its own write paths (the wizard, the task
+  modal, a Kanban drag). **Do not invent or guess a completion date.** Omit
+  `completedAt` and let the app's own auto-stamp apply (this is the right
+  default for `create_report`/`update_report` whenever the user hasn't told
+  you a specific completion day), or pass the real date ONLY if the user
   explicitly states one (e.g. "mark it complete -- it actually finished last
   Tuesday"). A fabricated date here would corrupt the Schedule view's
   on-time/late reporting (`/tasks?view=schedule`), which trusts this field
   as a recorded fact, not an inference.
+  - `assigneeId` (optional) is an opaque id pointing at a row in the
+    Foundation First team directory -- a person, not a free-text name.
+    **There is currently no `list_team_members` (or equivalent) read tool in
+    this connector**, so you have no way to look up which id corresponds to
+    "Jordan" or "the PM on this account". **Never guess or fabricate an id
+    from a name.** Omit `assigneeId` entirely unless the user (or a prior
+    tool result you're echoing back, e.g. re-`update_report`-ing a task
+    array `get_report` just returned) hands you a real id -- treat this the
+    same way you'd treat any other opaque foreign-key id you can't resolve.
+    If a user asks "assign this to Jordan", tell them you can't resolve a
+    name to an id through this connector and suggest they assign it in the
+    web app instead (`/tasks`, or the wizard's Task Status step), where the
+    picker shows real names.
+  - `createdAt` (optional, `yyyy-mm-dd`) is when a task ROW was first
+    authored -- like `completedAt`, this is app-stamped, not something you
+    invent. `create_report` stamps it automatically for every task you pass
+    (never send your own value -- there is no `created_at` input field on
+    `create_report`'s task shape at all). When patching an existing report's
+    `tasks` array via `update_report` (remember: a `tasks` array you send
+    REPLACES the whole list), carry each task's existing `createdAt` (and
+    `assigneeId`) forward from what `get_report` returned rather than
+    dropping them -- omitting a field on a whole-array replace clears it,
+    exactly like any other field.
 - **Risk**: `{client, severity: "Blocked"|"At Risk", description,
   nextStep}`.
 - **Priority**: `{text}` -- a next-week priority (weekly) or a next-day one
@@ -251,7 +274,10 @@ actually has:
   daily report outranks a weekly one (fresher-grained information about the
   same date wins).
 - **Tasks** dedupe by `(client, task)` -- the LATEST source's version
-  (status, deadline) wins.
+  (status, deadline, assigneeId) wins. The merged task's `createdAt` (and
+  `completedAt`) are never carried over from any source -- a rolled-up task
+  is treated as a new record, so it simply has no recorded creation or
+  completion date, regardless of what the source task had.
 - **Risks** dedupe by `(client, description)` -- the LATEST source's
   version (severity, next step) wins.
 - **Priorities** dedupe by exact text -- the FIRST source to introduce a

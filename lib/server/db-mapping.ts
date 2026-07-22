@@ -58,6 +58,10 @@ export interface TaskRow {
   deadline: string | null;
   /** Task completion date (supabase/migrations/20260725000014_task_completed_at.sql) -- a nullable `date` column, mapped exactly like `deadline` above (never the timestamptz normalization path -- see this file's header comment). */
   completed_at: string | null;
+  /** WP2: optional FK to `team_members(id)` (supabase/migrations/20260726000017_task_assignee.sql) -- `null` = unassigned. */
+  assignee_id: string | null;
+  /** WP2: task creation date (same migration) -- a nullable `date` column, mapped exactly like `deadline`/`completed_at` above. */
+  created_at: string | null;
   position: number;
 }
 
@@ -119,7 +123,19 @@ export interface ReportRow {
   priorities: PriorityRow[];
 }
 
-/** `public.get_shared_report(token)`'s jsonb return shape -- already camelCase (see the RPC's own `jsonb_build_object` in supabase/migrations/20260719000004_auth_ownership.sql), unlike every other read path in this file. Deliberately has no `ownerId`/`shareToken` (the RPC never returns them). */
+/**
+ * `public.get_shared_report(token)`'s jsonb return shape -- already camelCase
+ * (see the RPC's own `jsonb_build_object` in supabase/migrations/
+ * 20260719000004_auth_ownership.sql), unlike every other read path in this
+ * file. Deliberately has no `ownerId`/`shareToken` (the RPC never returns
+ * them). The `tasks` entry below doesn't even carry `completedAt` -- the RPC
+ * itself was never updated to select it (supabase/migrations/
+ * 20260725000014_task_completed_at.sql didn't touch `get_shared_report`) --
+ * and WP2's `assigneeId`/`createdAt` follow the SAME precedent: an anonymous
+ * share-link viewer must never learn who a task is assigned to or when it
+ * was authored, so neither column is added here or to the RPC's SQL, on
+ * purpose.
+ */
 export interface SharedReportJson {
   id: string;
   kind: 'weekly' | 'daily';
@@ -153,6 +169,8 @@ function mapTaskRow(t: TaskRow): Task {
     status: t.status,
     deadline: t.deadline ?? '',
     completedAt: t.completed_at ?? '',
+    assigneeId: t.assignee_id ?? undefined,
+    createdAt: t.created_at ?? '',
   };
 }
 
@@ -288,6 +306,8 @@ export function reportToRow(report: AnyReportInput) {
       status: t.status,
       deadline: t.deadline || null,
       completed_at: t.completedAt || null,
+      assignee_id: t.assigneeId ?? null,
+      created_at: t.createdAt || null,
     })),
     risks: report.risks.map((r) => ({ id: r.id, client: r.client, project_id: r.projectId ?? null, severity: r.severity, description: r.description, next_step: r.nextStep })),
     priorities: report.priorities.map((p) => ({ id: p.id, text: p.text })),

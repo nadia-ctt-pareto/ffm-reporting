@@ -16,6 +16,16 @@ import { csvEscape } from './csv';
  * `report_key` is any string unique within the file (the importer always
  * generates fresh ids -- it never trusts an incoming id). Dates are ISO
  * `yyyy-mm-dd`; quoting follows `csvEscape` (lib/csv.ts).
+ *
+ * WP2: deliberately has NO `assignee_id`/`created_at` column -- this is a
+ * locked download-template contract (see this file's own header comment),
+ * and extending it was out of scope for WP2. Every task assembled by
+ * `lib/import.ts`'s `parseImportCsv` starts unassigned (`assigneeId`
+ * undefined); a PM assigns it afterward via the `/tasks` dialog or the
+ * wizard. `createdAt` IS still stamped on import (to the import run's own
+ * timestamp) even though there's no column for it -- see `buildTask`'s doc
+ * comment (lib/import.ts) -- because that's an app-internal creation stamp,
+ * not something a spreadsheet author would ever supply.
  */
 export const IMPORT_COLUMNS = [
   'kind',

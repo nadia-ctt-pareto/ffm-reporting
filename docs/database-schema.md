@@ -171,6 +171,8 @@ too, not just in Zod).
 | `status`            | `status`    | `text`    | `check in ('Complete','In Progress','Blocked')`     |
 | `deadline`          | `deadline`  | `date`    | nullable — `''` ↔ `NULL`                            |
 | `completedAt`       | `completed_at` | `date`, nullable | Task completion date delta (`supabase/migrations/20260725000014_task_completed_at.sql`). Same `''` ↔ `NULL` convention as `deadline`. Auto-stamped the moment a task's status becomes `'Complete'` (any write path), cleared when it moves off `'Complete'`, editable afterward. See "Task completion date" below. |
+| `assigneeId`        | `assignee_id` | `text`, nullable | WP2 (`supabase/migrations/20260726000017_task_assignee.sql`). FK → `team_members(id)`, `NO ACTION` (a referenced team member can't be deleted). NULL = unassigned. See "Task assignee and creation date (WP2)" below. |
+| `createdAt`         | `created_at`  | `date`, nullable | WP2 (same migration). Same `''` ↔ `NULL` convention as `deadline`/`completed_at`. Stamped ONLY at genuine task creation, never re-stamped on carry-forward/import/aggregation. See "Task assignee and creation date (WP2)" below. |
 | —                   | `position`  | `integer` | preserves array order                               |
 
 **Length CHECK constraints** (Phase 7b round 2, same migration as above):
@@ -2077,6 +2079,174 @@ execute ... to authenticated;`).
   returning 403/404 as curated), and `link_my_team_member()`'s live
   behavior against two real accounts. Both would need an applied migration
   against a real project, which this package deliberately does not do.
+
+## Task assignee and creation date (WP2)
+
+**Status: WRITTEN but NOT APPLIED** (same posture as every migration since
+`20260725000014_task_completed_at.sql` — the user applies migrations
+themselves). Everything below describes SQL that was authored and
+statically re-read end to end, not verified live against a running
+database — see CLAUDE.md's "Task assignee and creation date (WP2)" section
+for the plan-level summary and what was verified by RUNNING (a real
+browser, demo mode) vs. reasoned about (the SQL itself).
+
+`supabase/migrations/20260726000017_task_assignee.sql` adds two nullable
+columns to `tasks`:
+
+- `assignee_id text references team_members (id)` — an OPTIONAL FK into
+  WP1's team directory. `NULL` = unassigned (the default for every existing
+  row). `NO ACTION` (Postgres's default when no `on delete`/`on update`
+  clause is given) — deliberately, matching the `project_id` FK precedent
+  on this same table (`supabase/migrations/20260718000003_projects.sql`):
+  deleting a team member who still has tasks assigned to them must FAIL,
+  not silently orphan the reference (`set null`) or cascade-delete
+  unrelated task rows. `create index tasks_assignee_id_idx on tasks
+  (assignee_id)` supports future lookups ("show me everything assigned to
+  X") even though no surface reads that direction yet.
+- `created_at date` — the day THIS task ROW was first authored, the SAME
+  nullable-`date`, `''` ↔ `NULL` convention `completed_at` already uses.
+  `NULL` for every row that existed before this migration (their true
+  creation date was never captured) and for a carried-forward/import-
+  selected/aggregated task copy (see "The `createdAt` design decision"
+  below) — only a genuinely NEW task row gets a real value.
+
+Pure task-ownership/authorship metadata, exactly like `project_id`: neither
+column carries any permission meaning by itself (WP1's own header comment
+makes the identical disclaimer for `team_members.role` — nothing here
+grants an assignee special access to their assigned task's report; that
+would be the explicitly out-of-scope "RLS access flip" package), and
+neither replaces `client` (still the free-text display/dedupe string
+everywhere).
+
+**FK constraint naming, and why `curatedMessage`/`deleteTeamMember` needed
+NO changes.** Postgres's default constraint-naming convention
+(`<table>_<column>_fkey`) names the FK this migration adds
+`tasks_assignee_id_fkey`. WP1 already forward-declared BOTH sides of this
+before any FK actually existed:
+`lib/server/reports-service.ts`'s `deleteTeamMember` already intercepts
+sqlstate 23503 itself (before `mapPgError`'s generic mapping), and
+`curatedMessage`'s `'conflict'` branch already matches the regex
+`/_assignee_id_fkey|_team_member_id_fkey/`. `tasks_assignee_id_fkey`
+matches that regex verbatim — re-read both functions to confirm; neither
+needed a single line changed.
+
+**`replace_reports` re-declaration.** Same reason as every prior delta that
+touched a `tasks` column (`20260725000014_task_completed_at.sql`'s own
+section above): the function inserts `tasks` via an EXPLICIT column list,
+not a dynamic jsonb-key expansion, so `assignee_id`/`created_at` would
+silently never persist through the transactional write path (CSV import,
+the localStorage→Supabase import, `updateReport`'s single-row write) unless
+re-declared here too. This migration's `CREATE OR REPLACE` copies the
+NEWEST prior version (`...014`'s, confirmed via `grep -l "create or replace
+function public.replace_reports" supabase/migrations/*.sql | tail -1`) —
+byte-identical except the `tasks` insert now also carries `assignee_id`
+(`nullif(t.val ->> 'assignee_id', '')`, text, no cast) and `created_at`
+(`nullif(t.val ->> 'created_at', '')::date`). Every other column, the
+`reports`/`risks`/`priorities` inserts, the server-stamped `updated_at`
+behavior, and the `updatedAt` return map are unchanged.
+
+**Zod / `lib/types.ts`**: `lib/schema/report.ts`'s `TaskSchema` gains
+`assigneeId: z.string().nullish()` (uncapped — this is the PERMISSIVE read
+schema, see `ReportCoreSchema`'s own "BLOCKER A" doc comment for why a
+length cap belongs only on the write-boundary twin) and `createdAt:
+isoDateOrEmpty.nullish()` (the same convention `completedAt` uses).
+`TaskInputSchema` (the bounded write boundary) gains `assigneeId:
+z.string().max(200).nullish()` and `createdAt: isoDateOrEmpty.nullish()`.
+`lib/schema/api.ts` needed NO changes — `ReportPatchSchema` (`PATCH
+/api/reports/[id]`'s body, and `update_report`'s MCP input, reused
+verbatim) is built on `ReportCoreInputSchema.partial()`, which already
+contains `tasks: z.array(TaskInputSchema)` — the new fields compose
+through automatically.
+
+**`lib/server/db-mapping.ts`**: `TaskRow` gains `assignee_id`/`created_at`;
+`mapTaskRow` maps `assignee_id ?? undefined` (matching `project_id`'s own
+FK-id convention, not `deadline`'s `''` convention) and `created_at ?? ''`
+(matching `deadline`/`completed_at`'s date convention); `reportToRow`'s
+`tasks.map` emits `assignee_id: t.assigneeId ?? null` and `created_at:
+t.createdAt || null` on write. **Deliberately NOT added to
+`SharedReportJson`/`get_shared_report`'s SQL** — an anonymous share-link
+viewer must never learn who a task is assigned to or when it was authored;
+this follows the exact precedent `completedAt` already set (that RPC was
+never updated to select it either).
+
+**The `createdAt` design decision — stamp at creation, never re-stamp or
+preserve on a copy.** `createdAt` is stamped ONLY at genuine creation:
+`components/wizard/useWizard.ts`'s `addTask()`, `components/tasks/
+TaskDialog.tsx`'s Add-mode `handleSave` branch, `lib/import.ts`'s
+`buildTask` (stamped to the import run's own `now`, not a fresh clock read
+per row), and `lib/server/mcp-tools.ts`'s `create_report` (same "one `now`
+per batch" convention). It is deliberately OMITTED — neither re-stamped to
+today NOR copied from the source — on every path that produces a task
+COPY from an existing one: `lib/aggregate.ts`'s `carryForwardUnfinishedTasks`
+(auto carry-forward on a new report) and `aggregateReportsIntoDraft`'s
+`newTasks` construction (the weekly wizard's "Import This Week's Daily
+Reports", `get_week_rollup`, `create_weekly_from_dailies`, and
+consolidation), plus `components/wizard/useWizard.ts`'s `importSelectedTasks`
+(the manual Import panels). The reasoning, restated from those functions'
+own doc comments: every one of these paths ALREADY mints a fresh `id` for
+the copy and ALREADY drops `completedAt` outright — i.e. this codebase's
+own established position is that a carried-forward/imported/aggregated
+task is "a new, independent task record" sharing only `(client, task-text)`
+with its predecessor, not a literal continuation of the same row. Given
+that, stamping `createdAt` to TODAY on a task that is visibly old, still-
+open work would misrepresent it as freshly authored — arguably a worse,
+more actively misleading state than the honest "not recorded" this
+omission leaves it as. Preserving the SOURCE task's `createdAt` verbatim
+was also considered and rejected: it's unreliable in the general case (a
+source task with no recorded `createdAt` at all — every pre-WP2 task, or
+one that already passed through this same omission on an earlier hop — has
+nothing to copy), and it would be a genuinely new, asymmetric rule (no
+other point-in-time field on this codebase's carry-forward/aggregation
+paths is ever "copied from the furthest-back source"). `assigneeId`, by
+contrast, IS carried through verbatim on all of these paths — it's durable
+ownership metadata like `projectId`/`client`, not a point-in-time event, so
+there's no equivalent reason to clear or omit it: a task that's still
+unfinished next week almost certainly still belongs to whoever it was
+assigned to.
+
+**UI**: `lib/team.ts` gains three small `<Select>` helpers shared by both
+surfaces below — `UNASSIGNED_VALUE` (a non-empty sentinel; Radix
+`Select.Item` rejects an empty-string `value`, mirroring
+`CsvImportSection.tsx`'s identical `HOUSE_VALUE` sentinel for its "No
+project" option), `assigneeSelectOptions(members)` ("Unassigned" + every
+member by name), and `assigneeSelectValue`/`resolveAssigneeId` (the
+sentinel ↔ `Task.assigneeId` conversion). `components/tasks/TaskDialog.tsx`
+gains an unconditional (not status-gated) Assignee field, and stamps
+`createdAt` on its Add-mode branch only. `components/wizard/steps/
+StepTasks.tsx`'s `TaskRow` gains an unconditional Assignee `<Select>` as a
+further grid sibling spanning the row's full width (the same technique the
+status-gated "Completed On" field already uses) rather than a 6th column
+on the already-dense 5-column row. Both surfaces source the team directory
+via `useTeamMembers()` (`components/tasks/TaskViewScreen.tsx`,
+`components/wizard/WizardPage.tsx` → `WizardScreen` → `StepTasks`).
+
+**CSV**: `lib/csv-templates.ts`'s `IMPORT_COLUMNS` contract gained NO new
+column — extending a locked download-template contract was out of scope
+for WP2. Every task `lib/import.ts`'s `parseImportCsv` assembles starts
+unassigned (`assigneeId` undefined); `createdAt` IS still stamped (to the
+import run's own timestamp), since that's an app-internal creation stamp,
+not something a spreadsheet author would supply.
+
+**MCP**: `lib/server/mcp-tools.ts`'s `McpTaskInputSchema` (the
+`create_report` task input shape) gains an optional `assignee_id`;
+`update_report` inherits both new fields automatically (it reuses
+`ReportPatchSchema` verbatim, itself built on `TaskInputSchema` — see that
+tool's own doc comment on why it alone takes camelCase). No tool was
+added, renamed, or removed — `scripts/check-mcp-tool-contract.ts` still
+reports the same 8 names and no `delete_report`. `skills/weekly-reports/
+SKILL.md`'s Task-shape section tells a connecting model there is currently
+NO `list_team_members` (or equivalent) read tool, so it cannot resolve a
+person's name to a directory id — omit `assigneeId` unless the user (or a
+prior tool result) supplies a real one, never guess. Whether a future
+`list_team_members` read tool is warranted is flagged as an open question
+for the next package, not decided here.
+
+**Seed data**: untouched — `lib/seed.ts`'s `T()` helper already supports an
+optional trailing argument for `completedAt`; WP2 did not extend it with a
+6th `assigneeId`/7th `createdAt` argument, since no seeded task needed one
+to demonstrate the feature (the assignee picker's option list itself
+already demonstrates against `seedTeamMembers()`'s three rows regardless of
+whether any seeded task has one pre-set).
 
 ## Cutover checklist
 

@@ -10,7 +10,7 @@ import { StepTouchpointsWin } from '@/components/wizard/steps/StepTouchpointsWin
 import { useWizard } from '@/components/wizard/useWizard';
 import { WizardStepper } from '@/components/wizard/WizardStepper';
 import { draftPeriodLabel } from '@/lib/report-utils';
-import type { AnyReport, DailyReport, Project, ReportKind } from '@/lib/types';
+import type { AnyReport, DailyReport, Project, ReportKind, TeamMember } from '@/lib/types';
 import styles from './WizardScreen.module.css';
 
 export interface WizardScreenProps {
@@ -22,6 +22,8 @@ export interface WizardScreenProps {
   dailies?: DailyReport[];
   /** Phase 6a: all known projects -- client-field datalist suggestions (StepTasks/StepRisks) and the client -> projectId stamp (see useWizard). */
   projects?: Project[];
+  /** WP2: the team directory -- StepTasks' Assignee `<Select>`. */
+  teamMembers?: TeamMember[];
   initialReport: AnyReport | null;
   onExit: () => void;
   /** Phase 7b: `Promise<void>` -- see `useWizard`'s `UseWizardOptions.onSaveDraft` doc comment (`saveDraft()` awaits this and surfaces a rejection through the wizard's `error` channel). */
@@ -46,12 +48,19 @@ export interface WizardScreenProps {
  * down into StepTasks/StepRisks' Client fields as native `<datalist>`
  * autocomplete, and into `useWizard` so a client edit can stamp the
  * matching `projectId`. No project creation happens from the wizard.
+ *
+ * WP2: `teamMembers` (optional) passes straight through to StepTasks' Assignee
+ * `<Select>` -- no `useWizard` involvement needed (`updateTask`'s existing
+ * generic field-update path already handles `assigneeId`, the same way it
+ * handles every field besides the two that get special status/client
+ * handling).
  */
 export function WizardScreen({
   kind,
   reports,
   dailies,
   projects,
+  teamMembers,
   initialReport,
   onExit,
   onSaveDraft,
@@ -89,6 +98,7 @@ export function WizardScreen({
             removeTask={wizard.removeTask}
             addTask={wizard.addTask}
             clientSuggestions={clientSuggestions}
+            teamMembers={teamMembers ?? []}
             sourceOptions={wizard.priorReportOptions}
             importTaskSource={wizard.importTaskSource}
             onImportTaskSourceChange={wizard.onImportTaskSourceChange}

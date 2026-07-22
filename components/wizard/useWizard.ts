@@ -325,8 +325,18 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
   }
 
   // ---- tasks (line 561-563) ----
+  /**
+   * WP2: this is a genuine CREATION site (a brand-new task row, not a
+   * carry-forward/import/aggregation copy of an existing one) -- stamps
+   * `createdAt` to today, the same `nowDate()` every other status-change
+   * write path in this file already reads. `assigneeId` is left unset
+   * (undefined) -- a freshly added row starts unassigned; the row's own
+   * assignee `<Select>` (StepTasks.tsx) is how a PM picks one afterward,
+   * the same way `client`/`task` start blank and get filled in via the
+   * row's own fields.
+   */
   function addTask() {
-    addDraftItem('tasks', () => ({ id: uid('t'), client: '', task: '', status: 'In Progress', deadline: '' }));
+    addDraftItem('tasks', () => ({ id: uid('t'), client: '', task: '', status: 'In Progress', deadline: '', createdAt: nowDate() }));
   }
   /**
    * Phase 6a: when `field` is `'client'`, also stamps `projectId` via an
@@ -633,7 +643,15 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     // `client === project.name`), but became silent data loss once an
     // imported task's `client` string could differ from its project's
     // `name` (the CSV importer, lib/import.ts).
-    const newTasks: Task[] = chosen.map((t) => ({ id: uid('t'), client: t.client, projectId: t.projectId, task: t.task, status: t.status, deadline: t.deadline }));
+    //
+    // WP2: `assigneeId` carries through verbatim too, same rationale as
+    // `projectId` -- durable ownership metadata, not a point-in-time event.
+    // `createdAt` is deliberately NOT carried -- this mints a fresh `id` for
+    // every imported task, same as `carryForwardUnfinishedTasks`/
+    // `aggregateReportsIntoDraft` (lib/aggregate.ts), so it gets the exact
+    // same "new, independent record -- don't fabricate a creation date"
+    // treatment; see that file's doc comment for the full reasoning.
+    const newTasks: Task[] = chosen.map((t) => ({ id: uid('t'), client: t.client, projectId: t.projectId, task: t.task, status: t.status, deadline: t.deadline, assigneeId: t.assigneeId }));
     setDraft((d) => ({ ...d, tasks: [...d.tasks, ...newTasks] }));
     setImportSel((s) => ({ ...s, taskChecked: {} }));
   }

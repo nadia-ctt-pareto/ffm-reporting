@@ -167,6 +167,17 @@
   max-width: 220px;
 }
 
+/* WP2: the Assignee `<Select>` on every task row (StepTasks.tsx's TaskRow) --
+   same "further grid sibling spanning .taskRow's full width" technique
+   `.completedOnField` above uses, but UNCONDITIONAL (an assignee is
+   meaningful regardless of task status, unlike "Completed On"). Capped to a
+   modest width for the same reason `.completedOnField` is -- a single
+   `<Select>` doesn't need the whole row's width. */
+.assigneeField {
+  grid-column: 1 / -1;
+  max-width: 220px;
+}
+
 .kicker {
   font-family: var(--font-heading);
   font-weight: 600;

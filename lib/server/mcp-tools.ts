@@ -208,6 +208,16 @@ const McpTaskInputSchema = z.object({
    * real completion date.
    */
   completed_at: isoDateOrEmpty.optional().default(''),
+  /**
+   * WP2: optional FK to a `team_members` row -- see
+   * skills/weekly-reports/SKILL.md's Task-shape guidance: there is
+   * currently NO `list_team_members` (or equivalent) read tool, so a
+   * connecting model has no way to resolve a person's name to their
+   * directory id. Omit this field unless the user (or a prior tool result,
+   * e.g. an id echoed back by `get_report`) supplies a real id -- never
+   * guess or invent one from a name alone.
+   */
+  assignee_id: z.string().max(200).nullish(),
 });
 
 const McpRiskInputSchema = z.object({
@@ -433,6 +443,14 @@ const createReportTool: ToolCallback<typeof CreateReportInputSchema.shape> = asy
         status: t.status,
         deadline: t.deadline,
         completedAt: t.completed_at,
+        assigneeId: t.assignee_id ?? undefined,
+        // WP2: `create_report` is a genuine creation site (a brand-new task
+        // row, fresh id, never an incoming one) -- stamped to the SAME `now`
+        // the report's own createdAt/updatedAt already use below, matching
+        // `lib/import.ts`'s `buildTask` (one shared timestamp per batch, not
+        // a fresh clock read per row). Never client-supplied -- `McpTaskInputSchema`
+        // has no `created_at` input field at all.
+        createdAt: now,
       })),
       risks: input.risks.map((r) => ({ id: uid('rk'), client: r.client, projectId: r.project_id ?? undefined, severity: r.severity, description: r.description, nextStep: r.next_step })),
       priorities: input.priorities.map((p) => ({ id: uid('p'), text: p.text })),

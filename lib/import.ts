@@ -141,7 +141,22 @@ function issuesFromZod<T>(
   }));
 }
 
-function buildTask(row: ParsedItemRow<TaskRowData>, projects: Project[]): Task {
+/**
+ * WP2: `now` is a genuine creation timestamp -- every task assembled by an
+ * import run is a brand-new task row (fresh `id`, never an incoming one, per
+ * this file's header comment), so it gets `createdAt` stamped to the SAME
+ * `now` the caller already computed for the report's own `createdAt`/
+ * `updatedAt` (see `parseImportCsv` below) -- not a separate `nowDate()` call
+ * per row, so every row from one import run shares one timestamp.
+ *
+ * `assigneeId` is deliberately left unset (undefined): `IMPORT_COLUMNS`
+ * (`lib/csv-templates.ts`) has no assignee column at all -- extending that
+ * contract was explicitly out of scope for WP2 (it's the downloadable-
+ * template contract; adding a column ripples into both templates and every
+ * consumer that reads them). An imported task always starts unassigned; a PM
+ * can assign it afterward via the `/tasks` Add/Edit dialog or the wizard.
+ */
+function buildTask(row: ParsedItemRow<TaskRowData>, projects: Project[], now: string): Task {
   return {
     id: uid('t'),
     client: row.data.client,
@@ -150,6 +165,7 @@ function buildTask(row: ParsedItemRow<TaskRowData>, projects: Project[]): Task {
     status: row.data.item_status,
     deadline: row.data.deadline,
     completedAt: row.data.completed_at,
+    createdAt: now,
   };
 }
 
@@ -335,7 +351,7 @@ export function parseImportCsv(
 
   const now = nowDate();
   const reports: AnyReport[] = reportRows.map((r) => {
-    const tasks = (taskRowsByReport.get(r.reportKey) ?? []).map((t) => buildTask(t, existing.projects));
+    const tasks = (taskRowsByReport.get(r.reportKey) ?? []).map((t) => buildTask(t, existing.projects, now));
     const risks = (riskRowsByReport.get(r.reportKey) ?? []).map((rk) => buildRisk(rk, existing.projects));
     const priorities = (priorityRowsByReport.get(r.reportKey) ?? []).map((p) => buildPriority(p));
 
