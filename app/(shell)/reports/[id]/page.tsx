@@ -30,7 +30,7 @@ import type { ReportFieldPatch } from '@/lib/types';
  * controlled `<input>` simply reverts to the still-current value on the
  * next render since nothing changed; `periodError` surfaces why.
  *
- * WP4 (delete): the owner-or-admin gate is NOT computed here -- it lives in
+ * Phase 8d (report delete): the owner-or-admin gate is NOT computed here -- it lives in
  * `canDeleteReport` (lib/report-access.ts), shared verbatim with the daily
  * report screen and both list pages, so four call sites cannot drift apart
  * on an access rule (the same reason `resolveNewProjectName` was extracted
@@ -75,7 +75,7 @@ export default function ReportDetailPage() {
     updateReportFields(id, patch).catch(() => {});
   };
 
-  // WP4: see this component's own doc comment above for the full
+  // Phase 8d (report delete): see this component's own doc comment above for the full
   // owner-or-admin rationale -- this line is the entire gate.
   const canDelete = canDeleteReport(report, {
     user,

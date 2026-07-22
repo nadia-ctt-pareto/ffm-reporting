@@ -29,9 +29,9 @@ export interface DailyListScreenProps {
   onNewDaily: () => void;
   onResumeDraft: (id: string) => void;
   onViewReport: (id: string) => void;
-  /** WP4: opens the shared delete-confirmation dialog (owned/hosted by `DailyPage`) for the report with this id -- see `DashboardScreen.tsx`'s identical prop doc comment. */
+  /** Phase 8d (report delete): opens the shared delete-confirmation dialog (owned/hosted by `DailyPage`) for the report with this id -- see `DashboardScreen.tsx`'s identical prop doc comment. */
   onDeleteReport: (id: string) => void;
-  /** WP4: per-row gate for the row's Delete button -- see `DashboardScreen.tsx`'s identical prop doc comment. */
+  /** Phase 8d (report delete): per-row gate for the row's Delete button -- see `DashboardScreen.tsx`'s identical prop doc comment. */
   canDeleteReport: (report: DailyReport) => boolean;
 }
 
@@ -95,7 +95,7 @@ export function DailyListScreen({
           >
             {isDraft ? 'Continue' : 'View'}
           </button>
-          {/* WP4: see DashboardScreen.tsx's identical row-Delete comment. */}
+          {/* Phase 8d (report delete): see DashboardScreen.tsx's identical row-Delete comment. */}
           <button
             type="button"
             className={styles.rowAction}

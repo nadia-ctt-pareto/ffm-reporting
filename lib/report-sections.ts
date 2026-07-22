@@ -1,5 +1,5 @@
-// WP2 of the "dynamic deck" plan (WP1 = lib/deck-slides.ts making the slide
-// list data). WP1 deliberately kept every report kind rendering the exact
+// Phase 8d (per-kind sections) of the "dynamic deck" plan (Phase 8d (deck slide model) = lib/deck-slides.ts making the slide
+// list data). Phase 8d (deck slide model) deliberately kept every report kind rendering the exact
 // same six sections -- this module is the thing that finally lets a WEEKLY
 // and a DAILY report look like what they actually are: a weekly is a week
 // with a roll-up, a win, and next-week priorities (a narrative arc); a daily

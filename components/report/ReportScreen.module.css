@@ -67,7 +67,7 @@
 }
 
 /*
- * WP4: this wrapper switched from a plain flex row to a column so it can
+ * Phase 8d (report delete): this wrapper switched from a plain flex row to a column so it can
  * host an optional `.deleteHint` line below the buttons without disturbing
  * their own row layout -- `.actionsButtons` below carries the ORIGINAL flex
  * row behavior this rule used to have directly.
@@ -87,7 +87,7 @@
   flex-wrap: wrap;
 }
 
-/* WP4: shown under the actions row when `!canDelete` -- see ReportScreenProps.deleteHint. */
+/* Phase 8d (report delete): shown under the actions row when `!canDelete` -- see ReportScreenProps.deleteHint. */
 .deleteHint {
   font-family: var(--font-body);
   font-size: 12px;
@@ -126,7 +126,7 @@
 }
 
 /*
- * WP2: the daily report screen's "Tasks by Client" section -- one heading
+ * Phase 8d (per-kind sections): the daily report screen's "Tasks by Client" section -- one heading
  * + one table per client (see groupTasksByClient, lib/report-sections.ts).
  * `.clientGroup` mirrors ReportDeck.module.css's identical class (spacing
  * scaled down to the screen's smaller type, same "no trailing gap on the
@@ -201,7 +201,7 @@
 }
 
 /*
- * WP2: the read-only Win section (see ReportScreen.tsx's `showWin`). A
+ * Phase 8d (per-kind sections): the read-only Win section (see ReportScreen.tsx's `showWin`). A
  * muted panel (border + `--surface-panel-muted`, the same semantic token
  * McpAccessSection/CsvImportSection etc. already use for a subdued
  * "framed" block) so the win visually reads as its own card, matching the

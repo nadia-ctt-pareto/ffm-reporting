@@ -4,7 +4,7 @@
 // app/api/reports/route.ts's header comment for the demo-mode-404 and
 // defense-in-depth-auth-check rationale -- identical here.
 //
-// WP4: DELETE, added alongside the two above, template-copied from
+// Phase 8d (report delete): DELETE, added alongside the two above, template-copied from
 // app/api/projects/[id]/route.ts's DELETE -- see `deleteReport`
 // (lib/server/reports-service.ts) for the actual access-control story
 // (owner-or-admin via `reports_delete` RLS; no admin check of this route's
@@ -81,7 +81,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// WP4: DELETE takes no request body -- only the Sec-Fetch-Site half of
+// Phase 8d (report delete): DELETE takes no request body -- only the Sec-Fetch-Site half of
 // assertMutationAllowed applies (requireJsonBody defaults false), same as
 // app/api/projects/[id]/route.ts's DELETE.
 export async function DELETE(request: NextRequest, { params }: RouteParams) {

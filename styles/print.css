@@ -31,7 +31,7 @@
  * or under/over-reserves layout height in print -- verified by generating
  * a real PDF (Chromium `page.pdf()` + `/Count` in the PDF's page tree) and
  * confirming exactly 6 pages (back when six was always the whole story --
- * see WP3's note below); omitting `!important` here produced 7-8 pages
+ * see Phase 8d's note below); omitting `!important` here produced 7-8 pages
  * (a lingering toolbar/height reservation pushed a stray 7th page).
  *
  * Fixed 1280x720 `.slide` boxes + `@page { size: 1280px 720px; margin: 0 }`
@@ -43,17 +43,16 @@
  * fix -- no headless-render dependency (puppeteer/react-pdf) for an
  * internal tool.
  *
- * THE PRINT-PAGE-COUNT CONTRACT, UPDATED (WP3, pagination):
+ * THE PRINT-PAGE-COUNT CONTRACT, UPDATED (Phase 8d (deck pagination), pagination):
  * ------------------------------------------------------------------------
  * This file used to guarantee "the printed PDF is always exactly 6 pages" --
  * true only because every section was hardcoded to exactly one slide,
  * unconditionally, no matter how much content it held (`.slide { overflow:
  * hidden }`, ReportDeck.module.css, silently CLIPPED the rest -- a real,
  * measured data-loss bug: a realistic 40-task weekly overflowed its Task
- * Status slide by up to 2,018px). WP3 (lib/deck-slides.ts's `packIntoSlides`
- * / `chunkNarrative`) makes the deck grow to as many slides as a report's
+ * Status slide by up to 2,018px). Phase 8d (deck pagination) makes the deck grow to as many slides as a report's
  * content actually needs, so "6" stopped being a universal constant. NO
- * RULE in this file changed for WP3 -- the contract this file enforces is
+ * RULE in this file changed for Phase 8d (deck pagination) -- the contract this file enforces is
  * unchanged in mechanism, only in what "the right number of pages" MEANS:
  *
  *   The printed PDF contains exactly `buildDeckSlides(report).length`
@@ -68,8 +67,7 @@
  *   PDF's own page-tree `/Count` equals it, for every fixture -- including
  *   three that deliberately overflow into more than six pages. A report
  *   that never overflows any section still produces exactly six slides /
- *   six pages, byte-identical to every phase before WP3 (see that
- *   harness's `baseline-weekly`/`baseline-daily` fixtures) -- pagination
+ *   six pages, byte-identical to every phase before Phase 8d (deck pagination) -- pagination
  *   changed WHAT DETERMINES the page count, not the mechanism that turns
  *   slide count into page count, which is everything below this comment.
  */

@@ -366,7 +366,7 @@ export async function updateReport(
 }
 
 /**
- * WP4 (report delete): deletes the `reports` row with `id`. Access is
+ * Phase 8d (report delete): deletes the `reports` row with `id`. Access is
  * decided ENTIRELY by `reports_delete` RLS (owner-or-admin, supabase/
  * migrations/20260719000004_auth_ownership.sql's `using (owner_id =
  * (select auth.uid()) or public.is_admin())`) plus the table-level DELETE

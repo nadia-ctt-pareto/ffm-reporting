@@ -14,7 +14,7 @@ import styles from './ReportDeck.module.css';
 export interface ReportDeckProps {
   report: AnyReport;
   /**
-   * WP1 (dynamic slide model): the ordered slide list, built by
+   * Phase 8d (deck slide model): the ordered slide list, built by
    * `buildDeckSlides` (lib/deck-slides.ts) -- see that module's doc comment
    * for the "must stay a pure function of `report`" determinism
    * requirement. `ReportDeck` no longer decides how many slides exist or
@@ -63,7 +63,7 @@ const deckVars: CSSProperties = {
  * The section's non-`.slide` modifier class for a given slide body type --
  * `.cover`/`.win` carry their own background/layout (the black cover band,
  * the sage win band); every other body type uses the shared `.padded`
- * treatment (flex column + 88/96px padding), same as before WP1's refactor.
+ * treatment (flex column + 88/96px padding), same as before Phase 8d (deck slide model)'s refactor.
  */
 function slideSectionClass(type: DeckSlideBody['type']): string {
   switch (type) {
@@ -77,7 +77,7 @@ function slideSectionClass(type: DeckSlideBody['type']): string {
 }
 
 /**
- * The shared section kicker -- e.g. "Task Status" -- now WP3-aware: when
+ * The shared section kicker -- e.g. "Task Status" -- now Phase 8d (deck pagination)-aware: when
  * `slide.part` is non-null (a section that spans more than one physical
  * slide), it appends an explicit, muted "· 2 of 3" part affordance
  * (`.kickerPart`) so a viewer landing on a continuation slide immediately
@@ -87,7 +87,7 @@ function slideSectionClass(type: DeckSlideBody['type']): string {
  * comment on why that slide needs the tighter variant); every other section
  * uses the plain `.kicker`. A single-slide section (`slide.part === null`,
  * the overwhelmingly common case -- most reports never overflow at all)
- * renders byte-identical to every pre-WP3 kicker.
+ * renders byte-identical to every pre-Phase 8d (deck pagination) kicker.
  */
 function SlideKicker({ slide, compact = false }: { slide: DeckSlide; compact?: boolean }) {
   return (
@@ -105,18 +105,18 @@ function SlideKicker({ slide, compact = false }: { slide: DeckSlide; compact?: b
 
 /**
  * Renders one slide's body (the JSX that used to live inline inside each of
- * the six hardcoded `<section>` blocks pre-WP1, moved verbatim). `report` is
+ * the six hardcoded `<section>` blocks pre-Phase 8d (deck slide model), moved verbatim). `report` is
  * still threaded through alongside `slide` -- the `cover` branch reads
  * report fields directly (title/prepared-for/-by), exactly like before. The
  * `tasks`/`tasksByClient` branches also read full-report on-schedule/blocker
  * counts via `onSchedule`/`openBlockers` for their footnote -- deliberately
  * from `report.tasks`, NOT from `body.rows`/`body.groups` -- because a
- * chunked Task Status deck (WP3) keeps showing the same whole-report counts
+ * chunked Task Status deck (Phase 8d (deck pagination)) keeps showing the same whole-report counts
  * on every chunk (only the LAST chunk shows the footnote at all, per
  * `body.showFootnote`), not a per-chunk subset that would silently
  * under-count.
  *
- * WP3: `summary`/`glance`/`win` no longer read `report.summaryNarrative`/
+ * Phase 8d (deck pagination): `summary`/`glance`/`win` no longer read `report.summaryNarrative`/
  * `report.win.narrative` directly -- they render `body.narrative`, THIS
  * SLIDE'S chunk of that text (see `chunkNarrative`, lib/deck-slides.ts), and
  * gate the StatCard trio / touchpoints caption / win stat+label on
@@ -124,7 +124,7 @@ function SlideKicker({ slide, compact = false }: { slide: DeckSlide; compact?: b
  * -- those are fixed blocks, not flowing text, so they never repeat on a
  * continuation slide).
  *
- * WP2: takes the whole `slide` (not just `body`) so every section's kicker
+ * Phase 8d (per-kind sections): takes the whole `slide` (not just `body`) so every section's kicker
  * can render `slide.title` verbatim instead of re-deciding per-kind wording
  * here -- `SECTION_HEADINGS` (lib/report-sections.ts), via `buildDeckSlides`,
  * is the ONE place that decision gets made; this function must never
@@ -170,7 +170,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
       );
     }
 
-    // WP3: `body.narrative` is THIS SLIDE'S chunk of `report.summaryNarrative`
+    // Phase 8d (deck pagination): `body.narrative` is THIS SLIDE'S chunk of `report.summaryNarrative`
     // (see `chunkNarrative`, lib/deck-slides.ts) -- never the full field
     // directly, so a long narrative's continuation slides each show their
     // own portion instead of the whole thing repeating (or clipping) on
@@ -197,7 +197,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
         </>
       );
 
-    // WP2: the daily-only "Day at a Glance" slide. Unlike the weekly
+    // Phase 8d (per-kind sections): the daily-only "Day at a Glance" slide. Unlike the weekly
     // `summary` slide (whose stats are the touchpoint counts alone), a
     // day's "glance" leads with the same on-schedule/blocker stats the
     // report screen already surfaces up top -- a single day's headline
@@ -206,7 +206,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
     // volume is still visible at a glance. Reuses `.narrative`/
     // `.statsGrid`/`.caption` verbatim (no new CSS): the "glance" slide
     // is structurally the same shape as `summary`, just a different stat
-    // mix and kicker. WP3: same `body.narrative`/`body.showStats` chunking
+    // mix and kicker. Phase 8d (deck pagination): same `body.narrative`/`body.showStats` chunking
     // contract as `summary` above.
     case 'glance': {
       const { onSched, total } = onSchedule(report);
@@ -252,7 +252,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
       );
     }
 
-    // WP2: the daily-only "Tasks by Client" slide -- a daily report's
+    // Phase 8d (per-kind sections): the daily-only "Tasks by Client" slide -- a daily report's
     // defining nature is breadth across every client in one day, so its
     // task section is organized BY CLIENT (a compact divider row ahead of
     // each client's own task rows, no Client column since the divider
@@ -359,7 +359,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
               ))}
             </div>
           ) : (
-            // WP2: kind-aware empty-state copy -- "No blockers today." reads
+            // Phase 8d (per-kind sections): kind-aware empty-state copy -- "No blockers today." reads
             // naturally for a single day; the pre-existing weekly copy is
             // untouched. Deliberately inline here rather than in
             // SECTION_HEADINGS -- see this function's own doc comment for
@@ -376,12 +376,12 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
           <ol className={styles.priorityList}>
             {body.rows.map((p, i) => (
               <li key={p.id} className={styles.priorityItem}>
-                {/* WP1: an explicit running number (`startIndex + i`) instead
+                {/* Phase 8d (deck slide model): an explicit running number (`startIndex + i`) instead
                     of the old CSS `counter(priority)` -- see
                     ReportDeck.module.css's `.priorityNum` for why the CSS
                     counter approach had to go (it silently restarts at 1 on
                     every slide, which would misnumber a chunked priorities
-                    continuation slide). WP3: `startIndex` now genuinely
+                    continuation slide). Phase 8d (deck pagination): `startIndex` now genuinely
                     varies per chunk (`chunkPriorities`, lib/deck-slides.ts) --
                     this is the payoff that comment was written ahead of. */}
                 <span className={styles.priorityNum}>{body.startIndex + i}.</span>
@@ -392,7 +392,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
         </>
       );
 
-    // WP3: `body.narrative` is THIS SLIDE'S chunk of `report.win.narrative`
+    // Phase 8d (deck pagination): `body.narrative` is THIS SLIDE'S chunk of `report.win.narrative`
     // (see `buildWinSlides`, lib/deck-slides.ts). `body.showStat` is `true`
     // only on the section's FIRST chunk -- the win stat + label are a FIXED
     // block, not flowing text, so a continuation slide shows only the
@@ -454,10 +454,10 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
  * untouched and every page still prints regardless of which slide was
  * active when `window.print()` fired.
  *
- * WP1 (dynamic slide model): slide count/content is driven entirely by the
+ * Phase 8d (deck slide model): slide count/content is driven entirely by the
  * `slides` prop (see `buildDeckSlides`, lib/deck-slides.ts) -- this
  * component itself never hardcodes a slide count or a section's wording.
- * WP2: `buildDeckSlides` now returns a genuinely different slide list per
+ * Phase 8d (per-kind sections): `buildDeckSlides` now returns a genuinely different slide list per
  * `report.kind` (a weekly's fixed six vs. a daily's five-or-six, see that
  * function's own doc comment) -- this component didn't have to change AT
  * ALL to support that, beyond `renderSlideBody` gaining two new body-type

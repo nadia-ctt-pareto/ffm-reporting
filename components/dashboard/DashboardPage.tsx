@@ -21,7 +21,7 @@ import type { Report, SortKey } from '@/lib/types';
  * itself (see ReportScreen), and PDF export is the real browser print flow
  * at `/reports/[id]/present`.
  *
- * WP4: this IS where a dialog gets hosted again -- the row-level Delete
+ * Phase 8d (report delete): this IS where a dialog gets hosted again -- the row-level Delete
  * button (`DashboardScreen`'s new `onDeleteReport`/`canDeleteReport` props)
  * has no per-row component of its own to own confirm/isDeleting/error
  * state, so it lands here, at the route-orchestrator level, the same place
@@ -77,7 +77,7 @@ export function DashboardPage() {
   // can never silently off-by-one that stat.
   const clientOptions = ['All', ...(projects ?? []).map((p) => p.name)];
 
-  // WP4: the entire owner-or-admin gate, evaluated per row. Bound once here
+  // Phase 8d (report delete): the entire owner-or-admin gate, evaluated per row. Bound once here
   // (rather than inline per row) so every row shares one session snapshot --
   // and named `deletable` to avoid shadowing the imported predicate.
   const deletable = (report: Report): boolean =>
@@ -91,11 +91,20 @@ export function DashboardPage() {
   };
 
   /**
-   * WP4: mirrors `ReportScreen.handleDelete`/`ProjectDetailScreen.handleDelete`
-   * -- no navigation on success (there is nothing to navigate away FROM
-   * here; the row itself just disappears once `deleteReport`'s non-optimistic
-   * `setReports` filter lands and this component re-renders). `isDeleting`
-   * is only reset in the failure branch, matching that same precedent.
+   * Phase 8d: no navigation on success -- there is nothing to navigate away
+   * FROM here; the row itself just disappears once `deleteReport`'s
+   * non-optimistic `setReports` filter lands and this component re-renders.
+   *
+   * `isDeleting` is reset in BOTH branches, which is where this deliberately
+   * DIVERGES from `ReportScreen.handleDelete`/`ProjectDetailScreen
+   * .handleDelete`. Those two get away with resetting it only on failure
+   * because a successful delete UNMOUNTS them (their route derives `notFound`
+   * from the same list and redirects away). This list page does not unmount --
+   * only the row goes. So leaving `isDeleting` true on success stranded it
+   * true for the life of the page: the next confirm dialog opened with a
+   * disabled "Deleting..." button and the `isDeleting` guard on the first line
+   * below swallowed every later confirm, making row-level Delete a
+   * one-shot-per-page-load feature until a reload. Caught in security review.
    */
   const handleConfirmDelete = async () => {
     if (!pendingDeleteId || isDeleting) return;
@@ -106,6 +115,7 @@ export function DashboardPage() {
       setPendingDeleteId(null);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete the report.');
+    } finally {
       setIsDeleting(false);
     }
   };

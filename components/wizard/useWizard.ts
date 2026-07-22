@@ -72,7 +72,7 @@ export interface UseWizardResult {
   error: string;
   published: boolean;
   /**
-   * WP5: true when this wizard mount opened on an already-published report
+   * Phase 8d (editing a published report): true when this wizard mount opened on an already-published report
    * (`initialReport.status !== 'Draft'`, i.e. `'Final'` or `'Sent'`) --
    * captured ONCE at mount (see the `useState(() => ...)` initializer below),
    * never re-derived from the live, editable `draft.status`. This is
@@ -173,7 +173,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     if (initialReport) return reportToDraft(initialReport);
     return options.kind === 'daily' ? blankDailyDraft() : blankDraft();
   });
-  // WP5: captured once, from `initialReport` (the value this hook was
+  // Phase 8d (editing a published report): captured once, from `initialReport` (the value this hook was
   // mounted with), NOT from the mutable `draft` state -- see the
   // `wasPublished` doc comment on UseWizardResult for why re-deriving it
   // from `draft.status` on every render would be wrong.
@@ -310,7 +310,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * step-1 validation (`validateStep`), just the one thing the schema/DB
    * genuinely can't accept.
    *
-   * WP5: `draftToReport` is now called with `draft.status`, not a hardcoded
+   * Phase 8d (editing a published report): `draftToReport` is now called with `draft.status`, not a hardcoded
    * `'Draft'` literal. This is the fix for the "saveDraft always forces
    * Draft" faithful-port quirk (see CLAUDE.md, superseded by this package
    * the same way the two dark-mode quirks were superseded in Phase 1) --
@@ -367,7 +367,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * retry after a failure reuses the same id rather than minting a new one
    * on every attempt.
    *
-   * WP5: the persisted status is `draft.status === 'Sent' ? 'Sent' : 'Final'`,
+   * Phase 8d (editing a published report): the persisted status is `draft.status === 'Sent' ? 'Sent' : 'Final'`,
    * not an unconditional `'Final'` literal -- republishing an already-`Sent`
    * report (e.g. correcting a typo after it was emailed out) must not
    * silently demote it back to `'Final'`. This is the same bug class the
@@ -394,7 +394,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     const now = nowDate();
     const publishedStatus = draft.status === 'Sent' ? 'Sent' : 'Final';
     const report = draftToReport(draft, id, publishedStatus, now);
-    // WP5: stamps `status` alongside `id` here too -- without it, the header
+    // Phase 8d (editing a published report): stamps `status` alongside `id` here too -- without it, the header
     // "Save Draft"/"Save Changes" button (which stays live on the
     // publish-confirmation screen, see the header comment in
     // WizardScreen.tsx) would read the PRE-publish `draft.status` (still

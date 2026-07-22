@@ -1543,7 +1543,7 @@ one real, documented consequence (the dashboard's client filter, which
 matched `task.client` strings against project NAMES) was fixed with an
 id-or-exact-name predicate instead.
 
-## Report delete (WP4)
+## Report delete (Phase 8d (report delete))
 
 Weekly and daily reports can now be deleted (report screen + row-level
 Dashboard/Daily-list actions). Unlike Phase 8c's project management, this
@@ -1642,9 +1642,11 @@ Delete button (needed because a **Draft** row's only other action is
 "Continue" — without a row-level Delete, a draft was only deletable by
 hand-typing its `/reports/[id]` URL). A disabled Delete button is never
 hidden — it renders with a `title` hint ("Only the report's owner or an
-admin can delete this report.", `lib/report-utils.ts`'s
+admin can delete this report.", `lib/report-access.ts`'s
 `DELETE_REPORT_HINT`, one shared string so the detail view and both list
-rows can't drift on wording). One shared, purely presentational
+rows can't drift on wording — it lives beside `canDeleteReport`, the single
+shared owner-or-admin predicate all four call sites use, so the rule and the
+sentence explaining it to the user cannot be changed independently). One shared, purely presentational
 `components/dialogs/ConfirmDeleteReportDialog.tsx` renders the actual
 confirm/cancel dialog for all three call sites (`ReportScreen` owns its own
 open/isDeleting/error state directly, matching its existing Share-dialog

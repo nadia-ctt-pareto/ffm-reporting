@@ -63,7 +63,7 @@ export function WizardScreen({
   const { draft, step, error, published, wasPublished, isSubmitting } = wizard;
   const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
   const clientSuggestions = (projects ?? []).map((p) => p.name);
-  // WP5: resume-aware copy for a report that was already published
+  // Phase 8d (editing a published report): resume-aware copy for a report that was already published
   // (`'Final'`/`'Sent'`) when this wizard mount opened -- see `wasPublished`'s
   // own doc comment (components/wizard/useWizard.ts) for why this is derived
   // once at mount rather than from the live, editable `draft.status`.
@@ -146,7 +146,7 @@ export function WizardScreen({
        * Line 73-82: header is unconditional (Save Draft/Save Changes and
        * Exit stay live even on the published-confirmation screen).
        *
-       * WP5: this header's wordmark/save-button copy is resume-aware --
+       * Phase 8d (editing a published report): this header's wordmark/save-button copy is resume-aware --
        * `wasPublished` (captured once at mount, see useWizard.ts's doc
        * comment) distinguishes "still drafting" from "correcting an
        * already-published report" for a resumed report; a brand-new draft
@@ -180,7 +180,7 @@ export function WizardScreen({
         <div className={styles.panel}>
           {published ? (
             <div className={styles.publishedWrap}>
-              {/* WP5: resume-aware confirmation copy -- correcting an
+              {/* Phase 8d (editing a published report): resume-aware confirmation copy -- correcting an
                   already-published report reads as "Report Updated", not a
                   re-announcement of a first-time "Report Published". */}
               <div className={styles.publishedTitle}>{wasPublished ? 'Report Updated' : 'Report Published'}</div>

@@ -85,7 +85,7 @@ export function reportPeriodLabel(report: AnyReport): string {
   return report.kind === 'weekly' ? fmtWeekLabel(report.weekStart, report.weekEnd) : fmtDateShort(report.date);
 }
 
-// WP4 (report delete): `DELETE_REPORT_HINT` moved to lib/report-access.ts, so
+// Phase 8d (report delete): `DELETE_REPORT_HINT` moved to lib/report-access.ts, so
 // the hint text sits directly beside `canDeleteReport` -- the rule and the
 // sentence explaining it to the user must not live in separate modules where
 // one can be changed without the other.

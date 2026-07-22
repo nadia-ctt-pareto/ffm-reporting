@@ -1,5 +1,5 @@
 /**
- * WP4 (delete): the SINGLE predicate deciding whether the signed-in user may
+ * Phase 8d (report delete): the SINGLE predicate deciding whether the signed-in user may
  * delete a given report. Four call sites need this answer -- the weekly and
  * daily report screens (`app/(shell)/reports/[id]/page.tsx`,
  * `app/(shell)/daily/[id]/page.tsx`) and the weekly and daily list pages
@@ -72,6 +72,18 @@ export function canDeleteReport(report: AnyReport | null, access: ReportDeleteAc
   if (!userId) return false;
 
   const isOwner = Boolean(report.ownerId) && report.ownerId === userId;
+  // KNOWN STALENESS WINDOW (surfaced by security review; fails CLOSED, so it
+  // is a UX-honesty wrinkle, not a boundary hole). `useSession` reads
+  // `supabase.auth.getUser()`, which reflects the SERVER-side user record,
+  // while `public.is_admin()` reads `auth.jwt() -> app_metadata`, i.e. the
+  // TOKEN. supabase/migrations/20260719000004_auth_ownership.sql documents
+  // that a role change only lands in the token on refresh (up to ~1h). So in
+  // the window just after someone is granted admin, this returns true while
+  // RLS still says no, and Delete is enabled but answers "You don't have
+  // permission to do that." -- the one outcome this module otherwise exists
+  // to prevent. Closing it would mean reading the decoded JWT claim rather
+  // than the user record, which is a bigger change than the window warrants
+  // for a handful of PMs at one agency; signing out and back in clears it.
   const isAdmin = access.user?.app_metadata?.role === 'admin';
   return isOwner || isAdmin;
 }

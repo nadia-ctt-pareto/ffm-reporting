@@ -1,4 +1,4 @@
--- Weekly Reports Dashboard -- WP4 delta: report/daily report DELETE.
+-- Weekly Reports Dashboard -- Phase 8d (report delete) delta: report/daily report DELETE.
 --
 -- NO schema change was needed for delete itself -- verified live against
 -- the hosted project before writing this migration:
@@ -18,7 +18,7 @@
 --     second DELETE against any child table.
 -- See `lib/server/reports-service.ts`'s `deleteReport` for the full
 -- access-control/cascade/share-token story and docs/database-schema.md's
--- new "Report delete (WP4)" section for the verification narrative.
+-- new "Report delete (Phase 8d (report delete))" section for the verification narrative.
 --
 -- What THIS migration actually does -- pure grant hygiene, same shape as
 -- Phase 8c's post-review SHOULD-FIX 1 on `projects` (supabase/migrations/
@@ -31,7 +31,7 @@
 -- authenticated` only. RLS default-denies any request from a role with no
 -- matching policy, so this was NEVER actually exploitable -- describe it
 -- exactly that way (latent grant hygiene, not a live vulnerability), the
--- same posture CLAUDE.md's WP4 task brief locks in. Closing it now, while
+-- same posture CLAUDE.md's Phase 8d (report delete) task brief locks in. Closing it now, while
 -- deletion is fresh in mind, matches this schema's established "don't rely
 -- on RLS as the only gate" posture (see `is_admin()`'s own `revoke ... from
 -- public, anon` in the same migration that added these RLS policies -- THAT
@@ -52,4 +52,4 @@ revoke all on public.reports, public.tasks, public.risks, public.priorities from
 -- own role -- so it's included here purely for grant-hygiene completeness
 -- with its three sibling tables, not because anything read it as `anon`.)
 
-comment on table reports is 'Weekly and daily reports (lib/types.ts AnyReport), discriminated by `kind`. RLS: reports_select is using(true) (every authenticated user reads every report); reports_insert/update/delete are owner-or-admin (public.is_admin()). WP4: `authenticated` already held table-level DELETE from table creation -- no grant change was needed for report/daily-report delete to work, see lib/server/reports-service.ts''s deleteReport. `anon` holds NO grants on this table (revoked in this migration -- reports has no anon-targeted RLS policy, so this is pure latent-risk removal, mirroring Phase 8c''s identical projects hygiene fix).';
+comment on table reports is 'Weekly and daily reports (lib/types.ts AnyReport), discriminated by `kind`. RLS: reports_select is using(true) (every authenticated user reads every report); reports_insert/update/delete are owner-or-admin (public.is_admin()). Phase 8d (report delete): `authenticated` already held table-level DELETE from table creation -- no grant change was needed for report/daily-report delete to work, see lib/server/reports-service.ts''s deleteReport. `anon` holds NO grants on this table (revoked in this migration -- reports has no anon-targeted RLS policy, so this is pure latent-risk removal, mirroring Phase 8c''s identical projects hygiene fix).';

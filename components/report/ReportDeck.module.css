@@ -80,7 +80,7 @@
 }
 
 /*
- * WP3 (pagination): the explicit "N of M" part affordance a continuation
+ * Phase 8d (deck pagination): the explicit "N of M" part affordance a continuation
  * slide's kicker shows next to its section title (e.g. "Task Status · 2 of
  * 3", see ReportDeck.tsx's `SlideKicker`) -- a viewer landing directly on a
  * continuation slide (a dot in the present-page navigator, a `?slide=n`
@@ -232,7 +232,7 @@
 }
 
 /*
- * WP2: the daily-only "Tasks by Client" slide's hand-rolled table (see
+ * Phase 8d (per-kind sections): the daily-only "Tasks by Client" slide's hand-rolled table (see
  * ReportDeck.tsx's `tasksByClient` case for why this is ONE `<table>`/
  * `<thead>` rather than the shared `components/ui/Table` primitive called
  * once per client). `.groupedTh`/`.groupedTd` intentionally mirror
@@ -303,7 +303,7 @@
 }
 
 /*
- * WP2: `.kicker` with a tighter `margin-bottom` (10px vs. 28px) -- its own
+ * Phase 8d (per-kind sections): `.kicker` with a tighter `margin-bottom` (10px vs. 28px) -- its own
  * class, not an ancestor-scoped override of `.kicker`, so every other
  * slide's kicker (including the weekly `tasks` slide, which must stay
  * byte-identical) is completely unaffected. Used ONLY by the "Tasks by
@@ -333,7 +333,7 @@
 }
 
 /*
- * WP2: `.slideFootnote` with a tighter `margin-top` (10px vs. 24px) -- its
+ * Phase 8d (per-kind sections): `.slideFootnote` with a tighter `margin-top` (10px vs. 24px) -- its
  * own class, not an override, for the identical reason `.kickerCompact`
  * exists: the weekly `tasks` slide's footnote (which reuses `.slideFootnote`
  * unmodified) must stay byte-identical. Used ONLY by the "Tasks by Client"
@@ -413,7 +413,7 @@
 }
 
 /*
- * WP1 (dynamic slide model): replaced the `::before { content: counter(...) }`
+ * Phase 8d (deck slide model): replaced the `::before { content: counter(...) }`
  * numbering with an explicit JSX number (`{slide.body.startIndex + i}.`,
  * see ReportDeck.tsx's 'priorities' render branch). The old `counter-reset:
  * priority` on `.priorityList` restarted the count at 1 on EVERY slide --

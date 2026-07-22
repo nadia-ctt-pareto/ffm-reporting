@@ -144,7 +144,7 @@ own their own small toggle/picker/dialog state directly, the same way
   dialog); "Copy Share Link" still goes through `ShareDialog` (now
   `kind`-aware too, see `shareLinkFor`). The confirmation screen's copy changed
   from "Back to Dashboard" to "Back to {kindLabel} Reports" (e.g. "Back to
-  Weekly Reports"). **WP5 (editing a published report)**: `ReportScreen`'s
+  Weekly Reports"). **Phase 8d (editing a published report)**: `ReportScreen`'s
   actions row gained an ungated "Edit Report" button
   (`${base}/${id}/edit`), so a `Final`/`Sent` report can be resumed through
   this exact same wizard — the machinery already supported resuming a report
@@ -1378,9 +1378,9 @@ earlier draft plan that considered loosening them).
   dark-mode quirks previously listed here — "dark mode is partial by design"
   and "header/panel stays white in dark" — were intentionally superseded in
   Phase 1; see "Dark mode" above. "`saveDraft` always forces `Draft` status"
-  was the third quirk listed here and was intentionally superseded in WP5 —
-  see "Editing a published report (WP5)" below — the same way the two
-  dark-mode quirks were superseded rather than silently patched.)
+  was the third quirk listed here and was intentionally superseded in
+  Phase 8d — see the `WizardPage` paragraph under "Routing" above — the same
+  way the two dark-mode quirks were superseded rather than silently patched.)
 - **`saveDraft`'s validation scope (Phase 7b)**: The period field(s) — Week
   Start/End for a weekly draft, Date for a daily draft — are the one thing
   `saveDraft()` (`components/wizard/useWizard.ts`) checks before calling

@@ -1,4 +1,4 @@
-// WP1 of a larger "dynamic deck" plan made the branded report deck's slide
+// Phase 8d (deck slide model) of a larger "dynamic deck" plan made the branded report deck's slide
 // list DATA instead of hardcoded JSX, without changing what actually
 // rendered -- `buildDeckSlides` returned exactly the same six slides, for
 // both report kinds, in the same order ReportDeck.tsx used to hardcode. That
@@ -6,9 +6,9 @@
 // repo's print-page-count contract in styles/print.css and CLAUDE.md's
 // "Report screen & presentation deck" section.
 //
-// WP2 is the payoff: `buildDeckSlides` now branches on `report.kind` for
+// Phase 8d (per-kind sections) is the payoff: `buildDeckSlides` now branches on `report.kind` for
 // real. A WEEKLY report is a week with a roll-up, a win, and next-week
-// priorities -- a narrative arc -- so it keeps WP1's exact six slides
+// priorities -- a narrative arc -- so it keeps Phase 8d (deck slide model)'s exact six slides
 // (Cover, Summary, Task Status, Risks & Blockers, Priorities, The Win).
 // byte-for-byte unchanged. A DAILY report's defining nature is breadth
 // across every client in a single day, not a weekly story -- so it gets a
@@ -23,18 +23,18 @@
 // than re-deciding per-kind wording itself, so there is exactly one place
 // ("This Week" vs. "Day at a Glance", etc.) that decision is made.
 //
-// WP3 is the fix for a real, measured data-loss bug: every section here used
+// Phase 8d (deck pagination) is the fix for a real, measured data-loss bug: every section here used
 // to always get exactly ONE slide holding EVERY row, no matter how much
 // content that was -- `.slide { overflow: hidden }` (ReportDeck.module.css)
 // then silently CLIPPED whatever didn't fit, from both the on-screen deck
 // and the exported PDF, with zero visible indication anything was missing.
 // The harness this file is verified against (scripts/verify-deck-print.ts)
 // measured up to 2,018px of tasks, 949px of risks, and 711px of summary
-// PROSE overflowing a single 720px-tall slide on realistic fixtures. WP3
+// PROSE overflowing a single 720px-tall slide on realistic fixtures. Phase 8d (deck pagination)
 // makes every section CHUNK across as many continuation slides as its real
 // content needs -- see `packIntoSlides` (structured sections: tasks/
 // tasksByClient/risks/priorities) and `chunkNarrative` (prose sections:
-// summary/glance/win) below. `buildDeckSlides` itself keeps its WP1/WP2
+// summary/glance/win) below. `buildDeckSlides` itself keeps its Phase 8d
 // shape (branch on `report.kind`, assemble an ordered `DeckSlide[]`) -- it
 // just now calls a per-section chunker instead of handing every row to one
 // slide unconditionally.
@@ -44,7 +44,7 @@
 // doc comment for why that's load-bearing, not just tidiness. `hasWin` and
 // `groupTasksByClient` (lib/report-sections.ts) are themselves pure
 // functions of their arguments, so importing them here doesn't threaten
-// that purity -- and neither does WP3's `estimateLines`/`packIntoSlides`/
+// that purity -- and neither does Phase 8d's `estimateLines`/`packIntoSlides`/
 // `chunkNarrative`, which are pure functions of their own arguments only
 // (no `Date`, no `Math.random`, no environment read).
 
@@ -54,13 +54,13 @@ import type { AnyReport, Priority, Risk, Task } from './types';
 /**
  * 1-based position of a slide within a multi-slide "chunk" of a single
  * report section (e.g. a Task Status list long enough to spill across three
- * slides -- see WP3's chunkers below). `index`/`total` are both 1-based so
+ * slides -- see Phase 8d's chunkers below). `index`/`total` are both 1-based so
  * `${index} of ${total}` reads naturally in an aria-label AND in the
  * on-slide "Task Status · 2 of 3" part affordance (ReportDeck.tsx's
  * `SlideKicker`, ReportDeck.module.css's `.kickerPart`). A section that fits
  * on one slide (the overwhelmingly common case -- most reports never
  * overflow at all) carries `part: null` on its one and only slide, exactly
- * as every section did before WP3.
+ * as every section did before Phase 8d (deck pagination).
  */
 export interface SlidePart {
   index: number;
@@ -76,13 +76,13 @@ export interface SlidePart {
  *
  * `cover` carries no extra data on purpose: there is nothing to chunk about
  * a cover. `tasks` / `tasksByClient` / `risks` / `priorities` carry their own
- * row subset (`rows`/`groups`) -- WP1 already shaped them this way in
- * anticipation of WP3's chunking, so WP3 needed ZERO shape changes here for
+ * row subset (`rows`/`groups`) -- Phase 8d (deck slide model) already shaped them this way in
+ * anticipation of Phase 8d's chunking, so Phase 8d (deck pagination) needed ZERO shape changes here for
  * those four; only `buildDeckSlides` (below) changed, to actually populate
  * more than one slide's worth.
  *
- * WP3: `summary` / `glance` / `win` gained real payloads for the first time
- * (WP1/WP2 read `report.summaryNarrative`/`report.win.narrative` straight
+ * Phase 8d (deck pagination): `summary` / `glance` / `win` gained real payloads for the first time
+ * (Phase 8d read `report.summaryNarrative`/`report.win.narrative` straight
  * off `report` since a narrative was never split before). `narrative` is
  * THIS SLIDE'S chunk of text (never the full field -- see `chunkNarrative`),
  * and `showStats`/`showStat` is true only on a section's FIRST chunk: the
@@ -107,9 +107,9 @@ export interface DeckSlide {
   /**
    * Stable identity for this slide -- used as ReportDeck's React `key` AND
    * as the present-page navigator's per-dot identity (`key={slide.key}`).
-   * WP3: a section that fits on one slide keeps the exact plain key it
+   * Phase 8d (deck pagination): a section that fits on one slide keeps the exact plain key it
    * always had ('cover', 'summary'/'glance', 'tasks'/'tasksByClient',
-   * 'risks', 'priorities', 'win') -- byte-identical to WP1/WP2, which is
+   * 'risks', 'priorities', 'win') -- byte-identical to Phase 8d, which is
    * what keeps every non-overflowing report's slide keys (and therefore its
    * present-page deep links) completely unaffected by this phase. Only once
    * a section genuinely spans more than one slide does the key become
@@ -125,10 +125,10 @@ export interface DeckSlide {
 }
 
 /**
- * WP3: the fixed geometry constants every chunker below is built on.
+ * Phase 8d (deck pagination): the fixed geometry constants every chunker below is built on.
  *
  * MEASUREMENT METHODOLOGY (read this before ever touching a number here) --
- * option (b) from the WP3 plan, "deterministic height estimation":
+ * option (b) from the Phase 8d (deck pagination) plan, "deterministic height estimation":
  *   (a) a fixed rows-per-slide count was rejected as content-blind (a
  *       500-char task title wraps to ~10 lines and blows a fixed-count slide
  *       -- the exact silent-clip bug this phase fixes);
@@ -202,7 +202,7 @@ export interface DeckSlide {
  * padding, or column widths ever change.
  */
 export const DECK_METRICS = {
-  // ---- Original WP3 scope: structured (row/card-based) sections ----------
+  // ---- Original Phase 8d (deck pagination) scope: structured (row/card-based) sections ----------
 
   /**
    * The vertical room available, on any `.padded` slide, for a section's
@@ -289,11 +289,11 @@ export const DECK_METRICS = {
   footnote: 42,
 
   // ---- Prose-chunking additions ------------------------------------------
-  // The WP3 planning doc's own DECK_METRICS sample had NO fields for
+  // The Phase 8d (deck pagination) planning doc's own DECK_METRICS sample had NO fields for
   // narrative/win-prose chunking at all -- that work was explicitly scoped
   // OUT of the plan, then explicitly added back in by the user after
   // reviewing the harness's own measured 711px of overflowing summary prose
-  // (see this module's WP3 header comment). These fields follow the exact
+  // (see this module's Phase 8d (deck pagination) header comment). These fields follow the exact
   // same live-measurement methodology as every field above; they're
   // grouped separately here purely so a future reviewer can see at a glance
   // which fields came from the original plan and which were added for that
@@ -358,7 +358,7 @@ export interface PackItem {
  * slide's accumulated height (`perSlideOverhead` -- e.g. a repeating table
  * header -- plus every item's own `height`) never exceeds `budget`.
  *
- * Rules (WP3 plan, verbatim):
+ * Rules (Phase 8d (deck pagination) plan, verbatim):
  *   - items are ATOMIC -- never split (a task row, risk card, or priority
  *     line is always whole on whichever slide it lands on).
  *   - a `keepWithNext` item (a client-group header) is pushed to the NEXT
@@ -381,7 +381,7 @@ export interface PackItem {
  * Returns `[]` for an empty `items` array (never `[[]]`) -- callers that
  * must still show exactly one (empty-state) slide handle that explicitly,
  * matching how each section already rendered an empty-state message before
- * WP3 (e.g. risks' "No open risks this week.").
+ * Phase 8d (deck pagination).
  */
 export function packIntoSlides<T extends PackItem>(items: T[], budget: number, perSlideOverhead: number): T[][] {
   if (items.length === 0) return [];
@@ -533,7 +533,7 @@ interface PriorityPackItem extends PackItem {
 
 /**
  * Chunks the Priorities section. `startIndex` carries the running 1-based
- * count ACROSS chunks (WP1 replaced the old CSS `counter(priority)` with an
+ * count ACROSS chunks (Phase 8d (deck slide model) replaced the old CSS `counter(priority)` with an
  * explicit JSX number specifically so this could continue correctly instead
  * of silently restarting at "1." on every continuation slide -- see
  * ReportDeck.module.css's `.priorityNum` comment).
@@ -568,8 +568,8 @@ function textBlockHeight(text: string, charsPerLine: number, lineHeight: number)
 /**
  * Splits `text` into the fewest chunks that each fit their slide's narrative
  * budget, WITHOUT EVER splitting mid-sentence -- the user-approved addition
- * beyond the WP3 plan's original (structured-sections-only) scope; see this
- * module's WP3 header comment. Powers the weekly `summary` / daily `glance`
+ * beyond the Phase 8d (deck pagination) plan's original (structured-sections-only) scope; see this
+ * module's Phase 8d (deck pagination) header comment. Powers the weekly `summary` / daily `glance`
  * slide's `summaryNarrative` and the `win` slide's `win.narrative`.
  *
  * Paragraphs (`\n\n`-separated) are the primary packing unit -- co-resident
@@ -701,7 +701,7 @@ function slideKey(base: string, index: number, total: number): string {
   return total > 1 ? `${base}-${index + 1}` : base;
 }
 
-/** `null` for a single-slide section (identical to every pre-WP3 slide); `{index, total}` (both 1-based) once a section spans more than one. */
+/** `null` for a single-slide section (identical to every pre-Phase 8d (deck pagination) slide); `{index, total}` (both 1-based) once a section spans more than one. */
 function slidePart(index: number, total: number): SlidePart | null {
   return total > 1 ? { index: index + 1, total } : null;
 }
@@ -798,12 +798,12 @@ function buildWinSlides(report: AnyReport, title: string): DeckSlide[] {
  * ever depended on anything besides its `report` argument, the server pass
  * and the client pass could disagree and produce a React hydration
  * mismatch -- exactly the class of bug hydration warnings exist to catch.
- * Keep it boring and deterministic. WP3's chunkers/`chunkNarrative` are
+ * Keep it boring and deterministic. Phase 8d's chunkers/`chunkNarrative` are
  * themselves pure functions of their own arguments (report fields + the
  * constant `DECK_METRICS`), so this guarantee is unchanged by pagination.
  *
- * A WEEKLY report keeps WP1's fixed slide ORDER, unconditionally: Cover,
- * Summary, Task Status, Risks & Blockers, Priorities, The Win -- WP3 changes
+ * A WEEKLY report keeps Phase 8d (deck slide model)'s fixed slide ORDER, unconditionally: Cover,
+ * Summary, Task Status, Risks & Blockers, Priorities, The Win -- Phase 8d (deck pagination) changes
  * only whether any one of those sections now spans MORE than one physical
  * slide, never the section order itself. A report that never overflows any
  * section still produces exactly the same six slides, in the same order,
@@ -811,7 +811,7 @@ function buildWinSlides(report: AnyReport, title: string): DeckSlide[] {
  * print.ts`'s `baseline-weekly` fixture, which is the regression check for
  * exactly this).
  *
- * A DAILY report (WP2) gets a slide list that matches what a single day
+ * A DAILY report (Phase 8d (per-kind sections)) gets a slide list that matches what a single day
  * spanning every client actually is: Cover, an at-a-glance summary
  * ("glance"), tasks broken out BY CLIENT ("tasksByClient" -- see
  * `groupTasksByClient`, lib/report-sections.ts) instead of one flat list,
@@ -825,7 +825,7 @@ function buildWinSlides(report: AnyReport, title: string): DeckSlide[] {
  *
  * `PresentScreen`'s navigator (dot count, `1-9` digit-jump range, "n / N"
  * counter) and the print-page-count contract (styles/print.css) both derive
- * everything from `slides.length` -- WP3 needed zero changes to either for
+ * everything from `slides.length` -- Phase 8d (deck pagination) needed zero changes to either for
  * a report's TOTAL slide count to grow past six; see
  * scripts/verify-deck-print.ts's `overflow-tasks`/`overflow-mixed`/
  * `daily-many-clients` fixtures, which assert exactly that end-to-end.
@@ -842,7 +842,7 @@ export function buildDeckSlides(report: AnyReport): DeckSlide[] {
       ...buildPrioritySlides(report, headings.priorities),
     ];
     // The one genuinely content-dependent slide-count branch that predates
-    // WP3: a daily report with no recorded win gets no Win slide at all,
+    // Phase 8d (deck pagination): a daily report with no recorded win gets no Win slide at all,
     // rather than a slide showing an empty '—' stat (which would read as
     // "there IS a win, but it's blank" instead of "no win today").
     if (hasWin(report)) {

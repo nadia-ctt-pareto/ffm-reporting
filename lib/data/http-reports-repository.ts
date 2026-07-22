@@ -132,7 +132,7 @@ export class HttpReportsRepository implements ReportsRepository {
   }
 
   /**
-   * WP4: `DELETE /api/reports/[id]` -> `deleteReport`
+   * Phase 8d (report delete): `DELETE /api/reports/[id]` -> `deleteReport`
    * (lib/server/reports-service.ts), owner-or-admin-gated by `reports_delete`
    * RLS -- children (tasks/risks/priorities) cascade server-side via the FK,
    * so no follow-up requests are needed here. Routed through `enqueueWrite`

@@ -40,7 +40,7 @@ export interface ReportScreenProps {
   /** Phase 7b: `useReports()`/`useDailyReports()`'s `mutationError` -- when set, the autosave note below swaps from "Changes save automatically." to a visible failure message, mirroring the `periodError` prop pattern. */
   mutationError?: string | null;
   /**
-   * WP4: deletes this report -- bound by the route wrapper
+   * Phase 8d (report delete): deletes this report -- bound by the route wrapper
    * (app/(shell)/reports/[id]/page.tsx / daily/[id]/page.tsx) to
    * `useReports()`/`useDailyReports()`'s non-optimistic `deleteReport(id)`.
    * Optional so a hypothetical future non-route-backed `<ReportScreen>`
@@ -51,7 +51,7 @@ export interface ReportScreenProps {
    */
   onDelete?: () => Promise<void>;
   /**
-   * WP4: mirrors `ProjectDetailScreen`'s `isAdmin` gate -- decides whether
+   * Phase 8d (report delete): mirrors `ProjectDetailScreen`'s `isAdmin` gate -- decides whether
    * the Delete button is enabled. The route wrapper computes this
    * (owner-or-admin in Supabase mode via `useSession()`, matching
    * `reports_delete` RLS exactly; unconditionally `true` in demo mode) so
@@ -62,7 +62,7 @@ export interface ReportScreenProps {
    * rather than the control silently not existing for them.
    */
   canDelete: boolean;
-  /** WP4: shown as the disabled Delete button's `title` (hover) and as a small inline note under the actions row when `!canDelete`. */
+  /** Phase 8d (report delete): shown as the disabled Delete button's `title` (hover) and as a small inline note under the actions row when `!canDelete`. */
   deleteHint?: string;
 }
 
@@ -74,7 +74,7 @@ const TASK_COLUMNS: TableColumn[] = [
 ];
 
 /**
- * WP2: columns for a daily report's per-client task tables -- deliberately
+ * Phase 8d (per-kind sections): columns for a daily report's per-client task tables -- deliberately
  * NO Client column, mirroring `ReportDeck.tsx`'s identical
  * `TASKS_BY_CLIENT_COLUMNS` (each file keeps its own copy of its column
  * list, same pre-existing convention as `TASK_COLUMNS` above, which was
@@ -133,14 +133,14 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * Presentation" is promoted to the primary (`dark`) action, ahead of Copy
  * Share Link and Download PDF (both stay `outline`).
  *
- * WP4: a fourth action, Delete (`outline`, disabled-with-a-hint when
+ * Phase 8d (report delete): a fourth action, Delete (`outline`, disabled-with-a-hint when
  * `!canDelete` -- see `ReportScreenProps.canDelete`'s doc comment), opens
  * the shared `ConfirmDeleteReportDialog`. This is the one place beyond a
  * row-level list action that this screen's scope grew past "read + inline
  * edit" -- deleting is destructive and irreversible, unlike every other
  * control here.
  *
- * WP5: a fifth action, "Edit Report" (`outline`, placed before Delete),
+ * Phase 8d (editing a published report): a fifth action, "Edit Report" (`outline`, placed before Delete),
  * routes to the wizard (`${presentBase}/${dSafe.id}/edit`) -- the wizard
  * already resumes a report of ANY status (see `useWizard`'s `reportToDraft`),
  * so a published report's tasks/risks/priorities/narratives can now be
@@ -175,7 +175,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
   const backHref = kind === 'daily' ? '/daily' : '/reports';
   const presentBase = kind === 'daily' ? '/daily' : '/reports';
 
-  // WP2: the single source of this kind's section wording (see
+  // Phase 8d (per-kind sections): the single source of this kind's section wording (see
   // lib/report-sections.ts's own doc comment) -- every section kicker
   // below reads `headings.*` instead of a hardcoded string or a
   // `kind === 'daily' ? ... : ...` ternary, so this screen and the deck
@@ -215,7 +215,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
   };
 
   /**
-   * WP5: same-tab navigation into the wizard's resume flow -- mirrors
+   * Phase 8d (editing a published report): same-tab navigation into the wizard's resume flow -- mirrors
    * `DashboardPage.tsx`'s `onResumeDraft={(id) => router.push(...)}` (the
    * pre-existing convention for entering the wizard on an existing report),
    * NOT a new-tab `window.open` like `openPresentation` above (editing is a
@@ -231,7 +231,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
   };
 
   /**
-   * WP4: mirrors `ProjectDetailScreen.handleDelete` exactly, including its
+   * Phase 8d (report delete): mirrors `ProjectDetailScreen.handleDelete` exactly, including its
    * "no navigation on success" posture -- `onDelete` (`useReports()`'s /
    * `useDailyReports()`'s non-optimistic `deleteReport`) only removes this
    * report from the hook's own `reports` state AFTER the repository call
@@ -265,12 +265,12 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
     status: <Badge tone={taskTone(t.status)}>{t.status}</Badge>,
     deadline: fmtDateShort(t.deadline),
   }));
-  // WP2: only computed for daily reports (a weekly keeps the flat
+  // Phase 8d (per-kind sections): only computed for daily reports (a weekly keeps the flat
   // `taskRows` table above, unchanged) -- see groupTasksByClient's own doc
   // comment for why grouping is keyed on the `client` string, not
   // `projectId`.
   const clientTaskGroups = kind === 'daily' ? groupTasksByClient(dSafe.tasks) : [];
-  // WP2: a weekly report always gets a Win section (its stat/label/
+  // Phase 8d (per-kind sections): a weekly report always gets a Win section (its stat/label/
   // narrative render with the deck's same '—' fallback when blank -- "no
   // win this week" is itself meaningful status); a daily report only gets
   // one when it actually recorded a win -- see hasWin's own doc comment,
@@ -384,7 +384,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
 
         <div className={styles.sectionKicker}>{headings.tasks}</div>
         {kind === 'daily' ? (
-          // WP2: a daily's defining shape is breadth across every client in
+          // Phase 8d (per-kind sections): a daily's defining shape is breadth across every client in
           // one day, so its tasks render as one heading + one table per
           // client (same `groupTasksByClient` derivation the deck's
           // "Tasks by Client" slide uses) instead of one flat table with a
@@ -424,7 +424,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
             ))}
           </div>
         ) : (
-          // WP2: kind-aware empty-state copy, mirroring ReportDeck.tsx's
+          // Phase 8d (per-kind sections): kind-aware empty-state copy, mirroring ReportDeck.tsx's
           // identical branch -- "No blockers today." for a single day.
           // The pre-existing weekly copy ("that week", not "this week") is
           // a faithful-port quirk left untouched; not this task's scope to
@@ -444,10 +444,10 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
         {showWin ? (
           <>
             {/*
-             * WP2: a read-only Win section -- the report screen previously
+             * Phase 8d (per-kind sections): a read-only Win section -- the report screen previously
              * had none at all (it was the deck's exclusive slide). "Screen
              * and deck agree on methodology" is unachievable without one,
-             * so this is the one place WP2 extends beyond pure re-wording:
+             * so this is the one place Phase 8d (per-kind sections) extends beyond pure re-wording:
              * see lib/report-sections.ts's SECTION_HEADINGS doc comment and
              * this component's `showWin` derivation above for exactly when
              * it renders. Stat/label/narrative render unconditionally

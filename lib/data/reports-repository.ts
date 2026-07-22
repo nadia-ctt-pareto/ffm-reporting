@@ -57,7 +57,7 @@ export interface ReportsRepository {
    */
   update(id: string, patch: Partial<ReportCore>): Promise<AnyReport | null>;
   /**
-   * WP4: deletes the report with `id`. In Supabase mode, access is decided
+   * Phase 8d (report delete): deletes the report with `id`. In Supabase mode, access is decided
    * entirely by `reports_delete` RLS (owner-or-admin) -- children (tasks/
    * risks/priorities) cascade via the FK, and any live share token simply
    * stops resolving (see `lib/server/reports-service.ts`'s `deleteReport`

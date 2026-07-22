@@ -51,7 +51,7 @@ export interface UseReportsResult {
   /** Shallow-merges `patch` (plus a fresh `updatedAt`) into the report with `id`. Same Phase 7b resolve/reject contract as `upsertReport`. */
   updateReportFields: (id: string, patch: Partial<Report>) => Promise<void>;
   /**
-   * WP4: deletes the report with `id`. Deliberately NOT optimistic (unlike
+   * Phase 8d (report delete): deletes the report with `id`. Deliberately NOT optimistic (unlike
    * every mutation above) -- see this hook's own `deleteReport`
    * implementation for the full rationale (mirrors `useProjects.ts`'s
    * `deleteProject`, including its Phase 8c SHOULD-FIX 2 precedent).
@@ -192,7 +192,7 @@ export function useReports(options?: UseReportsOptions): UseReportsResult {
   );
 
   /**
-   * WP4: deliberately NOT optimistic, unlike `upsertReport`/`upsertMany`/
+   * Phase 8d (report delete): deliberately NOT optimistic, unlike `upsertReport`/`upsertMany`/
    * `updateReportFields` above -- mirrors `useProjects.ts`'s `deleteProject`,
    * including its own rationale verbatim: `app/(shell)/reports/[id]/page.tsx`
    * derives `notFound` from `reports` and `router.replace`s away to

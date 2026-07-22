@@ -59,7 +59,7 @@
   }
 }
 
-/* WP4: wraps the row's Continue/View button alongside the new Delete
+/* Phase 8d (report delete): wraps the row's Continue/View button alongside the new Delete
    button -- `.rowAction` itself stays a single-button style unchanged, this
    just lays two of them out side by side, right-aligned to match the
    column's own `align: 'right'`. */
@@ -88,7 +88,7 @@
   color: var(--surface-page);
 }
 
-/* WP4: disabled-with-a-hint (never hidden) for a row's Delete button when
+/* Phase 8d (report delete): disabled-with-a-hint (never hidden) for a row's Delete button when
    the viewer isn't this report's owner/an admin -- see canDeleteReport. */
 .rowAction:disabled {
   opacity: 0.45;

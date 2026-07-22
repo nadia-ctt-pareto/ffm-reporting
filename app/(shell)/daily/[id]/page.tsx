@@ -36,7 +36,7 @@ import type { ReportFieldPatch } from '@/lib/types';
  * blocks this edit; a house daily (`projectId` unset) still collides with
  * another house daily on the same date exactly as before.
  *
- * WP4 (delete): `canDelete` mirrors `app/(shell)/reports/[id]/page.tsx`'s
+ * Phase 8d (report delete): `canDelete` mirrors `app/(shell)/reports/[id]/page.tsx`'s
  * identical gate byte-for-byte (owner-or-admin, matching `reports_delete`
  * RLS; unconditionally `true` in demo mode) -- see that file's own doc
  * comment for the full rationale, including why no read-schema change was
@@ -67,7 +67,7 @@ export default function DailyReportDetailPage() {
     updateReportFields(id, patch).catch(() => {});
   };
 
-  // WP4: see this component's own doc comment above for the full
+  // Phase 8d (report delete): see this component's own doc comment above for the full
   // owner-or-admin rationale -- this line is the entire gate.
   const canDelete = canDeleteReport(report, {
     user,

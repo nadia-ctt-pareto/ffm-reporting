@@ -32,7 +32,7 @@ export interface ConfirmDeleteReportDialogProps {
 }
 
 /**
- * WP4: the one shared "delete this report" confirmation dialog -- structurally
+ * Phase 8d (report delete): the one shared "delete this report" confirmation dialog -- structurally
  * copied from `ProjectDetailScreen`'s own delete dialog (Phase 8c), reused by
  * THREE callers instead of three near-identical copies:
  *

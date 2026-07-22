@@ -44,7 +44,7 @@
   }
 }
 
-/* WP4: see DashboardScreen.module.css's identical `.rowActions` -- lays the
+/* Phase 8d (report delete): see DashboardScreen.module.css's identical `.rowActions` -- lays the
    row's Continue/View button out alongside the new Delete button. */
 .rowActions {
   display: flex;
@@ -71,7 +71,7 @@
   color: var(--surface-page);
 }
 
-/* WP4: disabled-with-a-hint (never hidden) for a row's Delete button. */
+/* Phase 8d (report delete): disabled-with-a-hint (never hidden) for a row's Delete button. */
 .rowAction:disabled {
   opacity: 0.45;
   cursor: not-allowed;

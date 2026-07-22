@@ -218,7 +218,7 @@ export class LocalStorageReportsRepository implements ReportsRepository {
   }
 
   /**
-   * WP4: deletes the report with `id`. Demo mode has no owner/admin concept
+   * Phase 8d (report delete): deletes the report with `id`. Demo mode has no owner/admin concept
    * (same posture as `renameProject`/`deleteProject` above -- there is no
    * RLS-equivalent layer to enforce it at, so every caller is trusted with
    * every locally-stored report). Unlike `deleteProject` (which scans for
@@ -228,6 +228,20 @@ export class LocalStorageReportsRepository implements ReportsRepository {
    * project, never the reverse), so this is a plain filter + single write.
    * Throws if `id` doesn't exist, mirroring `renameProject`'s "throw on a
    * missing id" posture.
+   *
+   * CAVEAT (surfaced by security review): this rewrites `ff.reports.v2` only
+   * and deliberately leaves the legacy `ff.weekly-reports.v1` key alone, per
+   * this file's v1-is-a-permanent-backup policy (see the header comment and
+   * `loadAll`). Because `loadAll` falls back to v1 whenever v2 is absent OR
+   * corrupt, a browser still carrying a pre-Phase-4 v1 payload can resurrect a
+   * deleted weekly report if v2 is later cleared or corrupted -- so the
+   * confirm dialog's "This cannot be undone." is strictly true in Supabase
+   * mode (where the row is really gone and the FK cascade takes its children)
+   * but slightly overstated in demo mode. Left as-is on purpose: the v1
+   * backup exists precisely so a bug in this store can never destroy a user's
+   * only copy, and weakening the dialog copy to hedge about a demo-only
+   * backup key would make the real, deployed behavior sound less final than
+   * it is.
    */
   async deleteReport(id: string): Promise<void> {
     const all = await this.loadAll();

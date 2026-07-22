@@ -16,7 +16,7 @@ export interface StepReviewProps {
   /** Phase 7b (SHOULD-FIX 16): true while a publish write is in flight -- disables the button so a slow network round-trip doesn't read as a dead one and invite a duplicate click. */
   isSubmitting?: boolean;
   /**
-   * WP5: the button's idle-state label -- WizardScreen passes
+   * Phase 8d (editing a published report): the button's idle-state label -- WizardScreen passes
    * `wasPublished ? 'Update Report' : 'Publish Report'` (see that file and
    * useWizard.ts's `wasPublished` doc comment) so re-publishing a
    * correction to an already-published report doesn't read as if it were

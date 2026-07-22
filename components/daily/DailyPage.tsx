@@ -19,7 +19,7 @@ import type { DailyReport } from '@/lib/types';
  * as DashboardPage). "View"/"Continue" navigate to real routes
  * (`/daily/[id]`, `/daily/[id]/edit`), not a dialog.
  *
- * WP4: also hosts the shared delete-confirmation dialog for the row-level
+ * Phase 8d (report delete): also hosts the shared delete-confirmation dialog for the row-level
  * Delete button -- see `DashboardPage.tsx`'s identical doc comment for the
  * full rationale (mirrored here, over `useDailyReports()`).
  */
@@ -50,7 +50,7 @@ export function DailyPage() {
     return null;
   }
 
-  // WP4: see DashboardPage.tsx's identical gate for the full rationale.
+  // Phase 8d (report delete): see DashboardPage.tsx's identical gate for the full rationale.
   const deletable = (report: DailyReport): boolean =>
     canDeleteReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
 
@@ -61,7 +61,7 @@ export function DailyPage() {
     setDeleteError(null);
   };
 
-  /** WP4: mirrors `DashboardPage.tsx`'s identical `handleConfirmDelete` -- no navigation on success. */
+  /** Phase 8d: mirrors `DashboardPage.tsx`'s identical `handleConfirmDelete` -- no navigation on success, and `isDeleting` reset in BOTH branches (see that file's doc comment for why this list page must diverge from the ReportScreen/ProjectDetailScreen precedent it otherwise copies). */
   const handleConfirmDelete = async () => {
     if (!pendingDeleteId || isDeleting) return;
     setIsDeleting(true);
@@ -71,6 +71,7 @@ export function DailyPage() {
       setPendingDeleteId(null);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete the report.');
+    } finally {
       setIsDeleting(false);
     }
   };

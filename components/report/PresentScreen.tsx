@@ -48,7 +48,7 @@ const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown', ' ', 'Spacebar', 'PageDown
 const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp', 'PageUp']);
 const SPACE_KEYS = new Set([' ', 'Spacebar']);
 /**
- * WP1 (dynamic slide model): the deck's slide count is no longer a
+ * Phase 8d (deck slide model): the deck's slide count is no longer a
  * compile-time constant (see `buildDeckSlides`, lib/deck-slides.ts), so this
  * can no longer be built from it. Fixed at `1-9` instead -- decks with 10 or
  * more slides simply get digit shortcuts only for slides 1-9 (every digit
@@ -103,11 +103,11 @@ function notFoundCopy(usingToken: boolean): string {
  * `beforeprint` cannot reliably flush a React re-render first -- that would
  * resurrect the old 7-page-PDF class of bug.
  *
- * WP1 (dynamic slide model): the slide LIST itself is now data
+ * Phase 8d (deck slide model): the slide LIST itself is now data
  * (`buildDeckSlides`, lib/deck-slides.ts), memoized here off `report`, not a
  * hardcoded "6" -- `slideCount`/`current`/the digit-key guard/the dot
  * navigator/the "n / N" counter all read off `slides`/`slides.length`
- * rather than a module constant. WP1 itself never varies the count (always
+ * rather than a module constant. Phase 8d (deck slide model) itself never varies the count (always
  * exactly six, for every report), so this is purely a representation
  * change: the rendered deck and printed PDF are unaffected.
  *
@@ -166,7 +166,7 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
   // numbering and the "3 / N" counter); converted to 0-based when handed to
   // <ReportDeck>.
   //
-  // WP1 (dynamic slide model): this initial value can no longer be clamped
+  // Phase 8d (deck slide model): this initial value can no longer be clamped
   // against the deck's real slide count -- `slides` (below) doesn't exist
   // yet on this very first render, since it's derived from `report`, which
   // itself hasn't loaded on the session-based path's first pass (see the
@@ -234,7 +234,7 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
   // rather than a permanent blank page.
   const notFound = usingToken ? report === null : report === null || Boolean(hookLoadError);
 
-  // WP1 (dynamic slide model): `slides` is `null` until `report` resolves --
+  // Phase 8d (deck slide model): `slides` is `null` until `report` resolves --
   // `buildDeckSlides` (lib/deck-slides.ts) is a pure function of `report`
   // alone (see that module's doc comment on why that purity is load-bearing:
   // a future server-rendered token path must never disagree with this
@@ -332,7 +332,7 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
         e.preventDefault();
         goToSlide(slideCount);
       } else if (DIGIT_KEY.test(e.key)) {
-        // WP1: DIGIT_KEY alone only knows "single digit 1-9" -- it has no
+        // Phase 8d (deck slide model): DIGIT_KEY alone only knows "single digit 1-9" -- it has no
         // idea how many slides this particular deck actually has. The
         // explicit `n <= slideCount` guard is what keeps, say, pressing "9"
         // on today's 6-slide deck a no-op instead of jumping past the end

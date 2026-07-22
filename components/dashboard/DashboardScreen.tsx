@@ -43,14 +43,14 @@ export interface DashboardScreenProps {
   onResumeDraft: (id: string) => void;
   onViewReport: (id: string) => void;
   /**
-   * WP4: opens the shared delete-confirmation dialog (owned/hosted by
+   * Phase 8d (report delete): opens the shared delete-confirmation dialog (owned/hosted by
    * `DashboardPage`, not this screen -- see that file's own doc comment for
    * why dialog hosting lives at the Page-orchestrator level here rather
    * than in a per-row component) for the report with this id.
    */
   onDeleteReport: (id: string) => void;
   /**
-   * WP4: per-row gate for the row's Delete button -- mirrors
+   * Phase 8d (report delete): per-row gate for the row's Delete button -- mirrors
    * `app/(shell)/reports/[id]/page.tsx`'s `canDelete` computation exactly
    * (owner-or-admin in Supabase mode, unconditionally `true` in demo mode),
    * just evaluated once per row instead of once for a single report. A
@@ -156,7 +156,7 @@ export function DashboardScreen({
           >
             {isDraft ? 'Continue' : 'View'}
           </button>
-          {/* WP4: row-level delete -- a Draft's ONLY other action is
+          {/* Phase 8d (report delete): row-level delete -- a Draft's ONLY other action is
               "Continue", so without this a draft was only deletable by
               hand-typing its /reports/[id] URL. Disabled-with-a-hint
               (never hidden) when `!deletable`, matching Phase 8c's
