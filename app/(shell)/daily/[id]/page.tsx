@@ -6,6 +6,7 @@ import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useSession } from '@/lib/hooks/useSession';
+import { useTeamMembers } from '@/lib/hooks/useTeamMembers';
 import { canDeleteReport, canEditReport, DELETE_REPORT_HINT, EDIT_REPORT_HINT } from '@/lib/report-access';
 import { invalidDailyDateEdit } from '@/lib/report-utils';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
@@ -47,6 +48,10 @@ export default function DailyReportDetailPage() {
   const router = useRouter();
   const { reports, loadError, updateReportFields, deleteReport, mutationError } = useDailyReports();
   const { user, loading: sessionLoading } = useSession();
+  // WP7 (Prepared By/For directory pickers): mirrors
+  // `app/(shell)/reports/[id]/page.tsx`'s identical addition -- see that
+  // file's doc comment.
+  const { members: teamMembers } = useTeamMembers();
   const [periodError, setPeriodError] = useState('');
 
   const id = params.id;
@@ -108,6 +113,7 @@ export default function DailyReportDetailPage() {
       deleteHint={DELETE_REPORT_HINT}
       canEdit={canEdit}
       editHint={EDIT_REPORT_HINT}
+      teamMembers={teamMembers}
     />
   );
 }

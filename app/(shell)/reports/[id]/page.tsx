@@ -6,6 +6,7 @@ import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useReports } from '@/lib/hooks/useReports';
 import { useSession } from '@/lib/hooks/useSession';
+import { useTeamMembers } from '@/lib/hooks/useTeamMembers';
 import { canDeleteReport, canEditReport, DELETE_REPORT_HINT, EDIT_REPORT_HINT } from '@/lib/report-access';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { ReportFieldPatch } from '@/lib/types';
@@ -55,6 +56,12 @@ export default function ReportDetailPage() {
   const router = useRouter();
   const { reports, loadError, updateReportFields, deleteReport, mutationError } = useReports();
   const { user, loading: sessionLoading } = useSession();
+  // WP7 (Prepared By/For directory pickers): the team directory backing
+  // ReportScreen's Prepared For `<Select>` -- same "harmless while loading"
+  // posture WizardPage.tsx already documents for this same hook (`null`
+  // until resolved, forwarded raw so ReportScreen can tell that apart from a
+  // genuinely empty directory -- see its own `teamMembers` prop doc comment).
+  const { members: teamMembers } = useTeamMembers();
   const [periodError, setPeriodError] = useState('');
 
   const id = params.id;
@@ -113,6 +120,7 @@ export default function ReportDetailPage() {
       deleteHint={DELETE_REPORT_HINT}
       canEdit={canEdit}
       editHint={EDIT_REPORT_HINT}
+      teamMembers={teamMembers}
     />
   );
 }

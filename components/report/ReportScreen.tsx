@@ -18,7 +18,8 @@ import { STATUS_EDIT_OPTIONS } from '@/lib/constants';
 import { fmtDateShort } from '@/lib/format';
 import { groupTasksByClient, hasWin, SECTION_HEADINGS } from '@/lib/report-sections';
 import { onSchedule, openBlockers, reportPeriodLabel, riskTone, taskTone } from '@/lib/report-utils';
-import type { AnyReport, ReportFieldPatch, ReportKind, ReportStatus } from '@/lib/types';
+import { preparedForSelectOptions } from '@/lib/team';
+import type { AnyReport, ReportFieldPatch, ReportKind, ReportStatus, TeamMember } from '@/lib/types';
 import styles from './ReportScreen.module.css';
 
 export interface ReportScreenProps {
@@ -83,6 +84,17 @@ export interface ReportScreenProps {
   canEdit: boolean;
   /** WP3: shown as the disabled "Edit Report" button's `title` (hover) and as the autosave-note replacement when `!canEdit` -- mirrors `deleteHint`'s "disabled, don't hide" posture. */
   editHint?: string;
+  /**
+   * WP7 (Prepared By/For directory pickers): the team directory backing the
+   * Prepared For field below -- mirrors `StepBasics`' identically-named
+   * prop byte-for-byte, including the `null`-while-loading vs. `[]`-when-
+   * genuinely-empty distinction (see that component's own doc comment).
+   * Prepared By is NOT rendered on this screen at all (it's fixed once set
+   * in the wizard; only visible/editable via "Edit Report" -> the wizard's
+   * own Prepared By field), so there is no matching `preparedByAutoFillName`
+   * prop here.
+   */
+  teamMembers: TeamMember[] | null;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -189,6 +201,16 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * Owns its own (small) Share-dialog AND delete-dialog UI state directly --
  * this route is simple enough (one param, one hook) that it doesn't need a
  * separate route-level orchestrator like DashboardPage/WizardPage.
+ *
+ * WP7 (Prepared By/For directory pickers): Prepared For is now a `<Select>`
+ * sourced from the team directory (`teamMembers`), matching
+ * `StepBasics.tsx`'s identical field in the wizard so the two surfaces never
+ * disagree on how this value is picked -- see `lib/team.ts`'s
+ * `preparedForSelectOptions` for the "plain STRING, not a foreign key" locked
+ * design decision and the legacy-value-preservation rule. Disabled (not
+ * hidden) under the same `!canEdit` gate the field already had as an
+ * `<Input>`. Degrades to the original `<Input>` while the directory is still
+ * loading or genuinely empty, exactly like `StepBasics`.
  */
 export function ReportScreen({
   report,
@@ -201,9 +223,16 @@ export function ReportScreen({
   deleteHint,
   canEdit,
   editHint,
+  teamMembers,
 }: ReportScreenProps) {
   const router = useRouter();
   const dSafe = report ?? emptyReportFallback(kind);
+  // WP7: same "collapse still-loading and genuinely-empty into ONE fallback"
+  // gate `StepBasics.tsx` uses, and the same `members`/`directoryReady` split
+  // to sidestep TypeScript not narrowing `teamMembers` through an
+  // intermediate boolean -- see that component's identical comment.
+  const members = teamMembers ?? [];
+  const directoryReady = teamMembers !== null && members.length > 0;
   const { onSched, total } = onSchedule(dSafe);
   const backHref = kind === 'daily' ? '/daily' : '/reports';
   const presentBase = kind === 'daily' ? '/daily' : '/reports';
@@ -337,12 +366,22 @@ export function ReportScreen({
             />
           </div>
           <div style={{ width: 220 }}>
-            <Input
-              label="Prepared For"
-              value={dSafe.preparedFor}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ preparedFor: e.target.value })}
-              readOnly={!canEdit}
-            />
+            {directoryReady ? (
+              <Select
+                label="Prepared For"
+                options={preparedForSelectOptions(members, dSafe.preparedFor)}
+                value={dSafe.preparedFor}
+                onChange={(value) => onUpdateFields({ preparedFor: value })}
+                disabled={!canEdit}
+              />
+            ) : (
+              <Input
+                label="Prepared For"
+                value={dSafe.preparedFor}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ preparedFor: e.target.value })}
+                readOnly={!canEdit}
+              />
+            )}
           </div>
           {dSafe.kind === 'daily' ? (
             <div style={{ width: 150 }}>

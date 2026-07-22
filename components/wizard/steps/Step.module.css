@@ -37,6 +37,19 @@
   color: var(--text-muted);
 }
 
+/* WP7 (Prepared By/For directory pickers): shown under the locked, read-only
+   Prepared By field (StepBasics.tsx) when a plain (non-pm/admin) member is
+   auto-filled to their own name, explaining why no dropdown is offered.
+   Mirrors ReportScreen.module.css's `.deleteHint` (same muted, small-caption
+   treatment used for every other "disabled/locked, here's why" note in this
+   app). */
+.fieldHint {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
 .rowsList {
   display: flex;
   flex-direction: column;

@@ -11,7 +11,9 @@ import { useReports } from '@/lib/hooks/useReports';
 import { useSession } from '@/lib/hooks/useSession';
 import { useTeamMembers } from '@/lib/hooks/useTeamMembers';
 import { canEditReport } from '@/lib/report-access';
+import { hasRoleAtLeast } from '@/lib/roles';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { resolvePreparedByAutoFill } from '@/lib/team';
 import type { AnyReport, ReportKind } from '@/lib/types';
 
 export interface WizardPageProps {
@@ -50,7 +52,11 @@ export interface WizardPageProps {
  *
  * WP2: also calls `useTeamMembers()` and passes the list through to
  * `WizardScreen` -> `StepTasks`' Assignee `<Select>` -- same "not part of
- * the `loaded` gate" posture as `projects` immediately above.
+ * the `loaded` gate" posture as `projects` immediately above. WP7: the same
+ * `teamMembers` result is ALSO forwarded raw (not `?? []`) so `WizardScreen`
+ * -> `StepBasics` can tell "still loading" apart from "genuinely empty" for
+ * the new Prepared For/By directory dropdowns -- see `preparedByAutoFillName`
+ * below for the one other piece WP7 adds here.
  *
  * WP3 (the access flip): a `reportId` resume (`/reports/[id]/edit`,
  * `/daily/[id]/edit`) is now owner-gated, mirroring `reports_update` RLS
@@ -77,6 +83,21 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
   // scoping, see that hook's own doc comment).
   const { user, loading: sessionLoading } = useSession();
   const supabaseConfigured = isSupabaseConfigured();
+
+  /**
+   * WP7 (Prepared By/For directory pickers): the ONE place this is decided --
+   * `WizardScreen`/`StepBasics` receive the already-resolved answer as a
+   * plain prop (same "compute session/role logic at the route level" posture
+   * `canEditReport`/`canDeleteReport` already establish, see
+   * app/(shell)/reports/[id]/page.tsx). `hasRoleAtLeast(user, 'pm')` reads
+   * the REAL permission boundary (JWT `app_metadata.role`, lib/roles.ts) --
+   * NEVER `TeamMember.role`, which is a directory label with no permission
+   * meaning (see lib/schema/team.ts's header comment). In demo mode `user`
+   * is always `null` (no session concept, see useSession's own doc comment),
+   * so this always resolves to `null` there -- the ordinary dropdown,
+   * exactly per the plan's "demo mode: no auto-fill" requirement.
+   */
+  const preparedByAutoFillName = resolvePreparedByAutoFill(teamMembers, user?.id, hasRoleAtLeast(user, 'pm'));
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareReportId, setShareReportId] = useState<string | null>(null);
@@ -216,8 +237,9 @@ export function WizardPage({ reportId, kind = 'weekly' }: WizardPageProps) {
         reports={sameKindReports ?? []}
         dailies={kind === 'weekly' ? (dailyReports ?? []) : undefined}
         projects={projects ?? []}
-        teamMembers={teamMembers ?? []}
+        teamMembers={teamMembers}
         currentUserId={user?.id}
+        preparedByAutoFillName={preparedByAutoFillName}
         initialReport={initialReport}
         onExit={exitWizard}
         onSaveDraft={handleSaveDraft}

@@ -22,10 +22,29 @@ export interface WizardScreenProps {
   dailies?: DailyReport[];
   /** Phase 6a: all known projects -- client-field datalist suggestions (StepTasks/StepRisks) and the client -> projectId stamp (see useWizard). */
   projects?: Project[];
-  /** WP2: the team directory -- StepTasks' Assignee `<Select>`. */
-  teamMembers?: TeamMember[];
+  /**
+   * WP2: the team directory -- StepTasks' Assignee `<Select>`. WP7 widens
+   * this to accept `null` too (still loading, `useTeamMembers()`'s own
+   * `null`-until-resolved convention) -- forwarded to `StepTasks` as `?? []`
+   * (unchanged effective behavior: an unassigned-only Select while loading is
+   * harmless) but forwarded RAW to `StepBasics`, which needs to tell "still
+   * loading" apart from "genuinely empty" for its own Prepared For/By
+   * dropdowns -- see that component's `teamMembers` prop doc comment.
+   */
+  teamMembers?: TeamMember[] | null;
   /** WP3: the signed-in user's id -- see `useWizard`'s `UseWizardOptions.currentUserId` doc comment (scopes the one-daily-per-day check to this caller's own dailies). `undefined` in demo mode. */
   currentUserId?: string | null;
+  /**
+   * WP7 (Prepared By/For directory pickers): passed straight through to
+   * `useWizard`'s identically-named option (which stamps it onto
+   * `draft.preparedBy`) AND to `StepBasics` (which decides how the field
+   * renders from it) -- see both of those doc comments. Computed once, in
+   * `WizardPage`, from the signed-in session + role + team directory (the
+   * same "compute session/role logic at the route level, pass a plain value
+   * down" convention `canEditReport`/`canDeleteReport` already establish for
+   * `ReportScreen`).
+   */
+  preparedByAutoFillName?: string | null;
   initialReport: AnyReport | null;
   onExit: () => void;
   /** Phase 7b: `Promise<void>` -- see `useWizard`'s `UseWizardOptions.onSaveDraft` doc comment (`saveDraft()` awaits this and surfaces a rejection through the wizard's `error` channel). */
@@ -64,6 +83,7 @@ export function WizardScreen({
   projects,
   teamMembers,
   currentUserId,
+  preparedByAutoFillName,
   initialReport,
   onExit,
   onSaveDraft,
@@ -71,7 +91,22 @@ export function WizardScreen({
   onShareForPublished,
   onPdfForPublished,
 }: WizardScreenProps) {
-  const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies, projects, currentUserId });
+  const wizard = useWizard(reports, initialReport, {
+    kind,
+    onSaveDraft,
+    onPublish,
+    dailies,
+    projects,
+    currentUserId,
+    preparedByAutoFillName,
+  });
+  // WP7: `teamMembers` arrives here possibly `null` (still loading, see this
+  // file's own prop doc comment) -- `StepTasks`' Assignee `<Select>` keeps
+  // its pre-existing `?? []` fallback (an unassigned-only picker while
+  // loading is harmless), but `StepBasics` needs the RAW nullable value to
+  // tell "still loading" apart from "genuinely empty" for its own Prepared
+  // For/By dropdowns.
+  const teamMembersOrNull = teamMembers ?? null;
   const { draft, step, error, published, wasPublished, isSubmitting } = wizard;
   const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
   const clientSuggestions = (projects ?? []).map((p) => p.name);
@@ -91,6 +126,8 @@ export function WizardScreen({
             weekDailyCount={kind === 'weekly' ? wizard.weekDailyCount : undefined}
             weekDailiesImported={kind === 'weekly' ? wizard.weekDailiesImported : undefined}
             onImportWeekDailies={kind === 'weekly' ? wizard.importWeekDailies : undefined}
+            teamMembers={teamMembersOrNull}
+            preparedByAutoFillName={preparedByAutoFillName}
           />
         );
       case 2:

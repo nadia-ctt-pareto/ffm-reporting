@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { nowDate, uid } from '@/lib/format';
 import { aggregateDailiesIntoDraft, carryForwardUnfinishedTasks } from '@/lib/aggregate';
 import type { CarryForwardResult } from '@/lib/aggregate';
@@ -104,6 +104,18 @@ export interface UseWizardOptions {
    * (no session concept) degrades to the pre-WP3, un-scoped behavior.
    */
   currentUserId?: string | null;
+  /**
+   * WP7 (Prepared By/For directory pickers): non-null when the signed-in
+   * caller resolves to a plain (non-pm/admin) team member -- see
+   * `lib/team.ts`'s `resolvePreparedByAutoFill` for exactly how `WizardPage`
+   * computes this. When set, the effect below stamps this name onto
+   * `draft.preparedBy` (see that effect's own doc comment for why this lives
+   * here rather than in `StepBasics`). `null`/`undefined` (pm/admin, an
+   * unresolved user, or demo mode) is a no-op -- `draft.preparedBy` is left
+   * exactly as `blankDraft()`/`reportToDraft()` set it, same as before this
+   * package.
+   */
+  preparedByAutoFillName?: string | null;
 }
 
 export interface UseWizardResult {
@@ -420,6 +432,45 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
   function setWinField<K extends keyof Draft['win']>(field: K, value: Draft['win'][K]) {
     setDraft((d) => ({ ...d, win: { ...d.win, [field]: value } }));
   }
+
+  /**
+   * WP7 (Prepared By/For directory pickers): applies `options.
+   * preparedByAutoFillName`'s lock to the draft -- this is the effect that
+   * actually STAMPS the name (`StepBasics.tsx` only ever RENDERS the
+   * read-only field + hint; it has no draft-mutation access of its own
+   * beyond `setDraftField`, which it doesn't need for this). Lives here, not
+   * in `StepBasics`, specifically so it fires regardless of which step is
+   * currently on screen: `StepBasics` unmounts entirely whenever `step !==
+   * 1` (see `WizardScreen.tsx`'s `stepPanel` switch), but a signed-in
+   * session/team-directory fetch that resolves only AFTER the user has
+   * already moved on to step 2+ must still normalize `draft.preparedBy`
+   * before `saveDraft`/`publish` ever reads it.
+   *
+   * Deliberately unconditional whenever a lock name is present (not "only if
+   * `draft.preparedBy` is currently blank") -- per the plan this shipped
+   * against: a plain member's Prepared By IS their own identity, full stop,
+   * even overwriting `blankDraft()`'s placeholder default ("Jordan Reyes,
+   * Project Manager") or a stale value left by a prior CSV/MCP write on a
+   * resumed draft. This does NOT conflict with `lib/team.ts`'s "never
+   * silently wipe a legacy value" rule -- that rule protects a `<Select>`'s
+   * own option list from ever failing to include the CURRENT value; a locked
+   * plain member never sees that dropdown at all (see StepBasics), so the
+   * two rules govern disjoint cases.
+   *
+   * The dependency array intentionally omits `draft.preparedBy` itself even
+   * though the body reads it -- including it would make this effect re-run
+   * on every OTHER field's edit too (any `setDraft` call produces a new
+   * `draft` object), which is harmless (the `!==` guard still no-ops) but
+   * pointless churn; `options.preparedByAutoFillName` is the only input that
+   * actually changes this effect's decision.
+   */
+  useEffect(() => {
+    const lockedName = options.preparedByAutoFillName;
+    if (lockedName && draft.preparedBy !== lockedName) {
+      setDraftField('preparedBy', lockedName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.preparedByAutoFillName]);
 
   // ---- navigation (lines 529, 537-538) ----
   function goToStep(n: number) {
