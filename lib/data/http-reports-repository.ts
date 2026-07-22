@@ -30,7 +30,7 @@
 // repository's interface in Phase 7b (see the Phase 7b plan's "Alternatives
 // considered and rejected").
 
-import type { AnyReport, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
+import type { AnyReport, AssignedTask, AssignedTaskPatch, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
 import type { ReportsRepository } from './reports-repository';
 
 /** Thrown by every method below on a non-2xx response. `status` is exposed so a future caller (e.g. a share-dialog surfacing a 403 differently from a 500) can branch on it without re-deriving it from `message`. */
@@ -255,6 +255,23 @@ export class HttpReportsRepository implements ReportsRepository {
   async deleteTeamMember(id: string): Promise<void> {
     return this.enqueueWrite(async () => {
       await request<void>(`/api/team/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    });
+  }
+
+  /** WP3 (the access flip): `GET /api/tasks/assigned` -> `list_assigned_tasks()` -- see `ReportsRepository.getAssignedTasks`'s doc comment. */
+  async getAssignedTasks(): Promise<AssignedTask[]> {
+    const { tasks } = await request<{ tasks: AssignedTask[] }>('/api/tasks/assigned');
+    return tasks;
+  }
+
+  /** WP3: `PATCH /api/tasks/[id]` -> `update_assigned_task()` (owner-or-assignee, narrow status/deadline/completedAt patch) -- see `ReportsRepository.updateTask`'s doc comment. Routed through `enqueueWrite` like every other write in this class. */
+  async updateTask(taskId: string, patch: AssignedTaskPatch): Promise<AssignedTask> {
+    return this.enqueueWrite(async () => {
+      const { task } = await request<{ task: AssignedTask }>(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      return task;
     });
   }
 

@@ -92,6 +92,18 @@ export interface UseWizardOptions {
    * happens from the wizard in Phase 6 -- that's Phase 6b's CSV importer.
    */
   projects?: Project[];
+  /**
+   * WP3 (the access flip): the signed-in user's id (`useSession().user?.id`,
+   * threaded through `WizardPage` -> `WizardScreen` -> here), passed to
+   * `dailyDateConflict`/`validateStep` so the one-daily-per-day check is
+   * scoped to dailies owned by THIS caller -- see `lib/report-utils.ts`'s
+   * `sameReportOwner` doc comment for why: under scoped reads, a pm/admin
+   * now sees every teammate's daily report, and without this scoping a
+   * pm/admin drafting their OWN daily would get a false "already exists"
+   * against a teammate's report for the same date. `undefined` in demo mode
+   * (no session concept) degrades to the pre-WP3, un-scoped behavior.
+   */
+  currentUserId?: string | null;
 }
 
 export interface UseWizardResult {
@@ -417,7 +429,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     }
   }
   function next() {
-    const err = validateStep(step, draft, dailySiblings);
+    const err = validateStep(step, draft, dailySiblings, options.currentUserId);
     if (err) {
       setError(err);
       return;
@@ -475,7 +487,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     }
     // The one-daily-per-day invariant is a hard data-integrity rule, not a
     // step-gate, so it's checked here too, not just on `next()`/`publish()`.
-    if (dailyDateConflict(draft, dailySiblings)) {
+    if (dailyDateConflict(draft, dailySiblings, options.currentUserId)) {
       setError('A daily report for this date already exists.');
       return;
     }
@@ -522,7 +534,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * writes `'Final'` here, exactly as before.
    */
   async function publish() {
-    const err1 = validateStep(1, draft, dailySiblings);
+    const err1 = validateStep(1, draft, dailySiblings, options.currentUserId);
     const err2 = err1 ? '' : validateStep(2, draft);
     const err5 = err1 || err2 ? '' : validateStep(5, draft);
     const err = err1 || err2 || err5;

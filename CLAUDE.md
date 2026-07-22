@@ -27,16 +27,23 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (WP0 + WP1 + WP2 complete):** Full stack with optional Supabase backend + Claude connectivity, plus the
-  first three packages of a role/team-directory rollout. **WP0/WP1: role ladder + team directory** — a
+- **Now (WP0 through WP3 complete):** Full stack with optional Supabase backend + Claude connectivity, plus a
+  four-package role/team-directory/access-scoping rollout. **WP0/WP1: role ladder + team directory** — a
   three-tier `member`/`pm`/`admin` role ladder (`public.role_rank()`/`has_role_at_least()`, infrastructure
   only — no existing policy changed) and a standalone `team_members` directory (list/create/rename/delete,
   admin-gated, Settings → Team tab) with a verified-email self-link RPC for account linking; see "Role ladder
   and team directory (WP0 + WP1)" below. **WP2: task assignee + creation date** — `tasks` gained an optional
   `assigneeId` (FK → `team_members`, `NO ACTION`) and `createdAt` (stamped ONLY at genuine task creation,
   never re-stamped/preserved on a carry-forward/import/aggregation copy); an Assignee picker in both
-  `TaskDialog` and the wizard's Task Status step; see "Task assignee and creation date (WP2)" below. All
-  three migrations are written but NOT applied. **Demo mode**
+  `TaskDialog` and the wizard's Task Status step; see "Task assignee and creation date (WP2)" below. **WP3:
+  THE ACCESS FLIP** — `reports`/`tasks`/`risks`/`priorities` reads move from org-wide (`using (true)`) to
+  owner-or-pm+-or-org-read-token, and every write policy drops its `is_admin()` branch entirely: editing a
+  full report is now owner-ONLY, even for a pm/admin (their only other write surface on someone else's report
+  is a task they're assigned to, through a new narrow `update_assigned_task()` RPC); delete widens from
+  admin-only to pm-or-above. An opt-in, admin-only MCP **org-read scope** on `api_tokens` restores org-wide
+  reads for a token that explicitly asks for it, without ever widening its write authority. This migration was
+  authored AND verified live against a local Supabase stack (`scripts/verify-access-matrix.ts`, 32/32) — see
+  "Scoped access (WP3 — the access flip)" below. **Demo mode**
   (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`,
   team directory in `ff.team.v1`), seeded with 7 weekly + 5 daily reports + 3 team members; MCP server and
   AI polish 404 in demo mode. **Supabase mode** (env set)
@@ -60,11 +67,11 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
   Zod (6a), added Project entity (6a), CSV import (6b), consolidation (6b); Phase 7a added Supabase schema +
   Auth; Phase 7b connected UI → Postgres with cross-machine sharing + two adversarial hardening passes.
 - **Later:** surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up); project
-  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now); the remaining
-  RBAC/team packages after WP0/WP1/WP2 — the RLS access flip (graduating specific policies from
-  `is_admin()` to `has_role_at_least()`), Task view/Calendar surfacing assignees (filter/group by assignee,
-  not just the picker WP2 already added), a "My Week" export, and a possible future `list_team_members` MCP
-  read tool (flagged, not decided, by WP2 — see "Task assignee and creation date (WP2)" below).
+  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now); a "My Assigned
+  Tasks" UI surface over WP3's `useAssignedTasks()` hook (the plumbing — repository/service/route/hook — landed
+  in WP3, but no screen renders it yet); Task view/Calendar surfacing assignees (filter/group by assignee, not
+  just the picker WP2 already added); a "My Week" export; and a possible future `list_team_members` MCP read
+  tool (flagged, not decided, by WP2 — see "Task assignee and creation date (WP2)" below).
 - **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
@@ -917,17 +924,19 @@ claude.ai to read/write reports under the user's own ownership.
 **Auth bridge** (`lib/server/mcp-auth.ts`, the security core):
 - **Bearer token → JWT pipeline**: `Authorization: Bearer ffmcp_<256-bit-token>` → a SECURITY DEFINER
   `verify_api_token` RPC (called via the bare anon client) that hashes the token, rejects
-  revoked/expired matches, stamps `last_used_at`, and returns only the owning `user_id`. **All privilege
-  elevation is confined to this single SQL function**. From that id, the server mints a 5-minute HS256 JWT
-  signed with the server-only `SUPABASE_JWT_SECRET` (role: `authenticated`, NO `app_metadata`, so
-  `is_admin()` is structurally false for every MCP call — machine tokens are always plain members, even
-  for admin users' tokens). That JWT scopes a per-request Supabase client handed to the tools, so every
-  MCP write runs as the `authenticated` role under the **identical RLS** as the web cookie path. No
-  service-role key exists anywhere.
+  revoked/expired matches, stamps `last_used_at`, and returns the owning `user_id` PLUS (WP3) its
+  `org_read` scope flag. **All privilege elevation is confined to this single SQL function**. From that id,
+  the server mints a 5-minute HS256 JWT signed with the server-only `SUPABASE_JWT_SECRET` (role:
+  `authenticated`, NO `app_metadata`, so `is_admin()`/`has_role_at_least()` are structurally false for
+  every MCP call — machine tokens are always plain members, even for admin users' tokens; PLUS, WP3, a
+  top-level — NOT `app_metadata`-nested — `org_read` claim, reflecting the token's own scope). That JWT
+  scopes a per-request Supabase client handed to the tools, so every MCP write runs as the `authenticated`
+  role under the **identical RLS** as the web cookie path. No service-role key exists anywhere.
 - **Token model** (`app/api/tokens/*`): show-once creation (bearer + secret, user copies the bearer half),
   list (hash-only, never plaintext again), revoke. Tokens never expire by default; offboarding = revoke.
   Hash-only storage (sha-256 hex, matching the `verify_api_token` RPC's own hash algorithm
-  byte-for-byte).
+  byte-for-byte). WP3 adds an admin-only `orgRead` checkbox at creation — see "Scoped access (WP3 — the
+  access flip)" below.
 
 **The 8 tools** (`lib/server/mcp-tools.ts`, names locked to `lib/prompts.ts` and machine-checked by
 `scripts/check-mcp-tool-contract.ts`):
@@ -940,19 +949,26 @@ claude.ai to read/write reports under the user's own ownership.
 - **Deliberately no `delete_report`** — see the Skill's "Access model" section.
 - Every tool validates bounded `*InputSchema` (no incoming ids; fresh `uid()` on create). `ServiceError` is
   curated by `curatedMessage` before reaching the MCP client — never raw Postgres errors.
-- **Org-wide reads, owner-only writes**: `list_reports` and `get_report` return every report (same as web
-  dashboard), but create/update only touch rows the token's owner created. Attempting to edit someone
-  else's report returns "you don't have permission" — no way around it, including for admin tokens.
+- **Reads scoped to the token's owner by default, writes owner-only always (WP3)**: `list_reports`/
+  `get_report`/`get_week_rollup` return only the token owner's own reports UNLESS the token was minted
+  with the admin-only org-read scope (`api_tokens.org_read`), in which case they return every report — same
+  breadth this bullet originally described before WP3 scoped reads by default. Writes are unaffected either
+  way: `create_report`/`update_report`/`create_project`/`create_weekly_from_dailies` only ever touch rows
+  the token's owner created, regardless of read scope. Attempting to edit someone else's report returns
+  "you don't have permission" — no way around it, including for admin tokens or org-read tokens.
 
 **Transport** (`app/api/[transport]/route.ts`): stateless Streamable HTTP at `/api/mcp`, `withMcpAuth`-gated,
 404 in demo mode (no MCP if Supabase not configured or `SUPABASE_JWT_SECRET` unset).
 
 **Token UI** (`components/settings/McpAccessSection.tsx`): create (show-once), list, revoke. Warns when
 `SUPABASE_JWT_SECRET` is unset (endpoint not ready for tokens to work yet). Setup instructions included.
+WP3 adds an "Org-wide read (admin only)" checkbox (disabled-with-a-hint for a non-admin, the Phase 8c
+"disable, don't hide" posture) and a Scope column on the token list.
 
 **The Skill** (`skills/weekly-reports/SKILL.md`): teaches the domain model (weekly/daily discriminant, one
-daily per day per project bucket, project vs. house buckets), the access model (org-wide reads, owner-only
-writes, no admin escalation for tokens, no delete), merge semantics (tasks/risks latest-wins, priorities
+daily per day per project bucket, project vs. house buckets), the access model (WP3: reads scoped to the
+token's own owner by default, an admin-only org-read scope for org-wide reads, writes always owner-only, no
+admin escalation for tokens, no delete), merge semantics (tasks/risks latest-wins, priorities
 first-wins, touchpoints sum, win carries from latest source if draft doesn't have one), the 8 tool reference,
 CAS discipline (always read before write, re-read on conflict rather than force), and workflows (draft
 roll-up from dailies, weekly status digest, blocker triage, consolidate across projects, CSV import
@@ -1251,9 +1267,9 @@ Slide keys are stable for non-overflowing sections (identical to prior phases, p
 
 **Workstream C — report delete.** `deleteReport` service function → `DELETE /api/reports/[id]` route → repository interface + both `localStorage`/HTTP implementations → non-optimistic hook mutation paths on both `useReports` and `useDailyReports` → UI actions on the report screen ("Delete", disabled with a hint when access denied) and a per-row Delete on both list pages. The list-row action exists specifically because a **Draft**'s only other row action is "Continue" — without it, a draft was deletable only by hand-typing its `/reports/[id]` URL. It renders on every row, not only drafts.
 
-`lib/report-access.ts` is the SINGLE predicate (`canDeleteReport`) deciding access, mirroring the `reports_delete` RLS policy verbatim (owner-id match OR admin). Demo mode grants full access (localStorage is per-browser). Disabled-with-hint, never hidden. `DELETE_REPORT_HINT` is kept beside the predicate so rule and explanation can never drift. A deleted report's share link degrades to the existing "no longer valid" state (token resolves, report is gone). No migration was needed — `authenticated` role already held DELETE and `reports_delete` RLS already existed (verified live). One ride-along migration (`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql`) is grant hygiene only and **has been applied to production** (2026-07-22) — RLS already denied `anon`, which has no policy on these tables, so it removed latent risk rather than fixing a live hole.
+`lib/report-access.ts` is the SINGLE predicate (`canDeleteReport`) deciding access, mirroring the `reports_delete` RLS policy verbatim (owner-id match OR, as of WP3, pm-or-above — was admin-only pre-WP3). Demo mode grants full access (localStorage is per-browser). Disabled-with-hint, never hidden. `DELETE_REPORT_HINT` is kept beside the predicate so rule and explanation can never drift. A deleted report's share link degrades to the existing "no longer valid" state (token resolves, report is gone). No migration was needed — `authenticated` role already held DELETE and `reports_delete` RLS already existed (verified live). One ride-along migration (`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql`) is grant hygiene only and **has been applied to production** (2026-07-22) — RLS already denied `anon`, which has no policy on these tables, so it removed latent risk rather than fixing a live hole.
 
-**Workstream D — editing a published report.** An ungated "Edit Report" button on the report screen reopens the wizard for any report status (Draft, Final, Sent). `reportToDraft` already supported conversion of any status; the gap was an entry point and correct status handling on save. `useWizard`'s `saveDraft()`/`publish()` now write the draft's current status (or `'Sent'` if it was `'Sent'`) instead of hardcoded `'Draft'`/`'Final'` — no status is silently demoted on resume. This supersedes the documented quirk "`saveDraft` always forces Draft status" — see "Conventions" below.
+**Workstream D — editing a published report.** An "Edit Report" button on the report screen reopens the wizard for any report status (Draft, Final, Sent). `reportToDraft` already supported conversion of any status; the gap was an entry point and correct status handling on save. `useWizard`'s `saveDraft()`/`publish()` now write the draft's current status (or `'Sent'` if it was `'Sent'`) instead of hardcoded `'Draft'`/`'Final'` — no status is silently demoted on resume. This supersedes the documented quirk "`saveDraft` always forces Draft status" — see "Conventions" below. **WP3 update**: this button is no longer ungated — `canEditReport` (owner-only, see "Scoped access (WP3 — the access flip)" below) now disables it, with a hint, for anyone but the report's own owner, and `WizardPage` independently redirects away from a direct `/edit` URL visit under the same condition.
 
 **Quality** (what was verified by RUNNING, stated precisely — do not inflate this list):
 - All three gates (`npm run build && npm run lint && npm run typecheck`) exit 0.
@@ -1262,7 +1278,7 @@ Slide keys are stable for non-overflowing sections (identical to prior phases, p
 - Report delete driven through a real browser in demo mode: the row disappears, `ff.reports.v2` shrinks by exactly one, zero `/api` calls.
 - Both post-review bug fixes were proven by DISABLING the fix and watching the harness fail, not merely asserted: removing `packIntoSlides`'s `onlyWidows` guard makes `daily-giant-task-title` render a blank "Tasks by Client · 1 of 4" page (9 slides instead of 8); stashing the wizard status fix reproduces the Draft-demotion case.
 
-**NOT verified by running**: the Supabase owner-or-admin delete round trip (403 vs 204). That needs two real accounts against a live project, and nothing was written to production. The client-side predicate mirrors the RLS policy text, but the live path is reasoned about, not exercised.
+**NOT verified by running** (at the time of Phase 8d): the Supabase owner-or-admin delete round trip (403 vs 204). That needed two real accounts against a live project, and nothing was written to production. **This gap was closed by WP3**: `scripts/verify-access-matrix.ts` ran the delete round trip live against a local Supabase stack (admin's DELETE of a report she doesn't own succeeds; a non-owner/non-pm member's would be denied by the same `reports_delete` policy) — see "Scoped access (WP3 — the access flip)" below.
 
 **Known conservatism**: height estimation deliberately over-reserves (measured slack ~70–112px per task slide) so a marginal section costs one extra slide rather than risking clipping — over-reserving costs a page, under-reserving loses data. Related: `DECK_METRICS` was measured against the WEEKLY dense-table layout but is reused, conservatively, by the daily `tasksByClient` slide's tighter CSS; anyone tightening those constants must re-measure BOTH layouts or the daily deck will clip first while the weekly fixtures still pass.
 
@@ -1540,6 +1556,153 @@ lists the seeded team members plus "Unassigned", and picking "Unassigned"
 clears a previously-set assignee. See `docs/database-schema.md`'s matching
 section for the full story across every layer.
 
+## Scoped access (WP3 — the access flip)
+
+The riskiest package in the RBAC rollout: it changes the READ boundary from
+org-wide to scoped, and rewrites the WRITE permission matrix. Read
+`supabase/migrations/20260726000018_scoped_access.sql`'s own header comment
+alongside this section — it restates the matrix and every rationale below
+in more depth, next to the SQL it describes.
+
+**The locked permission matrix**:
+
+| | read | edit | delete |
+|---|---|---|---|
+| creator (= parent report owner) | yes | yes | yes |
+| assignee (of a task) | yes (that task) | yes (that task, NARROW fields) | no |
+| pm | ALL | only own/assigned | ALL |
+| admin | ALL | only own/assigned | ALL |
+| other member | no | no | no |
+
+**TRIPWIRE — read this before touching task/risk/priority creation paths.**
+A task's creator is ALWAYS the parent report's owner, because every
+task-creation path in this codebase (the wizard, the `/tasks` Add Task
+dialog, CSV import, `create_report`/`update_report` MCP tools) writes into
+a report the caller already owns. This is why "the creator can edit their
+task" needs no `created_by` column — `tasks_update`/`tasks_delete` (and the
+`risks`/`priorities` equivalents) key ONLY off the parent report's
+`owner_id`, via an `exists (select 1 from reports r where r.id = report_id
+and r.owner_id = auth.uid())` subquery. **The day a
+non-owner can add a task to someone else's report, this equivalence breaks**
+— a reviewer of any future diff that lets caller A write a task/risk/
+priority onto caller B's report MUST add a real `created_by` column and
+update these policies before merging; until then, assume the parent
+report's `owner_id` IS the row's creator, everywhere in this schema.
+
+**Reads**: `reports_select`/`tasks_select`/`risks_select`/`priorities_select`
+move from `using (true)` to `owner_id = auth.uid() OR has_role_at_least('pm')
+OR token_has_org_read()`. `tasks_select` additionally has an assignee arm
+(`exists (select 1 from team_members tm where tm.id = tasks.assignee_id and
+tm.user_id = auth.uid())`) — a task's own assignee can see IT (and only it,
+via the narrow `list_assigned_tasks()` RPC below, never the raw table) even
+on a report they can't otherwise read at all.
+
+**Writes**: every `is_admin()` branch is GONE from `reports_insert`/
+`_update`, `tasks_insert`/`_update`/`_delete`, and the `risks`/`priorities`
+equivalents — owner-only, full stop. `reports_delete` is the one exception
+that WIDENS rather than narrows: `owner_id = auth.uid() OR
+has_role_at_least('pm')` (was `... OR is_admin()`) — pm can now delete any
+report, matching the matrix's "pm: delete ALL" cell. Assignee writes to a
+task NEVER go through the direct `tasks_update` policy (owner-only) — only
+through `public.update_assigned_task()`, a narrow, owner-OR-assignee
+SECURITY DEFINER RPC that can only ever touch `status`/`deadline`/
+`completed_at`, never `task`/`client`/`assignee_id`/`project_id` (the
+identity/dedupe fields other people's report chains and this codebase's own
+client-string dedupe depend on).
+
+**One daily per (owner, project bucket, day\)** — `reports_one_daily_per_day`
+widens from `(project bucket, day)` to also partition by `owner_id`
+(`coalesce(owner_id::text, '')`, same NULL-folding treatment `project_id`
+already gets): two different people filing their own house daily for the
+same date is now legitimate (two different status updates), not a
+duplicate — verified live.
+
+**Ownerless rows** (`owner_id` stays nullable — seed rows predate any auth
+user): visible only to pm+/org-read tokens now, editable by nobody. Zero
+reports exist in production today, so nothing needs migrating.
+
+**MCP org-read scope** (admin-only, opt-in, READ-ONLY). Tokens are
+structurally member-tier (Phase 8a — no `app_metadata` on the minted JWT),
+so scoping reads by default would silently shrink every existing connector
+token to own-reports-only. `api_tokens.org_read boolean default false` is
+settable ONLY at creation, ONLY by an admin (`api_tokens_insert`'s `with
+check` requires `org_read = false OR has_role_at_least('admin')`, an
+RLS-layer gate, not just the Settings checkbox — a non-admin's raw
+PostgREST `{org_read: true}` insert is also rejected). `verify_api_token`
+widened to return `jsonb {user_id, org_read}` (a return-type change, so the
+migration `drop function`s the old one first); `lib/server/mcp-auth.ts`'s
+`mintMcpJwt` adds a TOP-LEVEL `org_read` claim (deliberately NOT nested
+under `app_metadata`, so it can never make `is_admin()`/`has_role_at_least()`
+true and can therefore never touch a write policy — none reference it).
+`public.token_has_org_read()` reads that claim and is the extra `or` arm on
+every `*_select` policy. **Verified live**: a minted JWT with `org_read:
+true` for a plain member could read a report she doesn't own; a PATCH
+against that same report with that same JWT still updated zero rows.
+
+**`list_assigned_tasks()`/`update_assigned_task()`** — the assignee's
+narrow surface, both new SECURITY DEFINER RPCs, both `authenticated`-only
+(anon denied, verified live). `list_assigned_tasks()` takes NO parameters
+(re-derives the caller from `auth.uid()` via a `team_members.user_id` join
+every call) and returns the caller's assigned tasks joined with BOUNDED
+parent-report context (`reportId`/`reportKind`/`weekStart`/`weekEnd`/
+`date`/`preparedFor`, plus the owner's team-directory name when linkable) —
+**never** sibling tasks, risks, priorities, or the report's narrative; that
+omission is the entire trust boundary. `update_assigned_task(p_task_id,
+p_status, p_deadline, p_completed_at)` is owner-OR-assignee, narrow-field
+only, bumps the parent `reports.updated_at`, and raises 42501 (curated to
+"You don't have permission to do that.") for an unknown task or a caller
+who is neither owner nor assignee.
+
+**App-side plumbing** (new, ships in this same package): `AssignedTask`/
+`AssignedTaskPatch` (`lib/types.ts`, hand-written DTOs — a bespoke RPC join
+result, not a stored entity); `AssignedTaskPatchSchema` (`lib/schema/api.ts`,
+`.strict()`, status/deadline/completedAt only); `getAssignedTasks`/
+`updateTask` on `ReportsRepository` (demo mode's `getAssignedTasks` returns
+`[]` unconditionally — no owner/assignee-visibility gap to bridge there);
+`GET /api/tasks/assigned` / `PATCH /api/tasks/[id]`; `lib/hooks/
+useAssignedTasks.ts` (not yet wired into any screen — this package is the
+plumbing, not a new UI surface, see Roadmap's "Later").
+
+**`canEditReport`** (`lib/report-access.ts`) — owner-only, NO pm/admin
+branch, mirroring `reports_update` exactly (beside the existing
+`canDeleteReport`, now `hasRoleAtLeast(user, 'pm')` instead of an
+admin-only check, mirroring `reports_delete`'s widened branch).
+`ReportScreen` renders read-only (status/preparedFor/period fields, and
+disables "Edit Report") when `!canEdit` — **this is the fix for the exact
+failure mode this package exists to prevent**: a pm/admin merely BROWSING a
+teammate's report (now legitimately visible under the new `reports_select`)
+must never fire a doomed, curated-403 autosave on every keystroke.
+`WizardPage` additionally redirects `/reports/[id]/edit`/`/daily/[id]/edit`
+to the read-only report screen when the resolved report exists but
+`!canEditReport(...)`, so a non-owner can never even reach the fillable
+wizard for a report they can't save; `DashboardScreen`/`DailyListScreen`'s
+row action reads "Continue" only when both `isDraft` AND editable, else
+"View".
+
+**Owner-scoped daily-conflict check** (app-side mirror of the SQL index
+above): `lib/report-utils.ts`'s `dailyDateConflict`/`invalidDailyDateEdit`/
+`validateStep` gained an optional `currentUserId` (threaded from
+`useSession().user?.id` through `WizardPage` → `WizardScreen` → `useWizard`,
+and read directly in the daily report screen) — without this, a pm/admin
+who now sees every teammate's daily report would get a false "already
+exists" against a report they don't own. `sameReportOwner` degrades to "no
+conflict ruled out" whenever either side's owner is unknown (demo mode, or
+an ownerless legacy row), so every call site that never threads
+`currentUserId` is unaffected.
+
+**Verification**: `scripts/verify-access-matrix.ts` ran LIVE against a
+local Supabase stack (`supabase start` + `supabase db reset`) and passed
+**32/32** — every cell of the matrix above, the org-read scope end to end
+(mints a JWT the same shape `mintMcpJwt` would), and the per-owner daily
+uniqueness change. All three gates, `npm run verify:print` (8/8), and
+`npx tsx scripts/check-mcp-tool-contract.ts` (8 tools, unchanged) also pass.
+See `docs/database-schema.md`'s "Scoped access (WP3 — the access flip)"
+section for the full per-check results table and exactly how to re-run it.
+**Not verified**: this app's own curated HTTP error strings require the
+Next dev server running against the same local stack, which this script
+does not start — it asserts on the underlying raw Postgres/PostgREST
+response those functions curate instead.
+
 ## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
@@ -1684,6 +1847,27 @@ section for the full story (the FK/curatedMessage forward-declaration
 payoff, the `createdAt` stamp-vs-omit design decision, and the full
 Zod/mapping/UI/CSV/MCP story).
 
+**WP3 (the access flip)**: `supabase/migrations/20260726000018_scoped_access.sql`
+— **written AND verified live** (against a local Supabase stack,
+`scripts/verify-access-matrix.ts`, 32/32 — NOT applied to any hosted/
+production project, that remains the user's own call). Replaces
+`reports_select`/`tasks_select`/`risks_select`/`priorities_select`'s
+`using (true)` with owner-or-pm+-or-org-read-token scoping; drops the
+`is_admin()` branch from every write policy on all four tables (editing is
+now owner-ONLY); widens `reports_delete` from admin-only to pm-or-above;
+widens the `reports_one_daily_per_day` unique index to also partition by
+`owner_id`; adds `api_tokens.org_read` (admin-only at INSERT, enforced by
+RLS) plus `public.token_has_org_read()` (a read-only-widening JWT-claim
+predicate, isolated from `app_metadata`/`is_admin()`/`has_role_at_least()`
+by construction); widens `verify_api_token` to also return `org_read`; and
+adds two new SECURITY DEFINER RPCs, `public.list_assigned_tasks()`/
+`public.update_assigned_task()`, the assignee's narrow read/write surface.
+**No `lib/types.ts` domain shape changed** (`AssignedTask`/`AssignedTaskPatch`
+are hand-written DTOs describing a bespoke RPC join result, not a stored
+entity — see "Scoped access (WP3 — the access flip)" below for why that's
+sound without a matching migration entry of its own beyond the RPCs
+themselves, which this entry already covers).
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -1706,17 +1890,22 @@ Zod/mapping/UI/CSV/MCP story).
   `roles` (WP0: client-side role-ladder mirror — `Role`/`roleRank`/`hasRoleAtLeast`),
   `report-sections` (Phase 8d: per-kind section headings + grouping),
   `deck-slides` (Phase 8d: paginated deck builder + deterministic height estimation),
-  `report-access` (Phase 8d: delete access predicate), `data/` (repository interface + localStorage impl + HTTP impl
-  (Phase 7b) + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
+  `report-access` (Phase 8d: delete access predicate; WP3 adds `canEditReport`, owner-only, and
+  widens `canDeleteReport` to `hasRoleAtLeast(user, 'pm')`), `data/` (repository interface + localStorage impl + HTTP impl
+  (Phase 7b) + factory; WP3 adds `getAssignedTasks`/`updateTask`), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
   (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `hooks/useTeamMembers` (WP1: clones
-  `useProjects` exactly), `schema/` (Zod 4, Phase 6a; WP1 adds `team.ts`),
+  `useProjects` exactly), `hooks/useAssignedTasks` (WP3: the caller's own assigned tasks; not yet
+  wired into a screen), `schema/` (Zod 4, Phase 6a; WP1 adds `team.ts`; WP3 adds `AssignedTaskPatchSchema`
+  to `api.ts`),
   `server/` (Phase 7b: `reports-service`, `db-mapping`, `route-helpers`, `request-guards`;
   Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`, `ai-keys`, `ai-polish`; Phase 8c adds
   `renameProject`/`deleteProject` to `reports-service`; Phase 8d: `deleteReport` to `reports-service`;
   WP1 adds `listTeamMembers`/`ensureTeamMember`/`renameTeamMember`/`deleteTeamMember` to
   `reports-service` and a `TeamMemberRow`/mappers pair to `db-mapping`; WP2 adds
   `assignee_id`/`created_at` to `db-mapping`'s `TaskRow`/`mapTaskRow`/`reportToRow` and an
-  `assignee_id` input field to `mcp-tools`'s `create_report`), `supabase/` (Phase 7a: Supabase client
+  `assignee_id` input field to `mcp-tools`'s `create_report`; WP3 adds `listAssignedTasks`/
+  `updateAssignedTask` to `reports-service` and widens `mcp-auth`'s `verifyApiToken`/`mintMcpJwt`
+  to carry the `org_read` scope), `supabase/` (Phase 7a: Supabase client
   factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),

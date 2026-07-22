@@ -4,10 +4,13 @@ import type { ChangeEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
 import { Input } from '@/components/ui/Input';
 import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
 import { fmtDateShort } from '@/lib/format';
+import { useSession } from '@/lib/hooks/useSession';
+import { hasRoleAtLeast } from '@/lib/roles';
 import styles from './McpAccessSection.module.css';
 
 interface ApiTokenSummary {
@@ -17,6 +20,8 @@ interface ApiTokenSummary {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  /** WP3: whether this token's bridged MCP session reads org-wide -- see `app/api/tokens/route.ts`'s identical field doc comment. */
+  orgRead: boolean;
 }
 
 async function readApiError(response: Response, fallback: string): Promise<string> {
@@ -30,6 +35,7 @@ async function readApiError(response: Response, fallback: string): Promise<strin
 
 const COLUMNS: TableColumn[] = [
   { key: 'label', label: 'Label' },
+  { key: 'scope', label: 'Scope' },
   { key: 'created', label: 'Created' },
   { key: 'lastUsed', label: 'Last Used' },
   { key: 'status', label: 'Status' },
@@ -73,17 +79,33 @@ function statusBadge(token: ApiTokenSummary) {
  * in stages -- the notice just explains why a freshly-minted token won't
  * work yet, instead of leaving that as a silent, confusing 404 the first
  * time `claude mcp add` is actually run.
+ *
+ * WP3 (the access flip) added the "Org-wide read" checkbox below --
+ * admin-only (disabled-with-a-hint for anyone else, the same "disable,
+ * don't hide" posture `TeamManager.tsx` established for its own admin-only
+ * controls), because reads are no longer org-wide by default (a token now
+ * only sees its owner's own reports, same as a plain member's own web
+ * session would). Checking it mints a token whose bridged MCP session can
+ * read every report/task/risk/priority in the org -- writes are UNAFFECTED
+ * either way, always owner-only (see `lib/server/mcp-auth.ts`'s header
+ * comment). The UI gate here is pure convenience; `api_tokens_insert` RLS
+ * (supabase/migrations/20260726000018_scoped_access.sql) is the real
+ * control and rejects a non-admin's `orgRead: true` regardless of what this
+ * checkbox's disabled state renders.
  */
 export function McpAccessSection() {
   const [tokens, setTokens] = useState<ApiTokenSummary[] | null>(null);
   const [endpointReady, setEndpointReady] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [label, setLabel] = useState('');
+  const [orgRead, setOrgRead] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [justCreated, setJustCreated] = useState<{ value: string } | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [origin, setOrigin] = useState('');
+  const { user } = useSession();
+  const isAdmin = hasRoleAtLeast(user, 'admin');
 
   useEffect(() => {
     setOrigin(window.location.origin);
@@ -111,12 +133,13 @@ export function McpAccessSection() {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: label.trim() }),
+        body: JSON.stringify({ label: label.trim(), orgRead: isAdmin && orgRead }),
       });
       if (!res.ok) throw new Error(await readApiError(res, 'Failed to create a token.'));
       const body = (await res.json()) as { value: string };
       setJustCreated({ value: body.value });
       setLabel('');
+      setOrgRead(false);
       await loadTokens();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create a token.');
@@ -147,6 +170,7 @@ export function McpAccessSection() {
   const rows =
     tokens?.map((token) => ({
       label: token.label || '(unlabeled)',
+      scope: token.orgRead ? <Badge tone="warning">Org-wide read</Badge> : 'Own reports',
       created: fmtDateShort(token.createdAt),
       lastUsed: token.lastUsedAt ? fmtDateShort(token.lastUsedAt) : 'Never',
       status: statusBadge(token),
@@ -163,9 +187,10 @@ export function McpAccessSection() {
     <section className={styles.section}>
       <div className={styles.sectionKicker}>Claude (MCP) Access</div>
       <p className={styles.sectionCopy}>
-        Create a token to let Claude read and write reports through this app&apos;s MCP server. Every token acts as YOU: it
-        can read every report (same as the dashboard) but can only create or edit reports it owns, and it can never delete
-        a report. Revoke a token any time to cut off access immediately.
+        Create a token to let Claude read and write reports through this app&apos;s MCP server. Every token acts as YOU: by
+        default it can read and edit only reports YOU own (an admin can additionally check &quot;Org-wide read&quot; below to
+        let a token see every report, but it still never lets a token create/edit/delete anyone else&apos;s report). Revoke a
+        token any time to cut off access immediately.
       </p>
 
       {endpointReady === false ? (
@@ -205,6 +230,17 @@ export function McpAccessSection() {
             {isCreating ? 'Creating…' : 'Create Token'}
           </Button>
         </div>
+      </div>
+      <div className={styles.scopeRow}>
+        <Checkbox
+          label="Org-wide read (admin only)"
+          checked={orgRead}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setOrgRead(e.target.checked)}
+          disabled={!isAdmin}
+        />
+        {!isAdmin ? (
+          <p className={styles.scopeHint}>Only admins can create an org-wide-read token. Every token still writes only its own reports.</p>
+        ) : null}
       </div>
       {createError ? (
         <p className={styles.fieldError} role="alert">

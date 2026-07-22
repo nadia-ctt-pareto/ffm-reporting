@@ -123,23 +123,35 @@ different date or project.
 
 ## Access model
 
-- **Reads are org-wide.** `list_reports`, `get_report`, `list_projects`, and
-  `get_week_rollup` return every report/project in the organization, not
-  just ones you (the token's owner) created -- this mirrors the web
-  dashboard exactly, which every signed-in teammate can browse in full.
-  This is intentional, not a leak -- don't treat a report by someone else
-  showing up in a list as anything unusual.
-- **Writes are owner-only.** `create_report`, `update_report`,
-  `create_project`, and `create_weekly_from_dailies` can only create rows
-  you own or edit rows you already own. Attempting to edit someone else's
-  report returns a clear "you don't have permission" error -- there is no
-  way around this, including for an admin's token (see below).
+- **Reads are scoped to the token's own owner BY DEFAULT -- this is a
+  change from this connector's earlier behavior.** `list_reports`,
+  `get_report`, `list_projects` (projects stay shared reference data, see
+  below), and `get_week_rollup` now return only reports the token's OWNER
+  created, unless the token was minted with the admin-only **org-wide read**
+  scope (a checkbox at token creation in `/settings`, admin-only). If a
+  `list_reports`/`get_week_rollup` result looks surprisingly small compared
+  to what the user expects to see across the whole team, that is very
+  likely this default scoping, not a bug -- tell them an admin can create a
+  new, org-wide-read token if they need to browse everyone's reports through
+  Claude.
+- **`list_projects` stays org-wide** -- projects are shared reference data
+  (the same posture the web app's own `/projects` page and the Settings
+  Projects tab use), independent of the report-read scoping above.
+- **Writes are owner-only, unconditionally -- this has NOT changed, and
+  applies to EVERY token regardless of its read scope.** `create_report`,
+  `update_report`, `create_project`, and `create_weekly_from_dailies` can
+  only create rows you own or edit rows you already own. Attempting to edit
+  someone else's report returns a clear "you don't have permission" error --
+  there is no way around this, including for an admin's token or an
+  org-wide-read token (see below). Checking "Org-wide read" at token
+  creation widens what a token can SEE; it never widens what it can WRITE.
 - **MCP tokens are never admin, even for an admin user.** A token minted
   from an admin's account still only acts as a plain member for every write
-  -- it can read everything (same as any token) but can only write its own
-  rows. If the user needs to edit someone else's report, tell them to do it
-  in the web app while signed in as that report's owner, or ask that person
-  to grant access another way -- do not suggest routing around this Skill.
+  -- it can read its own rows (or every org row, if org-wide read is
+  enabled) but can only write its own rows. If the user needs to edit
+  someone else's report, tell them to do it in the web app while signed in
+  as that report's owner, or ask that person to grant access another way --
+  do not suggest routing around this Skill.
 - **There is no delete tool, and this Skill never promises deletion.** Do
   not attempt to "delete" a report by clearing its fields via
   `update_report` -- that produces a confusing, hollowed-out report instead
@@ -175,6 +187,8 @@ week_start_to?, limit?}` (limit defaults to 20, capped at 100).
 period, status, preparedFor/By, projectId, task/risk counts, on-schedule
 stats, `updatedAt`) sorted by period end, most recent first -- not the full
 report body. Use this to find candidates before calling `get_report`.
+**Scoped to the token's own owner by default** (see "Access model" above)
+-- an org-wide-read token sees every report instead.
 
 **`get_report`** -- `{id}`. Returns the full report (all tasks/risks/
 priorities/win/touchpoints) plus `updatedAt`, which you need verbatim for
@@ -185,10 +199,12 @@ unknown id.
 
 **`get_week_rollup`** -- `{week_start}` (must be a Monday, `yyyy-mm-dd`;
 anything else is rejected with an instructive error). **Read-only preview**
--- merges every weekly and daily report that overlaps that week (see
-"Merge semantics" below) and returns `{week_start, week_end, sources,
-rollup, merge_log}` WITHOUT persisting anything. Use this to show the user
-what a roll-up would look like before calling `create_weekly_from_dailies`.
+-- merges every weekly and daily report that overlaps that week AND is
+visible to this token (see "Access model" above -- the token's own reports,
+or every report if org-wide read is enabled; see "Merge semantics" below)
+and returns `{week_start, week_end, sources, rollup, merge_log}` WITHOUT
+persisting anything. Use this to show the user what a roll-up would look
+like before calling `create_weekly_from_dailies`.
 
 ### Write tools
 
@@ -315,14 +331,22 @@ substitute for asking first.
 3. **Blocker triage across N weeks.** Call `list_reports` for the trailing
    window, `get_report` each, and collect every task/risk marked
    `"Blocked"`. Group by client and flag anything recurring across more
-   than one consecutive week. No write involved.
+   than one consecutive week. No write involved. **Remember the read
+   scoping**: with a plain (non-org-read) token, this only surfaces the
+   token owner's OWN reports -- if the user wants triage across the whole
+   team, tell them an admin needs to mint an org-wide-read token for that.
 4. **Consolidate a week across projects.** Call `list_projects`, then
    `list_reports` scoped to each project for the target week, `get_report`
    each result, and produce one consolidated narrative (overall progress,
    top risks across all projects, one combined win). No write involved --
    if the user wants this actually saved as a report, that's a
    `create_report` call built from what you found, following the
-   duplicate-guard flow above.
+   duplicate-guard flow above. **This workflow needs an org-wide-read
+   token** if the projects in question have reports owned by different
+   people -- a plain token only ever sees its own owner's reports, so a
+   "consolidate across the whole team" request from a plain-token session
+   will silently only include the token owner's own work; say so before
+   presenting a result that might look complete but isn't.
 5. **CSV import assistance.** This connector does not import CSVs itself
    (that's a web-app-only feature at `/settings`) -- if a user wants to
    bring in a CSV of reports, help them map their source data onto the

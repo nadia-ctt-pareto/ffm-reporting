@@ -24,14 +24,28 @@
 //   3. `mintMcpJwt` mints a 5-minute HS256 JWT signed with the project's
 //      legacy JWT secret (server-only env `SUPABASE_JWT_SECRET`), claims
 //      `{ sub: user_id, role: 'authenticated', aud: 'authenticated',
-//      iss: '<SUPABASE_URL>/auth/v1', iat, exp }`. Deliberately NO
-//      `app_metadata` -- `public.is_admin()` (supabase/migrations/
-//      20260719000004_auth_ownership.sql) reads `auth.jwt() ->
-//      'app_metadata' ->> 'role'`, which is simply absent from every token
-//      this module mints, so it evaluates to `false` unconditionally. Every
-//      MCP call therefore runs as a plain member, even for an admin user's
-//      token -- least privilege, documented in the Skill
+//      iss: '<SUPABASE_URL>/auth/v1', iat, exp }`, PLUS (WP3) a top-level
+//      `org_read` boolean claim, set to whatever `api_tokens.org_read` says
+//      for the token that was just verified. Deliberately NO
+//      `app_metadata` -- `public.is_admin()`/`public.has_role_at_least()`
+//      (supabase/migrations/20260719000004_auth_ownership.sql,
+//      20260726000015_role_ladder.sql) read `auth.jwt() -> 'app_metadata'
+//      ->> 'role'`, which is simply absent from every token this module
+//      mints, so both evaluate `false`/`'member'`-rank unconditionally.
+//      Every MCP call therefore runs as a plain member, even for an admin
+//      user's token -- least privilege, documented in the Skill
 //      (skills/weekly-reports/SKILL.md) and in McpAccessSection.tsx's copy.
+//      `org_read` lives OUTSIDE `app_metadata` specifically so it can never
+//      be read by `is_admin()`/`has_role_at_least()` and can never elevate
+//      a token's WRITE authority -- `public.token_has_org_read()`
+//      (supabase/migrations/20260726000018_scoped_access.sql) is the only
+//      thing that reads it, and only `reports_select`/`tasks_select`/
+//      `risks_select`/`priorities_select` reference that function, never
+//      any insert/update/delete policy. An org-read token can therefore see
+//      every report/task/risk/priority in the org (the same breadth
+//      `list_reports`/`get_report`/`get_week_rollup` already advertised as
+//      "org-wide" before WP3 scoped reads by default), but still writes
+//      strictly as its own owner, identically to a non-org-read token.
 //   4. `userScopedClient` builds a fresh `SupabaseClient` carrying that JWT
 //      as its `Authorization` header (`persistSession`/`autoRefreshToken`
 //      both false -- this client never establishes or refreshes a session,
@@ -109,8 +123,8 @@ function signHs256(claims: Record<string, unknown>, secret: string): string {
 /** 5 minutes -- short-lived by design: this JWT only ever needs to live for the duration of ONE MCP tool call's Supabase queries, never persisted or reused across requests. */
 const JWT_TTL_SECONDS = 5 * 60;
 
-/** Mints the short-lived, PostgREST-compatible JWT for `userId` -- see this file's header comment for the full claim set and why `app_metadata` is deliberately absent. */
-function mintMcpJwt(userId: string): string {
+/** Mints the short-lived, PostgREST-compatible JWT for `userId` -- see this file's header comment for the full claim set (including the WP3 `org_read` claim) and why `app_metadata` is deliberately absent. */
+function mintMcpJwt(userId: string, orgRead: boolean): string {
   const secret = jwtSecret();
   if (!secret) {
     throw new Error('mintMcpJwt() called without SUPABASE_JWT_SECRET set -- callers must check isMcpConfigured() first.');
@@ -124,6 +138,10 @@ function mintMcpJwt(userId: string): string {
     iss: `${url}/auth/v1`,
     iat,
     exp: iat + JWT_TTL_SECONDS,
+    // WP3: a top-level (NOT app_metadata-nested) claim -- see this file's
+    // header comment for why that placement is what keeps it isolated from
+    // is_admin()/has_role_at_least() and from ever widening write authority.
+    org_read: orgRead,
   };
   return signHs256(claims, secret);
 }
@@ -140,21 +158,29 @@ export function hashApiTokenForStorage(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
+/** WP3: `verify_api_token`'s widened jsonb return shape (supabase/migrations/20260726000018_scoped_access.sql) -- `user_id` (snake_case, exactly as the RPC returns it) plus the new `org_read` scope flag. */
+interface VerifyApiTokenResult {
+  user_id: string;
+  org_read: boolean;
+}
+
 /**
  * Calls `verify_api_token` via the BARE anon client (never the cookie-bound
- * one -- see this file's header comment). Returns the owning `user_id`, or
- * `null` for ANY failure -- missing/malformed row, revoked, expired, or a
- * genuine RPC error (logged server-side either way, never surfaced to the
- * caller beyond "invalid").
+ * one -- see this file's header comment). Returns the owning `user_id` plus
+ * its `org_read` scope, or `null` for ANY failure -- missing/malformed row,
+ * revoked, expired, or a genuine RPC error (logged server-side either way,
+ * never surfaced to the caller beyond "invalid").
  */
-async function verifyApiToken(token: string): Promise<string | null> {
+async function verifyApiToken(token: string): Promise<{ userId: string; orgRead: boolean } | null> {
   const anon = getSupabaseAnonClient();
   const { data, error } = await anon.rpc('verify_api_token', { p_token: token });
   if (error) {
     console.error('[mcp-auth] verify_api_token RPC error', error);
     return null;
   }
-  return (data as string | null) ?? null;
+  const result = (data as VerifyApiTokenResult | null) ?? null;
+  if (!result) return null;
+  return { userId: result.user_id, orgRead: Boolean(result.org_read) };
 }
 
 /** The user-scoped client every MCP tool runs its `reports-service` calls through -- see this file's header comment. A fresh client per call, never a module-scope singleton (mirrors lib/supabase/anon.ts's own rationale: there is no persistent tab to amortize a singleton across here either). */
@@ -186,10 +212,10 @@ const TOKEN_PREFIX = 'ffmcp_';
  */
 export async function bridgeMcpToken(token: string): Promise<McpAuthContext | null> {
   if (!token.startsWith(TOKEN_PREFIX)) return null;
-  const userId = await verifyApiToken(token);
-  if (!userId) return null;
-  const jwt = mintMcpJwt(userId);
-  return { userId, db: userScopedClient(jwt) };
+  const verified = await verifyApiToken(token);
+  if (!verified) return null;
+  const jwt = mintMcpJwt(verified.userId, verified.orgRead);
+  return { userId: verified.userId, db: userScopedClient(jwt) };
 }
 
 /**

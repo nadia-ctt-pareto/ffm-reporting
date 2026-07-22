@@ -228,6 +228,38 @@ export function sameProjectBucket(a?: string | null, b?: string | null): boolean
 }
 
 /**
+ * WP3 (the access flip): true when an existing daily's `ownerId` does NOT
+ * rule out a conflict against `currentUserId` -- i.e. either side is
+ * unknown (demo mode, where reports carry no `ownerId` at all; or an
+ * ownerless/legacy row) or they genuinely match. An explicit MISMATCH
+ * (`existing.ownerId !== currentUserId`, BOTH known) means the two dailies
+ * belong to two different people and must NOT collide.
+ *
+ * Why this exists: before WP3's scoped `reports_select`
+ * (supabase/migrations/20260726000018_scoped_access.sql), a daily report
+ * was ONLY ever visible to its own author's browser session for the
+ * purposes of this check (org-wide reads existed, but every session's
+ * `existingDailies` list still only ever contained rows that one same
+ * signed-in user could see and had usually authored themselves in
+ * practice). Under scoped reads, a pm/admin now legitimately sees EVERY
+ * daily report, including teammates' -- so `dailyDateConflict`/
+ * `invalidDailyDateEdit` must stop treating "any daily with this date, by
+ * anyone" as a conflict, or a pm/admin filing (or editing) their OWN daily
+ * for a date a teammate already used would get a false "already exists"
+ * against a report they don't own and never could have collided with under
+ * the real SQL constraint (`reports_one_daily_per_day` is now scoped by
+ * `owner_id` too -- see that index's own migration comment). Demo mode
+ * (`currentUserId` undefined, and every seeded/local report's `ownerId`
+ * also undefined) is unaffected -- `sameReportOwner` degrades to "always
+ * true" whenever either id is unknown, exactly matching this function's
+ * pre-WP3 behavior byte-for-byte.
+ */
+function sameReportOwner(existingOwnerId: string | null | undefined, currentUserId: string | null | undefined): boolean {
+  if (!existingOwnerId || !currentUserId) return true;
+  return existingOwnerId === currentUserId;
+}
+
+/**
  * Phase 4: true when `draft` is a daily report whose `date` matches an
  * existing daily OTHER than itself (`id !== draft.id`, so editing an
  * existing daily in place is never flagged against its own prior save).
@@ -237,11 +269,21 @@ export function sameProjectBucket(a?: string | null, b?: string | null): boolean
  * per project bucket (`sameProjectBucket`) -- a wizard-created draft always
  * has no `projectId` (house bucket), so this is a no-op behavior change for
  * every existing flow; it only stops colliding with imported project-scoped
- * dailies (supabase/migrations/20260718000003_projects.sql).
+ * dailies (supabase/migrations/20260718000003_projects.sql). WP3: also
+ * scoped per owner (`sameReportOwner`, see that function's own doc comment
+ * for why) -- `currentUserId` is optional and defaults to "unknown," which
+ * degrades to the pre-WP3 behavior (every existing weekly-wizard call site
+ * that never passes it is unaffected).
  */
-export function dailyDateConflict(draft: Draft, existingDailies: DailyReport[]): boolean {
+export function dailyDateConflict(draft: Draft, existingDailies: DailyReport[], currentUserId?: string | null): boolean {
   if (draft.kind !== 'daily' || !draft.date) return false;
-  return existingDailies.some((d) => d.date === draft.date && sameProjectBucket(d.projectId, draft.projectId) && d.id !== draft.id);
+  return existingDailies.some(
+    (d) =>
+      d.date === draft.date &&
+      sameProjectBucket(d.projectId, draft.projectId) &&
+      d.id !== draft.id &&
+      sameReportOwner(d.ownerId, currentUserId)
+  );
 }
 
 /**
@@ -253,10 +295,23 @@ export function dailyDateConflict(draft: Draft, existingDailies: DailyReport[]):
  * reaches `useDailyReports().updateReportFields`, or the one-daily-per-day
  * invariant (`reports_one_daily_per_day` in SQL) can be silently violated
  * via this edit path alone. Phase 6a: `projectId` defaults to `null` (house
- * bucket) so every pre-Phase-6a call site is unaffected.
+ * bucket) so every pre-Phase-6a call site is unaffected. WP3: same owner
+ * scoping as `dailyDateConflict` above, same optional/degrades-to-unknown
+ * `currentUserId` parameter.
  */
-export function invalidDailyDateEdit(existingDailies: DailyReport[], id: string, date: string, projectId?: string | null): boolean {
-  return !date || existingDailies.some((d) => d.date === date && sameProjectBucket(d.projectId, projectId) && d.id !== id);
+export function invalidDailyDateEdit(
+  existingDailies: DailyReport[],
+  id: string,
+  date: string,
+  projectId?: string | null,
+  currentUserId?: string | null
+): boolean {
+  return (
+    !date ||
+    existingDailies.some(
+      (d) => d.date === date && sameProjectBucket(d.projectId, projectId) && d.id !== id && sameReportOwner(d.ownerId, currentUserId)
+    )
+  );
 }
 
 /**
@@ -267,13 +322,14 @@ export function invalidDailyDateEdit(existingDailies: DailyReport[], id: string,
  * (`existingDailies` is only consulted for that check -- pass `[]` from any
  * weekly call site, it's a no-op there). Step 5's error copy is also
  * kind-aware ("next week" only makes sense for a weekly draft) -- steps 2-4
- * are identical for both kinds.
+ * are identical for both kinds. WP3: `currentUserId` passes straight through
+ * to `dailyDateConflict` -- see that function's doc comment.
  */
-export function validateStep(step: number, draft: Draft, existingDailies: DailyReport[] = []): string {
+export function validateStep(step: number, draft: Draft, existingDailies: DailyReport[] = [], currentUserId?: string | null): string {
   if (step === 1) {
     if (draft.kind === 'daily') {
       if (!draft.date) return 'Enter the report date.';
-      if (dailyDateConflict(draft, existingDailies)) return 'A daily report for this date already exists.';
+      if (dailyDateConflict(draft, existingDailies, currentUserId)) return 'A daily report for this date already exists.';
     } else {
       if (!draft.weekStart || !draft.weekEnd) return 'Enter the week start and end dates.';
     }

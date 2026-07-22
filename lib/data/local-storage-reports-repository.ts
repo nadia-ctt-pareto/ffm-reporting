@@ -1,6 +1,7 @@
+import { nowDate } from '../format';
 import { ensureProjectIds } from '../projects';
 import { seedDailyReports, seedProjects, seedReports, seedTeamMembers } from '../seed';
-import type { AnyReport, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
+import type { AnyReport, AssignedTask, AssignedTaskPatch, DailyReport, Project, ReportCore, Task, TeamMember, WeeklyReport } from '../types';
 import type { ReportsRepository } from './reports-repository';
 
 /** Phase 1-3 key: `WeeklyReport[]` only (no `kind` field). Never written to post-Phase-4 -- kept only as a migration source/backup, see migrateV1ToV2 below. */
@@ -387,6 +388,62 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     const all = await this.loadTeamMembers();
     if (!all.some((m) => m.id === id)) throw new Error(`Team member ${id} not found.`);
     this.writeTeamMembers(all.filter((m) => m.id !== id));
+  }
+
+  /**
+   * WP3 (the access flip): demo mode has no auth/ownership concept at all --
+   * every report here is already fully accessible to whoever has this
+   * browser, so there is no separate "tasks assigned to me but on a report
+   * I don't otherwise see" surface to bridge (unlike Supabase mode, where
+   * `list_assigned_tasks()` genuinely widens visibility past `reports_select`).
+   * Always `[]`, matching `ReportsRepository.getAssignedTasks`'s own doc
+   * comment.
+   */
+  async getAssignedTasks(): Promise<AssignedTask[]> {
+    return [];
+  }
+
+  /**
+   * WP3: unlike every other localStorage method above, a task's id doesn't
+   * carry its parent report's id in this store's shape -- so this scans
+   * every stored `AnyReport` for the one whose `tasks` array contains
+   * `taskId`, patches ONLY that task (shallow-merging `patch`, mirroring
+   * `withTaskEdited`'s own "narrow field patch" shape, lib/report-utils.ts --
+   * not reused directly here since that helper's signature is built around
+   * the wizard's `today`-stamping contract, which this narrow patch has no
+   * use for), and bumps the OWNING report's `updatedAt` (matching
+   * `update_assigned_task`'s server-side behavior). Demo mode has no
+   * owner-or-assignee gate of its own (same posture as every other
+   * localStorage method -- there is no RLS-equivalent layer to enforce it
+   * at); this method exists mainly so the interface is fully implemented
+   * and demo mode's behavior doesn't silently diverge in shape from
+   * Supabase mode's. Throws if `taskId` doesn't exist in any report.
+   */
+  async updateTask(taskId: string, patch: AssignedTaskPatch): Promise<AssignedTask> {
+    const all = await this.loadAll();
+    let updatedReport: AnyReport | null = null;
+    let updatedTask: Task | null = null;
+    const next = all.map((r) => {
+      if (updatedTask || !r.tasks.some((t) => t.id === taskId)) return r;
+      const tasks = r.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t));
+      const merged = { ...r, tasks, updatedAt: nowDate() } as AnyReport;
+      updatedReport = merged;
+      updatedTask = tasks.find((t) => t.id === taskId) ?? null;
+      return merged;
+    });
+    if (!updatedReport || !updatedTask) throw new Error(`Task ${taskId} not found.`);
+    this.writeV2(next);
+    const finalReport = updatedReport as AnyReport;
+    const finalTask = updatedTask as Task;
+    return {
+      ...finalTask,
+      reportId: finalReport.id,
+      reportKind: finalReport.kind,
+      weekStart: finalReport.kind === 'weekly' ? finalReport.weekStart : undefined,
+      weekEnd: finalReport.kind === 'weekly' ? finalReport.weekEnd : undefined,
+      date: finalReport.kind === 'daily' ? finalReport.date : undefined,
+      preparedFor: finalReport.preparedFor,
+    };
   }
 
   /** No write queue in this implementation -- every write above already resolves (or rejects, on a `localStorage` quota/serialization error) before its own promise settles, so there is nothing async left to wait on. Always resolves immediately. */

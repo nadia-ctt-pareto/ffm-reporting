@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 import { POLISH_FIELD_IDS } from '../prompts';
-import { isoDate, AnyReportInputSchema, ReportCoreInputSchema } from './report';
+import { isoDate, isoDateOrEmpty, AnyReportInputSchema, ReportCoreInputSchema, TaskStatusSchema } from './report';
 import { ProjectSchema } from './project';
 import { TeamMemberSchema } from './team';
 
@@ -109,6 +109,25 @@ export type TeamMemberInput = z.infer<typeof TeamMemberInputSchema>;
  */
 export const TeamMemberRenameInputSchema = z.object({ name: TeamMemberSchema.shape.name });
 export type TeamMemberRenameInput = z.infer<typeof TeamMemberRenameInputSchema>;
+
+/**
+ * WP3 (the access flip): `PATCH /api/tasks/[id]` body -- validates against
+ * the EXACT same narrow field set `lib/types.ts`'s `AssignedTaskPatch`
+ * domain type allows (status/deadline/completedAt only), so the two can
+ * never drift. `.strict()` so an unrecognized key (e.g. a client
+ * accidentally sending `task`/`client`/`assigneeId`) is rejected outright
+ * with a 400 rather than silently dropped -- this route's whole point is a
+ * NARROW write surface, so a stray extra field is worth surfacing as an
+ * error, not quietly ignoring.
+ */
+export const AssignedTaskPatchSchema = z
+  .object({
+    status: TaskStatusSchema.optional(),
+    deadline: isoDateOrEmpty.optional(),
+    completedAt: isoDateOrEmpty.optional(),
+  })
+  .strict();
+export type AssignedTaskPatchInput = z.infer<typeof AssignedTaskPatchSchema>;
 
 /** Shape of every non-2xx JSON body a route handler under `app/api/**` returns. `issues` (present only on a 400 from a failed Zod parse) is `ZodIssue[]`, typed loosely here since it's diagnostic-only -- no caller in this phase branches on its shape. */
 export interface ApiErrorBody {

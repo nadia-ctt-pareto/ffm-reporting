@@ -25,6 +25,17 @@
 // supabase/migrations/20260719000004_auth_ownership.sql) -- never a
 // service-role client, matching the "no service-role key anywhere"
 // invariant this whole phase is built around.
+//
+// WP3 (the access flip): POST's body gained an optional `orgRead` boolean
+// (default `false`) -- the admin-only MCP scope that lets a token's bridged
+// session read every report/task/risk/priority in the org (not just its
+// own owner's), while writes stay owner-only regardless (see
+// `lib/server/mcp-auth.ts`'s header comment and
+// supabase/migrations/20260726000018_scoped_access.sql's `token_has_org_read()`).
+// This route does NOT check the caller's own role before inserting --
+// `api_tokens_insert`'s `with check` (same migration) is what actually
+// rejects a non-admin's `orgRead: true`, with a curated 403; the route
+// just forwards whatever was requested and lets Postgres decide.
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -38,9 +49,22 @@ import { createServerSupabase } from '@/lib/supabase/server';
 const TOKEN_ID_PREFIX = 'tok';
 const TOKEN_VALUE_PREFIX = 'ffmcp_';
 
-/** Request body for POST -- a human label only ("Claude Desktop", "laptop"); everything else (id, token_hash) is server-generated, never client-supplied. */
+/**
+ * Request body for POST -- a human label only ("Claude Desktop", "laptop"),
+ * plus (WP3) the opt-in `orgRead` scope. `id`/`token_hash` are server-
+ * generated, never client-supplied, same as before. `orgRead` defaults
+ * `false` (a plain, owner-scoped token -- unchanged from every prior
+ * token) -- setting it `true` is admin-only, enforced by `api_tokens_insert`
+ * RLS (supabase/migrations/20260726000018_scoped_access.sql`with check`),
+ * NOT by this route handler: a non-admin's `{orgRead: true}` insert is
+ * rejected by Postgres (42501), curated below to "You don't have
+ * permission to do that." -- same "Postgres decides admin-or-not" posture
+ * as every other admin-gated write in this schema (see that migration's
+ * own comment on the policy).
+ */
 const CreateApiTokenRequestSchema = z.object({
   label: z.string().max(200).optional().default(''),
+  orgRead: z.boolean().optional().default(false),
 });
 
 interface ApiTokenSummary {
@@ -50,6 +74,8 @@ interface ApiTokenSummary {
   lastUsedAt: string | null;
   expiresAt: string | null;
   revokedAt: string | null;
+  /** WP3: whether this token's bridged MCP session reads org-wide (see `lib/server/mcp-auth.ts`'s `mintMcpJwt`/`public.token_has_org_read()`). Never widens write authority -- writes stay owner-only regardless. */
+  orgRead: boolean;
 }
 
 /**
@@ -104,7 +130,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('api_tokens')
-    .select('id, label, created_at, last_used_at, expires_at, revoked_at')
+    .select('id, label, created_at, last_used_at, expires_at, revoked_at, org_read')
     .order('created_at', { ascending: false });
   if (error) return toErrorResponse(mapTokenPgError(error), 'api/tokens GET', user.id);
 
@@ -115,6 +141,7 @@ export async function GET() {
     lastUsedAt: (row.last_used_at as string | null) ?? null,
     expiresAt: (row.expires_at as string | null) ?? null,
     revokedAt: (row.revoked_at as string | null) ?? null,
+    orgRead: Boolean(row.org_read),
   }));
   // `endpointReady`: Supabase is already known-configured at this point
   // (the guard above 404s otherwise), so this reduces to "is
@@ -161,8 +188,8 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from('api_tokens')
-    .insert({ id, user_id: user.id, token_hash: tokenHash, label: parsed.data.label })
-    .select('id, label, created_at, last_used_at, expires_at, revoked_at')
+    .insert({ id, user_id: user.id, token_hash: tokenHash, label: parsed.data.label, org_read: parsed.data.orgRead })
+    .select('id, label, created_at, last_used_at, expires_at, revoked_at, org_read')
     .single();
   if (error) return toErrorResponse(mapTokenPgError(error), 'api/tokens POST', user.id);
 
@@ -174,6 +201,7 @@ export async function POST(request: NextRequest) {
     lastUsedAt: null,
     expiresAt: null,
     revokedAt: null,
+    orgRead: Boolean(row.org_read),
   };
   // `value` (the plaintext) is returned EXACTLY ONCE, here -- never stored
   // anywhere in this app, never re-readable through GET above (which only

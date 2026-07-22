@@ -2248,6 +2248,228 @@ to demonstrate the feature (the assignee picker's option list itself
 already demonstrates against `seedTeamMembers()`'s three rows regardless of
 whether any seeded task has one pre-set).
 
+## Scoped access (WP3 -- the access flip)
+
+**Status: WRITTEN AND VERIFIED LIVE.** Unlike every migration since
+`20260725000014_task_completed_at.sql` (WP0-WP2, all "written but not
+applied"), this one was actually run against a local Supabase stack
+(`supabase start` + `supabase db reset`) and exercised end to end by
+`scripts/verify-access-matrix.ts` -- **32/32 checks passed**. Not applied to
+any hosted/production project — that remains the user's own call.
+
+`supabase/migrations/20260726000018_scoped_access.sql` replaces
+`reports_select`/`tasks_select`/`risks_select`/`priorities_select`'s
+`using (true)` (every authenticated user reads every row) with real
+per-owner scoping, and removes the `is_admin()` branch from every WRITE
+policy on `reports`/`tasks`/`risks`/`priorities` — this is the actual "flip":
+before this migration, an admin could edit or read anyone's report; after
+it, editing is owner-only, full stop, and reading is owner-or-pm+ (or an
+opt-in MCP org-read token). The locked permission matrix:
+
+| | read | edit | delete |
+|---|---|---|---|
+| creator (owner) | yes | yes | yes |
+| assignee (of a task) | yes (that task) | yes (that task, narrow) | no |
+| pm | ALL | only own/assigned | ALL |
+| admin | ALL | only own/assigned | ALL |
+| other member | no | no | no |
+
+**TRIPWIRE.** No `created_by` column exists anywhere in this schema. "The
+report's creator can edit it" is expressed purely as `owner_id = auth.uid()`
+on `tasks`/`risks`/`priorities`' own write policies (which key ONLY off the
+PARENT report's `owner_id`, not any per-child creator) — sound only because
+every task/risk/priority-creation path in this codebase writes into a
+report the caller already owns (the wizard, the `/tasks` Add Task dialog,
+CSV import, `create_report`/`update_report`). The day a non-owner can add a
+task to someone else's report, this equivalence breaks, and a real
+`created_by` column becomes mandatory — this migration deliberately does not
+build it preemptively. See CLAUDE.md's identical tripwire note.
+
+### `reports`/`tasks`/`risks`/`priorities` policies, before → after
+
+```sql
+-- BEFORE (20260719000004_auth_ownership.sql)
+reports_select: using (true)
+reports_update: using (owner_id = auth.uid() or is_admin())
+                with check (owner_id = auth.uid() or is_admin())
+reports_delete: using (owner_id = auth.uid() or is_admin())
+tasks_select:   using (true)
+tasks_update:   using (exists (... r.owner_id = auth.uid() or is_admin()))
+
+-- AFTER (20260726000018_scoped_access.sql)
+reports_select: using (owner_id = auth.uid() or has_role_at_least('pm') or token_has_org_read())
+reports_update: using (owner_id = auth.uid()) with check (owner_id = auth.uid())   -- admin branch GONE
+reports_delete: using (owner_id = auth.uid() or has_role_at_least('pm'))           -- admin -> pm+
+tasks_select:   using (exists (... owner/pm+/org-read) or exists (assignee via team_members))
+tasks_update:   using (exists (... r.owner_id = auth.uid()))                       -- admin branch GONE
+```
+
+`risks`/`priorities` mirror `tasks` exactly (select = parent report visible;
+write = parent report OWNER only) — no assignee arm, since nothing assigns a
+risk or priority to a person.
+
+**Ownerless rows.** `reports.owner_id` was already nullable (seed rows
+inserted before any auth user exists). Under the new `reports_select`, a
+NULL-owner row matches neither `owner_id = auth.uid()` (NULL comparisons are
+never true) nor any assignee arm — visible only to pm+/org-read tokens,
+editable by nobody. Production has zero reports today, so nothing needs
+migrating for this.
+
+### One-daily-per-day is now scoped per OWNER too
+
+The `reports_one_daily_per_day` partial unique index (name kept EXACTLY —
+`curatedMessage`, lib/server/reports-service.ts, pattern-matches this string
+in the raw Postgres conflict text) widens from `(project bucket, date)` to
+`(owner, project bucket, date)`:
+
+```sql
+create unique index reports_one_daily_per_day
+  on reports (coalesce(owner_id::text, ''), coalesce(project_id, ''), report_date)
+  where kind = 'daily';
+```
+
+Under scoped ownership, two different PMs each filing their own house daily
+for the same calendar day is a legitimate, expected shape (two different
+people's status updates), not a duplicate — verified live: A files a daily
+for a date, a second one for A on the same date 409s; B files a daily for
+the SAME date as A and succeeds; a second one for B on that date 409s too.
+
+### MCP org-read scope (admin-only, opt-in, read-only)
+
+Since tokens are structurally member-tier (no `app_metadata`, see Phase 8a),
+scoping reads by default would silently shrink every existing connector
+token to own-reports-only. A NEW, opt-in, admin-only **org-read scope** on
+`api_tokens` restores org-wide reads for a token that explicitly asks for
+it, without ever touching write authority:
+
+- `api_tokens.org_read boolean not null default false` — settable ONLY at
+  INSERT time, and only by an admin: `api_tokens_insert`'s `with check`
+  requires `org_read = false or has_role_at_least('admin')`, enforced at the
+  RLS layer (not just the Settings UI's checkbox), so a non-admin's raw
+  PostgREST `{"org_read": true}` insert is ALSO rejected (42501).
+- `verify_api_token(p_token)` widened from returning a bare `uuid` to a
+  `jsonb {"user_id", "org_read"}` (a return-type change requires `drop
+  function` first — `create or replace` cannot change a return type).
+  Everything else about it (bare-anon-client-only caller, atomic `UPDATE ...
+  RETURNING` closing the revoked/expired TOCTOU window) is unchanged.
+- `lib/server/mcp-auth.ts`'s `mintMcpJwt` adds a top-level (NOT
+  `app_metadata`-nested) `org_read` claim to the bridged JWT, reflecting
+  whatever the verified token's row said.
+- `public.token_has_org_read()` reads that claim (`coalesce((auth.jwt() ->>
+  'org_read')::boolean, false)`) — an extra `or` arm on every
+  `*_select` policy above. Living OUTSIDE `app_metadata` is what keeps it
+  fully isolated from `is_admin()`/`has_role_at_least()`: it can never make
+  either true, so it can never touch a write policy (none reference it).
+  **Verified live**: a JWT minted with this codebase's exact `mintMcpJwt`
+  shape for a plain member (no `app_metadata`) but `org_read: true` could
+  read a report owned by someone else, but a PATCH against that same report
+  with that same JWT still updated zero rows — org-read genuinely only ever
+  widens SELECT.
+
+### `list_assigned_tasks()` / `update_assigned_task()` — the assignee's narrow surface
+
+Two new SECURITY DEFINER RPCs let a task's ASSIGNEE (not just the parent
+report's owner) see and narrowly edit that one task, without exposing
+anything else about the report it lives on:
+
+- **`list_assigned_tasks()`** — no parameters (re-derives the caller's
+  identity from `auth.uid()` via a `team_members.user_id` join every call,
+  never trusts an argument). Returns the caller's assigned tasks joined with
+  BOUNDED parent context (`reportId`/`reportKind`/`weekStart`/`weekEnd`/
+  `date`/`preparedFor`, plus the owner's team-directory name when linkable)
+  — never sibling tasks, risks, priorities, or the report's narrative. That
+  omission is the entire trust boundary that makes "an assignee can see
+  their own task" safe on a report they otherwise can't read at all.
+- **`update_assigned_task(p_task_id, p_status, p_deadline, p_completed_at)`**
+  — owner OR assignee, but NARROW: only `status`/`deadline`/`completed_at`
+  are writable this way, never `task`/`client`/`assignee_id`/`project_id`
+  (the identity/dedupe fields other people's report chains and this
+  codebase's client-string dedupe depend on). Bumps the parent
+  `reports.updated_at = now()`. A `NULL` argument means "leave this field
+  alone" (not "clear it"); an explicit empty-string `deadline`/
+  `completed_at` argument DOES clear it, matching the existing `''` ↔ `NULL`
+  convention. Raises `42501` (curated to "You don't have permission to do
+  that.") for an unknown task id OR a caller who is neither the owner nor
+  the assignee — deliberately not distinguished, same posture as
+  `revoke_api_token`.
+
+Both are `authenticated`-only (anon has no legitimate reason to call
+either) — **verified live**: an anonymous call to either returns 401/42501
+"permission denied for function."
+
+**App-side plumbing**: `lib/server/reports-service.ts`'s `listAssignedTasks`/
+`updateAssignedTask` call these RPCs directly (both already return
+camelCase jsonb shaped like `AssignedTask`, lib/types.ts — no separate
+row-mapping layer needed, mirroring `get_shared_report`'s convention).
+`GET /api/tasks/assigned` / `PATCH /api/tasks/[id]` (validated against
+`AssignedTaskPatchSchema`, lib/schema/api.ts — `.strict()`, status/deadline/
+completedAt only) are the route handlers; `ReportsRepository.getAssignedTasks`/
+`updateTask` are the new interface methods (`LocalStorageReportsRepository`'s
+`getAssignedTasks` returns `[]` unconditionally — demo mode has no
+owner/assignee-visibility gap to bridge); `lib/hooks/useAssignedTasks.ts` is
+the new hook (not yet wired into any screen — this package is the plumbing,
+not a new "My Assigned Tasks" UI surface).
+
+### App-side gating: `canEditReport`, and the owner-scoped daily-conflict check
+
+`lib/report-access.ts` gained `canEditReport` (owner-only, NO pm/admin
+branch — mirrors `reports_update` exactly) beside the existing
+`canDeleteReport` (now `hasRoleAtLeast(user, 'pm')` instead of an
+admin-only check, mirroring `reports_delete`'s widened `has_role_at_least
+('pm')` branch). `ReportScreen` renders its status/preparedFor/period
+fields read-only (and disables "Edit Report") when `!canEdit` — without
+this, a pm/admin merely BROWSING a teammate's report (now legitimately
+visible to them under the new `reports_select`) would fire a failing,
+curated-403 autosave on every keystroke. `WizardPage` additionally redirects
+away from `/reports/[id]/edit`/`/daily/[id]/edit` to the read-only report
+screen when the resolved report exists but `!canEditReport(...)`, so a
+non-owner can never even reach the fillable wizard for a report they can't
+save.
+
+`lib/report-utils.ts`'s `dailyDateConflict`/`invalidDailyDateEdit`/
+`validateStep` gained an optional `currentUserId`, scoping the
+one-daily-per-day CLIENT-SIDE check the same way the SQL index above was
+widened — a pm/admin who now sees every teammate's daily report must not
+get a false "already exists" against a report they don't own. `sameReportOwner`
+(that file) degrades to "no conflict ruled out" whenever either side's owner
+is unknown (demo mode, or an ownerless legacy row), so every pre-WP3 call
+site that never threads a `currentUserId` is unaffected.
+
+### What was verified how
+
+`scripts/verify-access-matrix.ts` (self-contained; creates and tears down
+its own throwaway `auth.users`/`team_members`/`reports`/`tasks`/`api_tokens`
+fixtures, id-prefixed `wp3v-`) ran live against a local Supabase stack and
+passed 32/32:
+
+| Check | Result |
+|---|---|
+| B's SELECT on A's report | empty (not an error) |
+| B's `list_assigned_tasks()` | contains her assigned task, excludes the unassigned one |
+| B's `update_assigned_task()` on her assigned task | succeeds, bumps parent `updated_at` |
+| B's `update_assigned_task()` on a non-assigned task | denied (42501) |
+| admin's / pm's SELECT on A's report | both see it |
+| admin's `replace_reports()` (the app's real write path) on A's report | denied (42501, RLS `USING` violation) |
+| admin's raw table PATCH on A's report | 0 rows updated, status genuinely unchanged |
+| raw PostgREST PATCH `/tasks` as B on a non-owned/non-assigned task | 0 rows |
+| anon EXECUTE on `list_assigned_tasks`/`update_assigned_task`/`token_has_org_read` | denied (401/42501), all three |
+| anon-callable `verify_api_token` | garbage token → `null`; real token → `{user_id, org_read}` |
+| org-read-scoped JWT (minted like `mintMcpJwt`) for B | CAN read A's report, still CANNOT write to it |
+| plain (non-org-read) minted JWT for B | still cannot read A's report |
+| admin's DELETE of A's report | succeeds |
+| A files a daily, then a second one for the same date | 201, then 409 (`reports_one_daily_per_day`) |
+| B files a daily for A's SAME date, then a second one | 201 (different owner bucket), then 409 |
+
+Run it yourself: `supabase start` (if not already running), `supabase db
+reset` (applies every migration, including this one), then
+`npx tsx scripts/verify-access-matrix.ts`.
+
+**Not verified live**: the app's own curated HTTP error strings
+(`curatedMessage`/`handleServiceError`) require the Next dev server running
+against this same local stack — out of scope for this script, which asserts
+on the underlying raw Postgres/PostgREST response instead (sqlstate, empty
+result set) that those functions curate.
+
 ## Cutover checklist
 
 **Before anything else: use `ReportCoreInputSchema`/`AnyReportInputSchema`

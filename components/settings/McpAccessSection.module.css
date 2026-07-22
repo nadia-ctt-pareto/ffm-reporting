@@ -36,6 +36,21 @@
   padding-bottom: 2px;
 }
 
+/* WP3: the org-read scope checkbox row, sat below .controlsRow rather than
+   inside it -- a checkbox doesn't share .labelWrap's fixed-width/
+   align-items:flex-end layout the Label input and Create button need. */
+.scopeRow {
+  margin: 2px 0 6px;
+}
+
+.scopeHint {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
 .notConfiguredNotice {
   font-family: var(--font-body);
   font-size: 12.5px;

@@ -65,6 +65,24 @@ export interface ReportScreenProps {
   canDelete: boolean;
   /** Phase 8d (report delete): shown as the disabled Delete button's `title` (hover) and as a small inline note under the actions row when `!canDelete`. */
   deleteHint?: string;
+  /**
+   * WP3 (the access flip): decides whether the period/status/preparedFor
+   * fields autosave (editable) or render READ-ONLY, and whether "Edit
+   * Report" (the wizard resume entry point) is enabled. The route wrapper
+   * computes this via `canEditReport` (`lib/report-access.ts`) -- owner-only
+   * in Supabase mode (no pm/admin branch, unlike `canDelete`), unconditionally
+   * `true` in demo mode -- so this component never needs to know about
+   * sessions/auth itself. **This is the fix for the exact failure mode WP3
+   * exists to prevent**: before this prop existed, EVERY signed-in viewer's
+   * keystroke in this screen's inline fields fired an autosave `PATCH`
+   * regardless of ownership -- harmless when reads were org-wide-but-so-was-
+   * admin-edit, but the moment `reports_update` RLS became owner-only (this
+   * package), a pm/admin merely browsing a teammate's report would fire a
+   * failing (403, curated) autosave on every keystroke without this gate.
+   */
+  canEdit: boolean;
+  /** WP3: shown as the disabled "Edit Report" button's `title` (hover) and as the autosave-note replacement when `!canEdit` -- mirrors `deleteHint`'s "disabled, don't hide" posture. */
+  editHint?: string;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -147,29 +165,43 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * so a published report's tasks/risks/priorities/narratives can now be
  * corrected through the same 6-step flow a draft uses, rather than only via
  * this screen's own handful of inline-editable fields (status/preparedFor/
- * period). Deliberately UNGATED (no `canEdit`/admin check, unlike Delete):
- * this screen's own inline fields are already editable by any signed-in
- * user today and fail server-side with a curated `mutationError` on a
- * permission violation, so gating only the wizard ENTRY POINT would be
- * inconsistent -- a non-owner would still reach the wizard, fill it out,
- * and only THEN discover they can't save, which is a worse experience than
- * today's inline-field failure, not a better one. A non-owner's wizard save
- * goes through the exact same write path as everything else in this app
- * (`POST /api/reports` -> `replace_reports`) and is rejected the exact same
- * way: RLS violation -> `mapPgError('forbidden')` -> curated "You don't have
- * permission to do that." -> `useWizard`'s `catch` renders it in the
- * wizard's own error banner, and the wizard stays mounted with the draft
- * intact (nothing is lost, the user can copy their edits out or just leave).
- * Delete stays gated (`canDelete`) because it is destructive and
- * irreversible in a way editing is not -- a rejected edit leaves the
- * published report exactly as it was; a rejected delete attempt has no such
- * "nothing happened" guarantee to lean on if the gate were ever wrong.
+ * period).
+ *
+ * WP3 (the access flip) update: this action -- and this screen's own
+ * inline period/status/preparedFor fields -- are now gated on `canEdit`
+ * (disabled-with-a-hint, mirroring Delete's `canDelete` posture; see
+ * `ReportScreenProps.canEdit`'s doc comment for why this is a change from
+ * this screen's earlier, deliberately-ungated posture). That earlier
+ * reasoning ("gating only the entry point is inconsistent with editable
+ * inline fields") is superseded, not contradicted: the inline fields are
+ * NOW gated too (read-only, not autosaving, for a non-owner), so gating the
+ * wizard entry point alongside them keeps the two consistent with EACH
+ * OTHER, which is the same principle that reasoning was protecting all
+ * along. `WizardPage`'s own owner-only redirect guard is the second,
+ * independent layer for the entry point specifically (a direct `/edit` URL
+ * visit, not just this button) -- see that file's doc comment.
+ *
+ * Delete stays gated on a DIFFERENT predicate (`canDelete`, owner-or-pm+,
+ * not owner-only) because the two are not symmetric under the locked
+ * permission matrix: a pm/admin may delete a report they don't own, but may
+ * never edit one.
  *
  * Owns its own (small) Share-dialog AND delete-dialog UI state directly --
  * this route is simple enough (one param, one hook) that it doesn't need a
  * separate route-level orchestrator like DashboardPage/WizardPage.
  */
-export function ReportScreen({ report, kind, onUpdateFields, periodError, mutationError, onDelete, canDelete, deleteHint }: ReportScreenProps) {
+export function ReportScreen({
+  report,
+  kind,
+  onUpdateFields,
+  periodError,
+  mutationError,
+  onDelete,
+  canDelete,
+  deleteHint,
+  canEdit,
+  editHint,
+}: ReportScreenProps) {
   const router = useRouter();
   const dSafe = report ?? emptyReportFallback(kind);
   const { onSched, total } = onSchedule(dSafe);
@@ -227,7 +259,11 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
    * `${presentBase}//edit`.
    */
   const openEdit = () => {
-    if (!dSafe.id) return;
+    // `!canEdit` is a defense-in-depth no-op here (the button itself is
+    // `disabled` below, so a mouse/touch click can't reach this in the
+    // first place) -- it also covers the keyboard-Enter-on-a-disabled-
+    // button edge case some browsers still dispatch a click for.
+    if (!dSafe.id || !canEdit) return;
     router.push(`${presentBase}/${dSafe.id}/edit`);
   };
 
@@ -297,6 +333,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
               options={[...STATUS_EDIT_OPTIONS]}
               value={dSafe.status}
               onChange={(value) => onUpdateFields({ status: value as ReportStatus })}
+              disabled={!canEdit}
             />
           </div>
           <div style={{ width: 220 }}>
@@ -304,6 +341,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
               label="Prepared For"
               value={dSafe.preparedFor}
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ preparedFor: e.target.value })}
+              readOnly={!canEdit}
             />
           </div>
           {dSafe.kind === 'daily' ? (
@@ -313,6 +351,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
                 label="Date"
                 value={dSafe.date}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ date: e.target.value })}
+                readOnly={!canEdit}
               />
               {periodError ? <div className={styles.fieldError}>{periodError}</div> : null}
             </div>
@@ -324,6 +363,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
                   label="Week Start"
                   value={dSafe.weekStart}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekStart: e.target.value })}
+                  readOnly={!canEdit}
                 />
               </div>
               <div style={{ width: 150 }}>
@@ -332,6 +372,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
                   label="Week End"
                   value={dSafe.weekEnd}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateFields({ weekEnd: e.target.value })}
+                  readOnly={!canEdit}
                 />
               </div>
               {periodError ? <div className={styles.fieldError}>{periodError}</div> : null}
@@ -343,8 +384,14 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
               curated server message (e.g. "You don't have permission to do
               that.", "This was changed by someone else since you loaded it.
               Reload and try again.") instead of a hardcoded generic string
-              that discarded it -- TaskViewScreen already does this. */}
-          {mutationError ?? 'Changes save automatically.'}
+              that discarded it -- TaskViewScreen already does this.
+              WP3: a `!canEdit` viewer never gets far enough to produce a
+              `mutationError` (the fields above are read-only, not
+              autosaving) -- for them this note explains WHY nothing here
+              saves, instead of the confusing default "Changes save
+              automatically." that would otherwise imply their edits (if the
+              read-only guard were somehow bypassed) are being persisted. */}
+          {mutationError ?? (!canEdit ? (editHint ?? 'You do not have permission to edit this report.') : 'Changes save automatically.')}
         </div>
 
         <div className={styles.actionsRow}>
@@ -358,7 +405,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
             <Button variant="outline" size="sm" onClick={() => openPresentation(true)}>
               Download PDF
             </Button>
-            <Button variant="outline" size="sm" onClick={openEdit}>
+            <Button variant="outline" size="sm" onClick={openEdit} disabled={!canEdit} title={!canEdit ? editHint : undefined}>
               Edit Report
             </Button>
             <Button

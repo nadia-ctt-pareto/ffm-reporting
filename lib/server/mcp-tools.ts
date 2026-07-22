@@ -601,13 +601,13 @@ interface ToolDef {
 const TOOL_DEFS: Record<McpToolName, ToolDef> = {
   list_reports: {
     description:
-      'List weekly and/or daily reports across the whole organization (reads are org-wide by design -- every signed-in teammate can read every report, same as the web dashboard). Optionally filter by kind, prepared_for (exact match, case/whitespace-insensitive), and a week_start range.',
+      "List weekly and/or daily reports. By default, reads are scoped to THIS TOKEN'S OWNER (same reports that owner would see as a plain member) -- an org-wide-read token (an admin-only opt-in scope set at token creation) instead sees every report in the organization, same as the web dashboard's pm/admin view. Optionally filter by kind, prepared_for (exact match, case/whitespace-insensitive), and a week_start range.",
     inputSchema: ListReportsInputSchema.shape,
     cb: listReportsTool as ToolCallback<never>,
   },
   get_report: {
     description:
-      'Fetch one report by id, including its tasks, risks, priorities, win, and touchpoints. Returns the same updatedAt value update_report requires as expectedUpdatedAt for its optimistic-concurrency check.',
+      "Fetch one report by id, including its tasks, risks, priorities, win, and touchpoints -- subject to the same read scoping as list_reports (the token owner's own reports, or every report for an org-wide-read token). Returns the same updatedAt value update_report requires as expectedUpdatedAt for its optimistic-concurrency check.",
     inputSchema: GetReportInputSchema.shape,
     cb: getReportTool as ToolCallback<never>,
   },
@@ -618,7 +618,7 @@ const TOOL_DEFS: Record<McpToolName, ToolDef> = {
   },
   get_week_rollup: {
     description:
-      'Preview (read-only, nothing is persisted) what a weekly report for the given Monday-anchored week WOULD look like if every weekly and daily report touching that week were merged together -- tasks/risks dedupe latest-wins, priorities dedupe first-wins, touchpoints sum, the win carries from the latest source that has one.',
+      "Preview (read-only, nothing is persisted) what a weekly report for the given Monday-anchored week WOULD look like if every weekly and daily report touching that week (visible under this token's read scope -- see list_reports) were merged together -- tasks/risks dedupe latest-wins, priorities dedupe first-wins, touchpoints sum, the win carries from the latest source that has one.",
     inputSchema: GetWeekRollupInputSchema.shape,
     cb: getWeekRollupTool as ToolCallback<never>,
   },

@@ -59,6 +59,16 @@ export interface DashboardScreenProps {
    * threading a session object through this screen's own row-mapping code.
    */
   canDeleteReport: (report: Report) => boolean;
+  /**
+   * WP3 (the access flip): per-row gate deciding whether a Draft row's
+   * action button reads "Continue" (into the wizard) or "View" (read-only
+   * report screen) -- see `DashboardPage.tsx`'s `editable` for the full
+   * rationale. A non-Draft row always shows "View" regardless of this
+   * value (there's no wizard resume to offer for an already-published
+   * report from this list -- see ReportScreen's own gated "Edit Report"
+   * action for that flow instead).
+   */
+  canEditReport: (report: Report) => boolean;
 }
 
 const TABLE_COLUMNS: TableColumn[] = [
@@ -92,6 +102,7 @@ export function DashboardScreen({
   onViewReport,
   onDeleteReport,
   canDeleteReport,
+  canEditReport,
 }: DashboardScreenProps) {
   // Lines 650-660: filter + sort.
   //
@@ -138,7 +149,11 @@ export function DashboardScreen({
   const tableRows = paged.map((r) => {
     const { onSched, total } = onSchedule(r);
     const blockers = openBlockers(r);
-    const isDraft = r.status === 'Draft';
+    // WP3: a Draft only offers "Continue" (the wizard's resume flow) when
+    // this caller can actually EDIT it -- otherwise it falls back to "View"
+    // (the read-only report screen), same as any published report. See
+    // `DashboardPage.tsx`'s `editable` doc comment.
+    const isDraft = r.status === 'Draft' && canEditReport(r);
     const deletable = canDeleteReport(r);
     return {
       week: fmtWeekLabel(r.weekStart, r.weekEnd),

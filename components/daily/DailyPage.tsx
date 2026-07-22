@@ -8,7 +8,7 @@ import { DailyListScreen } from '@/components/daily/DailyListScreen';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useSession } from '@/lib/hooks/useSession';
-import { canDeleteReport } from '@/lib/report-access';
+import { canDeleteReport, canEditReport } from '@/lib/report-access';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { DailyReport } from '@/lib/types';
 
@@ -54,6 +54,10 @@ export function DailyPage() {
   const deletable = (report: DailyReport): boolean =>
     canDeleteReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
 
+  // WP3 (the access flip): see DashboardPage.tsx's identical `editable` gate for the full rationale.
+  const editable = (report: DailyReport): boolean =>
+    canEditReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
+
   const pendingDeleteReport = reports.find((r) => r.id === pendingDeleteId) ?? null;
 
   const closeDeleteDialog = () => {
@@ -91,6 +95,7 @@ export function DailyPage() {
         onViewReport={(id) => router.push(`/daily/${id}`)}
         onDeleteReport={setPendingDeleteId}
         canDeleteReport={deletable}
+        canEditReport={editable}
       />
       {/* `open` is keyed off the resolved REPORT, not the pending id: if the
           row disappears from under an open dialog (deleted in another tab, or

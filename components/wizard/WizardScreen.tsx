@@ -24,6 +24,8 @@ export interface WizardScreenProps {
   projects?: Project[];
   /** WP2: the team directory -- StepTasks' Assignee `<Select>`. */
   teamMembers?: TeamMember[];
+  /** WP3: the signed-in user's id -- see `useWizard`'s `UseWizardOptions.currentUserId` doc comment (scopes the one-daily-per-day check to this caller's own dailies). `undefined` in demo mode. */
+  currentUserId?: string | null;
   initialReport: AnyReport | null;
   onExit: () => void;
   /** Phase 7b: `Promise<void>` -- see `useWizard`'s `UseWizardOptions.onSaveDraft` doc comment (`saveDraft()` awaits this and surfaces a rejection through the wizard's `error` channel). */
@@ -61,6 +63,7 @@ export function WizardScreen({
   dailies,
   projects,
   teamMembers,
+  currentUserId,
   initialReport,
   onExit,
   onSaveDraft,
@@ -68,7 +71,7 @@ export function WizardScreen({
   onShareForPublished,
   onPdfForPublished,
 }: WizardScreenProps) {
-  const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies, projects });
+  const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies, projects, currentUserId });
   const { draft, step, error, published, wasPublished, isSubmitting } = wizard;
   const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
   const clientSuggestions = (projects ?? []).map((p) => p.name);

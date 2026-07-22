@@ -6,7 +6,7 @@ import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useSession } from '@/lib/hooks/useSession';
-import { canDeleteReport, DELETE_REPORT_HINT } from '@/lib/report-access';
+import { canDeleteReport, canEditReport, DELETE_REPORT_HINT, EDIT_REPORT_HINT } from '@/lib/report-access';
 import { invalidDailyDateEdit } from '@/lib/report-utils';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { ReportFieldPatch } from '@/lib/types';
@@ -59,7 +59,11 @@ export default function DailyReportDetailPage() {
 
   const handleUpdateFields = (patch: ReportFieldPatch) => {
     if (!id) return;
-    if (patch.date !== undefined && invalidDailyDateEdit(reports ?? [], id, patch.date, report?.projectId ?? null)) {
+    // WP3: `invalidDailyDateEdit`'s owner-scoping (`currentUserId`) means a
+    // pm/admin editing their OWN daily's date no longer false-positives
+    // against a teammate's daily on the same date -- see that function's
+    // doc comment (lib/report-utils.ts).
+    if (patch.date !== undefined && invalidDailyDateEdit(reports ?? [], id, patch.date, report?.projectId ?? null, user?.id)) {
       setPeriodError(patch.date ? 'A daily report for this date already exists.' : 'Enter a report date.');
       return;
     }
@@ -70,6 +74,15 @@ export default function DailyReportDetailPage() {
   // Phase 8d (report delete): see this component's own doc comment above for the full
   // owner-or-admin rationale -- this line is the entire gate.
   const canDelete = canDeleteReport(report, {
+    user,
+    loading: sessionLoading,
+    supabaseConfigured: isSupabaseConfigured(),
+  });
+
+  // WP3 (the access flip): owner-only, no pm/admin branch -- see
+  // `app/(shell)/reports/[id]/page.tsx`'s identical gate for the full
+  // rationale.
+  const canEdit = canEditReport(report, {
     user,
     loading: sessionLoading,
     supabaseConfigured: isSupabaseConfigured(),
@@ -93,6 +106,8 @@ export default function DailyReportDetailPage() {
       onDelete={() => deleteReport(id)}
       canDelete={canDelete}
       deleteHint={DELETE_REPORT_HINT}
+      canEdit={canEdit}
+      editHint={EDIT_REPORT_HINT}
     />
   );
 }

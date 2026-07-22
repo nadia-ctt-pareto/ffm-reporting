@@ -35,7 +35,26 @@ export interface TaskViewScreenProps {
    * just being duplicated.
    */
   onUpdateReportFields: (id: string, patch: Partial<Report>) => Promise<void>;
-  /** Phase 7b (BLOCKER 3): `useReports().mutationError` -- surfaced here so a failed Kanban drag (e.g. PATCHing a report this user doesn't own under Supabase RLS) reads as a visible error, not "the app broke". The card itself already reverts (the hook's own rollback), this is just the explanation. */
+  /**
+   * Phase 7b (BLOCKER 3): `useReports().mutationError` -- surfaced here so a failed Kanban drag (e.g. PATCHing a report this user doesn't own under Supabase RLS) reads as a visible error, not "the app broke". The card itself already reverts (the hook's own rollback), this is just the explanation.
+   *
+   * WP3 (the access flip): this page deliberately does NOT gate the drag/
+   * edit affordance itself on `canEditReport` -- `/tasks` shows tasks from
+   * every report `useReports()` can read (org-wide for pm/admin, own-only
+   * for a plain member, per the new `reports_select`), and `tasks_update`
+   * RLS is now owner-only with no pm/admin branch, so a pm/admin dragging
+   * a card on a report they don't own now fails here too (pre-WP3, only a
+   * non-owner NON-admin ever hit this -- admin's write always succeeded).
+   * This reuses the SAME "let it fail, surface `mutationError`, the
+   * optimistic update reverts" pattern BLOCKER 3 already established for
+   * that non-owner-member case, rather than adding a NEW per-card
+   * disabled-drag gate (which `ReportScreen`/`WizardPage`/the list
+   * screens' "Continue" affordance DO get, see `lib/report-access.ts`'s
+   * `canEditReport`) -- a deliberate, narrower choice for this screen
+   * specifically, not an oversight: threading per-card ownership into
+   * `KanbanBoard`/`TaskCard`'s `@dnd-kit` draggable wiring is real
+   * additional surface this package left out of scope.
+   */
   mutationError?: string | null;
 }
 

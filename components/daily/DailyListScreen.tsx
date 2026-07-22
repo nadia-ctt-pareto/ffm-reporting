@@ -33,6 +33,8 @@ export interface DailyListScreenProps {
   onDeleteReport: (id: string) => void;
   /** Phase 8d (report delete): per-row gate for the row's Delete button -- see `DashboardScreen.tsx`'s identical prop doc comment. */
   canDeleteReport: (report: DailyReport) => boolean;
+  /** WP3 (the access flip): per-row gate for whether a Draft row offers "Continue" -- see `DashboardScreen.tsx`'s identical prop doc comment. */
+  canEditReport: (report: DailyReport) => boolean;
 }
 
 const TABLE_COLUMNS: TableColumn[] = [
@@ -64,6 +66,7 @@ export function DailyListScreen({
   onViewReport,
   onDeleteReport,
   canDeleteReport,
+  canEditReport,
 }: DailyListScreenProps) {
   const filtered = useMemo(() => {
     const list = reports.filter((r) => filterStatus === 'All' || r.status === filterStatus);
@@ -78,7 +81,9 @@ export function DailyListScreen({
   const tableRows = paged.map((r) => {
     const { onSched, total } = onSchedule(r);
     const blockers = openBlockers(r);
-    const isDraft = r.status === 'Draft';
+    // WP3: see `DashboardScreen.tsx`'s identical `isDraft` derivation for
+    // the full rationale (a Draft only offers "Continue" when editable).
+    const isDraft = r.status === 'Draft' && canEditReport(r);
     const deletable = canDeleteReport(r);
     return {
       date: fmtDateShort(r.date),

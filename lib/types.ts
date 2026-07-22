@@ -118,6 +118,41 @@ export type Report = WeeklyReport;
 export type ReportFieldPatch = Partial<ReportCore> & { weekStart?: string; weekEnd?: string; date?: string };
 
 /**
+ * WP3 (the access flip): one of the CALLER's own assigned tasks
+ * (`public.list_assigned_tasks()`, supabase/migrations/20260726000018_scoped_access.sql),
+ * joined with BOUNDED parent-report context ONLY -- never sibling tasks,
+ * risks, priorities, or the report's own narrative fields (that omission is
+ * the entire trust boundary that makes "an assignee can see their own task"
+ * safe on a report they otherwise have no access to). Hand-written (not
+ * schema-derived, unlike `Task`/`AnyReport`) because it's a pure READ
+ * projection assembled server-side -- nothing under `lib/schema/` stores
+ * this shape, it's the SQL RPC's own bespoke join result.
+ */
+export interface AssignedTask extends Task {
+  reportId: string;
+  reportKind: ReportKind;
+  /** Present (weekly) / absent (daily) -- mirrors `AnyReport`'s own kind-conditional period fields. */
+  weekStart?: string;
+  weekEnd?: string;
+  /** Present (daily) / absent (weekly). */
+  date?: string;
+  preparedFor: string;
+  /** The report owner's team-directory name, when linkable (WP1's `team_members.user_id` self-link) -- `undefined` if the owner has no linked directory row. */
+  ownerName?: string;
+}
+
+/**
+ * WP3: the narrow, allowed patch shape for the assignee-writable RPC path
+ * (`public.update_assigned_task`) -- status/deadline/completedAt ONLY,
+ * mirroring that SQL function's own narrow column list exactly. Deliberately
+ * NOT `Partial<Task>` (too wide): an assignee must never be able to change
+ * `task`, `client`, `assigneeId`, or `projectId` through this path -- those
+ * are identity/dedupe fields other people's report chains depend on (see
+ * CLAUDE.md's "Migrations discipline" tripwire on this migration).
+ */
+export type AssignedTaskPatch = Pick<Partial<Task>, 'status' | 'deadline' | 'completedAt'>;
+
+/**
  * Shape of an in-progress (not-yet-saved) report, as produced by
  * blankDraft() / blankDailyDraft() / resumeDraft() in the prototype (and its
  * Phase 4 daily-report sibling). `id` is null until the first save.

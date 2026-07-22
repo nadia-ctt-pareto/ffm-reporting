@@ -6,7 +6,7 @@ import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useReports } from '@/lib/hooks/useReports';
 import { useSession } from '@/lib/hooks/useSession';
-import { canDeleteReport, DELETE_REPORT_HINT } from '@/lib/report-access';
+import { canDeleteReport, canEditReport, DELETE_REPORT_HINT, EDIT_REPORT_HINT } from '@/lib/report-access';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { ReportFieldPatch } from '@/lib/types';
 
@@ -83,6 +83,16 @@ export default function ReportDetailPage() {
     supabaseConfigured: isSupabaseConfigured(),
   });
 
+  // WP3 (the access flip): owner-only, no pm/admin branch -- see
+  // `canEditReport`'s doc comment (lib/report-access.ts). Gates ReportScreen's
+  // inline status/preparedFor/period autosave AND its "Edit Report" wizard
+  // entry point.
+  const canEdit = canEditReport(report, {
+    user,
+    loading: sessionLoading,
+    supabaseConfigured: isSupabaseConfigured(),
+  });
+
   // Post-review hardening round 2 (SHOULD-FIX H): see DashboardPage.tsx's
   // identical guard for the full rationale.
   if (reports === null && loadError) return <LoadErrorState title="Report" message={loadError} />;
@@ -101,6 +111,8 @@ export default function ReportDetailPage() {
       onDelete={() => deleteReport(id)}
       canDelete={canDelete}
       deleteHint={DELETE_REPORT_HINT}
+      canEdit={canEdit}
+      editHint={EDIT_REPORT_HINT}
     />
   );
 }

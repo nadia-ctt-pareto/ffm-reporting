@@ -9,7 +9,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { useProjects } from '@/lib/hooks/useProjects';
 import { useReports } from '@/lib/hooks/useReports';
 import { useSession } from '@/lib/hooks/useSession';
-import { canDeleteReport } from '@/lib/report-access';
+import { canDeleteReport, canEditReport } from '@/lib/report-access';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { Report, SortKey } from '@/lib/types';
 
@@ -83,6 +83,18 @@ export function DashboardPage() {
   const deletable = (report: Report): boolean =>
     canDeleteReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
 
+  // WP3 (the access flip): the owner-only edit gate, evaluated per row --
+  // decides whether a Draft row's action button is "Continue" (into the
+  // wizard's resume flow) or "View" (the read-only report screen). Under
+  // scoped reads a pm/admin now legitimately sees teammates' Draft reports
+  // in this list; without this gate they'd get a "Continue" button that
+  // opens the wizard only to have every save rejected (see
+  // `WizardPage`'s own owner-only redirect guard, which would immediately
+  // bounce them back out anyway -- this just avoids offering the
+  // affordance in the first place).
+  const editable = (report: Report): boolean =>
+    canEditReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
+
   const pendingDeleteReport = reports.find((r) => r.id === pendingDeleteId) ?? null;
 
   const closeDeleteDialog = () => {
@@ -143,6 +155,7 @@ export function DashboardPage() {
         onViewReport={(id) => router.push(`/reports/${id}`)}
         onDeleteReport={setPendingDeleteId}
         canDeleteReport={deletable}
+        canEditReport={editable}
       />
       {/* `open` is keyed off the resolved REPORT, not the pending id: if the
           row disappears from under an open dialog (deleted in another tab, or

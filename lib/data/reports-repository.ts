@@ -1,4 +1,4 @@
-import type { AnyReport, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
+import type { AnyReport, AssignedTask, AssignedTaskPatch, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
 
 /**
  * Swappable persistence contract for reports. The MVP implementation is
@@ -130,6 +130,30 @@ export interface ReportsRepository {
    * id not permitted to this caller).
    */
   deleteTeamMember(id: string): Promise<void>;
+
+  /**
+   * WP3 (the access flip): the CALLER's own assigned tasks, joined with
+   * bounded parent-report context only (see `AssignedTask`'s own doc
+   * comment, lib/types.ts). Demo mode returns `[]` unconditionally --
+   * every report in demo mode is already "yours" (no auth, no per-user
+   * scoping at all), so there is no separate assignee-visibility gap for
+   * this to bridge there; `HttpReportsRepository`'s implementation calls
+   * `GET /api/tasks/assigned` -> `list_assigned_tasks()`.
+   */
+  getAssignedTasks(): Promise<AssignedTask[]>;
+  /**
+   * WP3: patches ONLY `status`/`deadline`/`completedAt` on the task with
+   * `taskId` -- see `AssignedTaskPatch`'s own doc comment (lib/types.ts) for
+   * why this is narrower than `update()`'s `Partial<ReportCore>`.
+   * `LocalStorageReportsRepository` finds the task across every stored
+   * report (a task's id doesn't carry its parent report's id in this
+   * store's index), patches it in place, and bumps that report's
+   * `updatedAt`; `HttpReportsRepository` calls `PATCH /api/tasks/[id]` ->
+   * `update_assigned_task()` (owner-or-assignee, enforced server-side).
+   * Rejects if `taskId` doesn't exist (or, in Supabase mode, isn't owned by
+   * or assigned to this caller).
+   */
+  updateTask(taskId: string, patch: AssignedTaskPatch): Promise<AssignedTask>;
 
   /**
    * Post-review addition (SHOULD-FIX 13, Phase 7b): resolves once every

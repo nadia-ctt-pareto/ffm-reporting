@@ -12,9 +12,9 @@
 // no server-role key anywhere in this file.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { ReportPatch } from '../schema/api';
+import type { AssignedTaskPatchInput, ReportPatch } from '../schema/api';
 import { AnyReportSchema } from '../schema/report';
-import type { AnyReport, Project, ReportKind, TeamMember } from '../types';
+import type { AnyReport, AssignedTask, Project, ReportKind, TeamMember } from '../types';
 import {
   reportToRow,
   rowToReport,
@@ -190,7 +190,11 @@ function mapPgError(error: { code?: string; message?: string } | null | undefine
     code = 'forbidden';
   } else if (sqlstate === '23505') {
     code = 'conflict';
-  } else if (sqlstate === '23514' || sqlstate === '23503') {
+  } else if (sqlstate === '23514' || sqlstate === '23503' || sqlstate === '22023') {
+    // WP3: `22023` (invalid_parameter_value) is `update_assigned_task`'s own
+    // hand-raised error for an out-of-enum `p_status` (supabase/migrations/
+    // 20260726000018_scoped_access.sql) -- a malformed request, same
+    // treatment as a CHECK/FK violation, never a server-side surprise.
     code = 'invalid';
   } else {
     code = 'internal';
@@ -435,20 +439,38 @@ export async function updateReport(
  * **Diverges from `deleteProject`'s "not found and not permitted are the
  * same thing" posture, deliberately.** `deleteProject` never distinguishes
  * the two because doing so costs nothing either way for that table. Here
- * it matters: `reports_select` is `using (true)` (every authenticated user
- * can already read every report -- see `REPORT_COLUMNS`'s own doc comment
- * above), so telling a signed-in, non-owning, non-admin caller "you don't
- * have permission" instead of a blanket "not found" leaks nothing they
- * couldn't already see with a plain `GET` -- and "not found" for a report
- * the caller is LITERALLY looking at on `/reports/[id]` right now would be
- * a straightforwardly false statement, not merely an over-cautious one
+ * it matters (or, post-WP3, PARTIALLY still matters -- see below): telling
+ * a signed-in caller "you don't have permission" instead of a blanket "not
+ * found" only avoids leaking anything when that caller could ALREADY see
+ * the row some other way -- and "not found" for a report the caller is
+ * LITERALLY looking at on `/reports/[id]` right now would be a
+ * straightforwardly false statement, not merely an over-cautious one
  * (contrast `updateReport`'s `not_found`, which really can mean "gone" or
  * "never existed" -- a PATCH's caller has no equivalent guarantee of
- * having just seen the row). The follow-up `getReport` call below is what
- * makes that distinction possible: `.delete()` returning zero rows is
- * ambiguous on its own (id doesn't exist at all, OR it exists but RLS
- * filtered it out of the DELETE), so a second, `reports_select`-gated read
- * disambiguates which case actually happened.
+ * having just seen the row).
+ *
+ * **WP3 update (`reports_select` is no longer `using (true)`):** before the
+ * access flip (supabase/migrations/20260726000018_scoped_access.sql),
+ * EVERY authenticated user could already read every report, so this
+ * disambiguation was safe for anyone. Now `reports_select` is scoped
+ * (owner, pm+, or an org-read MCP token) -- for a PLAIN MEMBER who is
+ * neither the report's owner nor pm+, `getReport` below correctly returns
+ * `null` (RLS hides the row from them entirely), so this function falls
+ * through to the honest `'not_found'` branch -- exactly right, since a
+ * plain member genuinely CANNOT see this report at all, and "not found" is
+ * no longer a polite fiction for them, it's the truth. The disambiguating
+ * second read (and its `'forbidden'` branch) is now load-bearing
+ * specifically for a pm/admin: they CAN see the report (post-flip
+ * `reports_select` grants them read access) but the DELETE itself is
+ * gated by `reports_delete` (owner-or-pm+, so a pm/admin's delete
+ * actually SUCCEEDS -- this branch is now reached only in the narrower
+ * case of a role change mid-session or a stale client, not the routine
+ * "pm/admin deletes someone else's report" case that used to be this
+ * function's main audience for it). The follow-up `getReport` call below is
+ * what makes the distinction possible either way: `.delete()` returning
+ * zero rows is ambiguous on its own (id doesn't exist at all, OR it exists
+ * but RLS filtered it out of the DELETE), so a second, `reports_select`-gated
+ * read disambiguates which case actually happened.
  */
 export async function deleteReport(db: SupabaseClient, id: string): Promise<void> {
   const { data, error } = await db.from('reports').delete().eq('id', id).select('id');
@@ -713,4 +735,49 @@ export async function deleteTeamMember(db: SupabaseClient, id: string): Promise<
   if (!data || data.length === 0) {
     throw new ServiceError('not_found', `Team member ${id} not found (or not permitted).`);
   }
+}
+
+// =============================================================================
+// WP3 (the access flip): the narrow assignee-visible/assignee-writable
+// surface -- `public.list_assigned_tasks()`/`public.update_assigned_task()`
+// (supabase/migrations/20260726000018_scoped_access.sql), the SECURITY
+// DEFINER RPCs that let a task's ASSIGNEE (not just its parent report's
+// owner) see and narrowly edit that one task, without exposing anything
+// else about the report it lives on. Both RPCs already return camelCase
+// jsonb shaped exactly like `AssignedTask` (mirroring `get_shared_report`'s
+// own already-camelCase convention, lib/server/db-mapping.ts) -- there is no
+// separate row-mapping layer needed here, unlike `rowToReport`/`mapTaskRow`.
+// =============================================================================
+
+/** `GET /api/tasks/assigned`'s sole caller. Returns `[]` (never an error) for a caller with no linked team-directory row or no assigned tasks -- see the RPC's own comment. */
+export async function listAssignedTasks(db: SupabaseClient): Promise<AssignedTask[]> {
+  const { data, error } = await db.rpc('list_assigned_tasks');
+  if (error) throw mapPgError(error);
+  return (data ?? []) as AssignedTask[];
+}
+
+/**
+ * `PATCH /api/tasks/[id]`'s sole caller. `patch` is already
+ * `AssignedTaskPatchSchema`-validated (status/deadline/completedAt only,
+ * `.strict()`) by the route handler before this is called -- this function
+ * just forwards it to the RPC, translating an absent (`undefined`) field to
+ * SQL `NULL` ("leave this field alone," per `update_assigned_task`'s own
+ * NULL-means-untouched convention) and an explicit empty string through
+ * verbatim (deadline/completedAt's existing '' = "clear it" convention).
+ */
+export async function updateAssignedTask(db: SupabaseClient, taskId: string, patch: AssignedTaskPatchInput): Promise<AssignedTask> {
+  const { data, error } = await db.rpc('update_assigned_task', {
+    p_task_id: taskId,
+    p_status: patch.status ?? null,
+    p_deadline: patch.deadline ?? null,
+    p_completed_at: patch.completedAt ?? null,
+  });
+  if (error) throw mapPgError(error);
+  const result = (data ?? null) as { task: AssignedTask; reportId: string; updatedAt: string } | null;
+  if (!result) {
+    // Diagnostic-only (see `updateReport`'s identical note) -- curated to a
+    // generic message by `handleServiceError` before it reaches the wire.
+    throw new ServiceError('internal', `update_assigned_task returned no result for task ${taskId}.`);
+  }
+  return result.task;
 }
