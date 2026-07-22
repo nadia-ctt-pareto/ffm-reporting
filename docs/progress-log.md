@@ -43,7 +43,7 @@ An independent diff review then caught two genuine bugs, both now fixed and regr
 ### NOT verified by running
 
 - **The Supabase owner-or-admin delete round trip (403 vs 204).** It needs two real accounts against a live project, and nothing was written to production. The client predicate mirrors the RLS policy text, but the live path is reasoned about, not exercised.
-- **`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` is written but NOT APPLIED.** The hosted database does not have it. It is grant hygiene only: RLS is enabled on those four tables and every policy targets `authenticated`, so `anon` has no policy and is already denied — latent cleanup, not a live vulnerability. A `supabase db reset` locally will therefore produce a schema production does not yet have.
+- ~~The anon grant-hygiene migration is unapplied.~~ **APPLIED to production on 2026-07-22**, after this entry was first written — see "Post-deploy" below.
 
 ### Known limitations, recorded deliberately
 
@@ -51,6 +51,19 @@ An independent diff review then caught two genuine bugs, both now fixed and regr
 - `DECK_METRICS` was measured against the weekly dense-table layout and is reused, conservatively, by the daily `tasksByClient` slide's tighter CSS. Tightening those constants requires re-measuring BOTH layouts, or the daily deck clips first while weekly fixtures still pass.
 - **The print harness is not automatic** — it is not wired into `npm run build` or CI. Run `npx tsx scripts/verify-deck-print.ts` by hand after any change to `lib/deck-slides.ts`, `ReportDeck*`, `PresentScreen`, or `styles/print.css`.
 - The wizard save path still has no compare-and-swap; it is a full upsert through `replace_reports`, the same last-write-wins exposure a draft resume always had.
+
+### Post-deploy: anon grant-hygiene migration applied (2026-07-22)
+
+`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` was applied to the hosted database via `bash scripts/apply-remote-migrations.sh` (it applied exactly that one file and skipped the twelve already recorded). Verified read-only immediately afterwards, mirroring how Phase 8c verified its identical `projects` revoke:
+
+- `anon` now holds **no grants at all** on `reports`, `tasks`, `risks`, `priorities`.
+- `authenticated` **retains `DELETE`** on all four — report delete still works.
+- `share_token` still has **no `SELECT`** for `authenticated`: Phase 7b's column-level hardening survived the revoke untouched. (This was the specific thing worth checking — a careless `revoke all` + `grant` cycle is exactly how that protection could have been silently undone.)
+- A **real live share token still resolves** through `get_shared_report` (2 tokens were live), and a bogus token still returns null. The anonymous share/present path is confirmed working post-revoke, not assumed — `get_shared_report` is SECURITY DEFINER and never depended on the caller's table grants.
+
+Note this closed latent risk rather than a live hole: RLS was already enabled on all four tables with every policy targeting `authenticated`, so `anon` had no policy and was already denied everything.
+
+**The application itself was NOT deployed at this point** — production was still serving `14cbbfb`, so none of the Phase 8d application code was live when this migration landed. That ordering is safe here specifically because nothing in the app reads or depends on these grants; the migration is inert with respect to application behavior.
 
 ## 2026-07-21: BYOK AI field polish — multi-provider generalization (Anthropic + OpenAI-compatible)
 
