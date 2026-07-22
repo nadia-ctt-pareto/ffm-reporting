@@ -200,6 +200,23 @@ export interface DeckSlide {
  *
  * Re-measure every constant below if ReportDeck.module.css's typography,
  * padding, or column widths ever change.
+ *
+ * TWO LAYOUTS, ONE SET OF CONSTANTS (post-review clarification). Each
+ * constant's provenance comment names the layout it was actually MEASURED
+ * against -- the weekly Task Status slide's dense `<Table>` (`.dense .th` /
+ * `.td`, `.slideFootnote`, `.kicker`). The daily "Tasks by Client" slide
+ * reuses the same constants but renders DIFFERENT, TIGHTER CSS: `.groupedTh`
+ * / `.groupedTd` (6px/4px padding vs. 10px), `.slideFootnoteCompact` (10px
+ * margin vs. 24px), `.kickerCompact` (10px margin vs. 28px), and a
+ * three-column table (no Client column) whose task cell is WIDER than the
+ * 110-char measurement assumed.
+ *
+ * Every one of those mismatches over-reserves height, so the reuse is safe
+ * in the only direction that matters -- but it means the daily slide carries
+ * roughly 40-50px of hidden slack that these comments do not otherwise
+ * disclose. Anyone TIGHTENING these numbers must therefore re-measure
+ * against BOTH layouts, not just the weekly one, or the daily deck will
+ * start clipping first while the weekly fixtures still pass.
  */
 export const DECK_METRICS = {
   // ---- Original Phase 8d (deck pagination) scope: structured (row/card-based) sections ----------
@@ -406,7 +423,22 @@ export function packIntoSlides<T extends PackItem>(items: T[], budget: number, p
       continue;
     }
 
-    if (current.length > 0 && currentHeight + item.height > budget) {
+    // `!onlyWidows` is what stops a widowed header from becoming a BLANK
+    // SLIDE. The `keepWithNext` branch above places a client-group header on
+    // the current slide having reserved room for the header PLUS the next
+    // item -- but this branch re-evaluates that next item on its own and knows
+    // nothing about the header sitting in front of it. When the item alone
+    // still doesn't fit (a single task title long enough to wrap past a whole
+    // slide -- reachable, since task text is capped at MAX_LONG_TEXT = 20k and
+    // CSV/LLM-authored titles are an anticipated source), flushing here
+    // pushed `current` while it held ONLY the header. `chunkTasksByClient`
+    // then re-derives its groups from the chunk's tasks, finds none, and
+    // renders a slide with a kicker, a table head, and an empty body -- a
+    // blank page in the deck AND in the exported PDF, inflating every
+    // "n of N" part label with it. Never flush a chunk that is nothing but
+    // pending headers; carry them onto the oversized item's slide instead.
+    const onlyWidows = current.every((it) => it.keepWithNext);
+    if (current.length > 0 && !onlyWidows && currentHeight + item.height > budget) {
       slides.push(current);
       current = [];
       currentHeight = perSlideOverhead;
@@ -508,12 +540,34 @@ export function chunkTasksByClient(tasks: Task[]): { groups: ClientTaskGroup[]; 
     }
   }
 
-  const chunks = packIntoSlides(items, DECK_METRICS.bodyBudget, DECK_METRICS.tableHeader + DECK_METRICS.footnote);
+  // `clientGroupHeading` is charged into `perSlideOverhead` as well as being
+  // an item, which looks like double-counting but is not: because groups are
+  // RE-DERIVED per chunk (see this function's doc comment), a group that
+  // spills across a slide boundary renders its divider row a SECOND time on
+  // the continuation slide -- height that no item on that chunk ever paid
+  // for. Reserving one heading per slide covers exactly that repeat. It
+  // slightly over-reserves on a chunk that happens to start on a group
+  // boundary, which is the safe direction (over-reserving costs at worst a
+  // page; under-reserving clips content, which is the bug this whole file
+  // exists to fix).
+  const perSlideOverhead = DECK_METRICS.tableHeader + DECK_METRICS.footnote + DECK_METRICS.clientGroupHeading;
+  const chunks = packIntoSlides(items, DECK_METRICS.bodyBudget, perSlideOverhead);
   if (chunks.length === 0) return [{ groups: [], showFootnote: true }];
-  return chunks.map((chunk, i) => {
+
+  const rendered = chunks.map((chunk, i) => {
     const chunkTasks = chunk.filter((it): it is ClientTaskPackItem => it.kind === 'task').map((it) => it.task);
     return { groups: groupTasksByClient(chunkTasks), showFootnote: i === chunks.length - 1 };
   });
+
+  // Belt-and-braces against a task-less chunk reaching the deck as a visibly
+  // blank slide. `packIntoSlides`'s `onlyWidows` guard is what actually
+  // prevents this; if some future edit reopens that hole, drop the empty
+  // chunk here rather than printing a page with a table head and no rows.
+  // `showFootnote` is re-derived AFTER filtering so it can't be stranded on a
+  // chunk that just got dropped.
+  const kept = rendered.filter((chunk) => chunk.groups.length > 0);
+  if (kept.length === 0) return [{ groups: [], showFootnote: true }];
+  return kept.map((chunk, i) => ({ ...chunk, showFootnote: i === kept.length - 1 }));
 }
 
 interface RiskPackItem extends PackItem {

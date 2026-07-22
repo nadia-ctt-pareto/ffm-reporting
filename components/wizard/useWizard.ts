@@ -394,17 +394,27 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     const now = nowDate();
     const publishedStatus = draft.status === 'Sent' ? 'Sent' : 'Final';
     const report = draftToReport(draft, id, publishedStatus, now);
-    // Phase 8d (editing a published report): stamps `status` alongside `id` here too -- without it, the header
-    // "Save Draft"/"Save Changes" button (which stays live on the
-    // publish-confirmation screen, see the header comment in
-    // WizardScreen.tsx) would read the PRE-publish `draft.status` (still
-    // `'Draft'` for a brand-new report) on a post-publish click and demote
-    // the report that was JUST published right back to `'Draft'` via
-    // `saveDraft()`'s `draftToReport(draft, id, draft.status, now)` above.
-    setDraft((d) => ({ ...d, id, status: publishedStatus }));
+    // The id is stamped BEFORE the await on purpose: a failed publish must be
+    // retryable against the same id rather than minting a second report.
+    setDraft((d) => ({ ...d, id }));
     setIsSubmitting(true);
     try {
       await options.onPublish(report);
+      // `status` is stamped ONLY after the write actually resolves -- see the
+      // post-review finding this fixes. Stamping it beside `id` above (as an
+      // earlier revision did) promoted the in-memory draft to 'Final' even
+      // when the publish REJECTED: the user stayed on the Review step with
+      // the header Save button live, clicked "Save Draft", and `saveDraft()`
+      // -- which now faithfully writes `draft.status` -- persisted a report
+      // as 'Final' that had never been published successfully. It then showed
+      // as Final on the dashboard.
+      //
+      // Stamping here still satisfies the reason the stamp exists at all: the
+      // publish-confirmation screen (whose header Save button stays live, see
+      // WizardScreen.tsx) only ever renders after this line has run, so a
+      // post-publish "Save" reads the promoted status and can no longer demote
+      // the just-published report back to 'Draft'.
+      setDraft((d) => ({ ...d, status: publishedStatus }));
       setPublished(true);
       setError('');
     } catch (err) {

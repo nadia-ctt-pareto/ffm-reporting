@@ -92,8 +92,15 @@ export function DailyPage() {
         onDeleteReport={setPendingDeleteId}
         canDeleteReport={deletable}
       />
+      {/* `open` is keyed off the resolved REPORT, not the pending id: if the
+          row disappears from under an open dialog (deleted in another tab, or
+          filtered away by a concurrent refresh), `pendingDeleteReport` goes
+          null while `pendingDeleteId` is still set -- which rendered the
+          dialog with an empty period and the wrong default kind label
+          ("Weekly Report" even on the daily page). Closing is the honest
+          outcome; there is nothing left to confirm. */}
       <ConfirmDeleteReportDialog
-        open={pendingDeleteId !== null}
+        open={pendingDeleteReport !== null}
         report={pendingDeleteReport}
         isDeleting={isDeleting}
         error={deleteError}

@@ -258,6 +258,40 @@ const FIXTURES: Fixture[] = [
       win: { stat: '87%', label: 'Client satisfaction score', narrative: SENTENCE_HEAVY_WIN_NARRATIVE },
     }),
   },
+  {
+    // Regression fixture for a post-review finding: on the DAILY deck, a task
+    // whose title alone is taller than a whole slide used to strand its
+    // client-group header on a slide of its own. That header is a synthetic,
+    // never-rendered budgeting item, so `chunkTasksByClient` re-derived ZERO
+    // groups for that chunk and the deck emitted a genuinely BLANK page --
+    // kicker + table head + empty body -- into the PDF, inflating every
+    // "n of N" label with it. Fixed by `packIntoSlides`'s `onlyWidows` guard.
+    //
+    // The trigger is a first-client, first-task title long enough to exceed
+    // `bodyBudget` on its own (~2,200+ chars at ~110 chars/line). Well within
+    // the schema's 20k `MAX_LONG_TEXT` cap, and CSV/LLM-authored task titles
+    // are an explicitly anticipated source of exactly this.
+    //
+    // The clipping assertion cannot catch this on its own: a blank slide
+    // clips nothing. What catches it is that the deck must contain no
+    // task-less "Tasks by Client" slide -- asserted directly below.
+    name: 'daily-giant-task-title',
+    base: '/daily',
+    report: daily('vfy-d-giant', {
+      tasks: [
+        {
+          id: 't-giant',
+          client: CLIENTS[0],
+          task: 'Rebuild the entire attribution model '.padEnd(2600, 'across every paid and organic channel and reconcile it with finance ').slice(0, 2600),
+          status: 'In Progress' as const,
+          deadline: '2026-07-20',
+        },
+        ...makeTasks(5).map((t, i) => ({ ...t, id: `t-rest-${i}`, client: CLIENTS[(i % 3) + 1] })),
+      ],
+      risks: makeRisks(2),
+      priorities: makePriorities(3),
+    }),
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -590,6 +624,41 @@ async function verifyFixture(cdp: Cdp, sessionId: string, fx: Fixture): Promise<
     fx.name,
     'no slide clips content in print media (scrollHeight <= clientHeight)',
     `overflow by up to ${clipResult.worst}px on slides [${clipResult.offenders.join(', ')}]`
+  );
+
+  // NO BLANK SLIDES. The clipping assertion above cannot see this failure --
+  // an empty slide clips nothing, so it passes every height check while still
+  // printing a wasted page. A slide is "blank" here if it renders a table
+  // (i.e. it is a tasks / tasks-by-client slide) with zero body rows, which
+  // is exactly what a widowed client-group header produced before
+  // `packIntoSlides`'s `onlyWidows` guard. See the `daily-giant-task-title`
+  // fixture for the trigger.
+  const blank = await cdp.send<{ result: { value: { empties: string[] } } }>(
+    'Runtime.evaluate',
+    {
+      expression: `(() => {
+        const empties = [];
+        [...document.querySelectorAll('.slide')].forEach((el, i) => {
+          const table = el.querySelector('table');
+          if (!table) return;
+          const rows = table.querySelectorAll('tbody tr');
+          if (rows.length === 0) {
+            const kicker = el.querySelector('[class*="kicker"]');
+            empties.push(i + ':' + (kicker ? kicker.textContent.trim().slice(0, 40) : '?'));
+          }
+        });
+        return { empties };
+      })()`,
+      returnByValue: true,
+    },
+    sessionId
+  );
+  const blankResult = blank.result?.value ?? { empties: ['<eval failed>'] };
+  check(
+    blankResult.empties.length === 0,
+    fx.name,
+    'no blank slide (a table slide with zero body rows)',
+    `blank slides: [${blankResult.empties.join(', ')}]`
   );
 
   await cdp.send('Emulation.setEmulatedMedia', { media: '' }, sessionId);
