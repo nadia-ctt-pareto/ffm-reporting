@@ -28,7 +28,22 @@ if (process.env.VERCEL_ENV === "production" && (!process.env.NEXT_PUBLIC_SUPABAS
 }
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Move Next's dev-tools indicator off the sidebar's Collapse button.
+  //
+  // This is a DEVELOPMENT-ONLY annoyance, not an app bug -- worth stating
+  // plainly so nobody re-investigates it. Next renders its dev indicator (the
+  // round "N" badge) into a `nextjs-portal` element pinned, by default, to the
+  // viewport's bottom-left. `components/app/Sidebar.tsx`'s Collapse button
+  // occupies exactly that corner (measured: x 20, y 842, 88x34 at a 1280x900
+  // viewport), so the badge sits on top of it and the two read as a broken
+  // overlapping control.
+  //
+  // Verified it is genuinely Next's overlay and not our layout, by probing the
+  // same page under both servers: `next dev` reports a `nextjs-portal` element
+  // present, `next start` (production) reports none, and the Collapse button's
+  // own bounding box is byte-identical in both. Nothing ships to production
+  // either way -- this line only changes where the badge sits while developing.
+  devIndicators: { position: 'bottom-right' },
 };
 
 export default nextConfig;
