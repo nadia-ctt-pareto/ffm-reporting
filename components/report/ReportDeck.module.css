@@ -79,6 +79,28 @@
   margin-bottom: 28px;
 }
 
+/*
+ * WP3 (pagination): the explicit "N of M" part affordance a continuation
+ * slide's kicker shows next to its section title (e.g. "Task Status · 2 of
+ * 3", see ReportDeck.tsx's `SlideKicker`) -- a viewer landing directly on a
+ * continuation slide (a dot in the present-page navigator, a `?slide=n`
+ * deep link) must be able to tell at a glance that this is a CONTINUATION
+ * of a section, not a new one. Inherits `.kicker`/`.kickerCompact`'s
+ * font-family/size/letter-spacing/text-transform by ordinary CSS
+ * inheritance (a nested `<span>`) -- only `color` and `font-weight` are
+ * overridden here, to `--text-muted` and a lighter weight, so the part
+ * indicator reads as secondary information rather than a second heading.
+ * Semantic token only (no new radius -- there's nothing to round here,
+ * it's plain inline text). `.win .kicker`'s green recolor (below) doesn't
+ * need a matching `.win .kickerPart` override: `--text-muted` is an
+ * explicit color declaration, so it always wins over an inherited value
+ * regardless of which section this kicker lives in.
+ */
+.kickerPart {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 /* ---- Slide 1: Cover ---- */
 
 .cover {

@@ -30,8 +30,9 @@
  * without `!important` a source-order flip silently un-hides the toolbar
  * or under/over-reserves layout height in print -- verified by generating
  * a real PDF (Chromium `page.pdf()` + `/Count` in the PDF's page tree) and
- * confirming exactly 6 pages; omitting `!important` here produced 7-8
- * pages (a lingering toolbar/height reservation pushed a stray 7th page).
+ * confirming exactly 6 pages (back when six was always the whole story --
+ * see WP3's note below); omitting `!important` here produced 7-8 pages
+ * (a lingering toolbar/height reservation pushed a stray 7th page).
  *
  * Fixed 1280x720 `.slide` boxes + `@page { size: 1280px 720px; margin: 0 }`
  * means the printed page IS the slide -- no scaling, no reflow -- so the
@@ -41,6 +42,36 @@
  * present page's toolbar hint + README), not something this stylesheet can
  * fix -- no headless-render dependency (puppeteer/react-pdf) for an
  * internal tool.
+ *
+ * THE PRINT-PAGE-COUNT CONTRACT, UPDATED (WP3, pagination):
+ * ------------------------------------------------------------------------
+ * This file used to guarantee "the printed PDF is always exactly 6 pages" --
+ * true only because every section was hardcoded to exactly one slide,
+ * unconditionally, no matter how much content it held (`.slide { overflow:
+ * hidden }`, ReportDeck.module.css, silently CLIPPED the rest -- a real,
+ * measured data-loss bug: a realistic 40-task weekly overflowed its Task
+ * Status slide by up to 2,018px). WP3 (lib/deck-slides.ts's `packIntoSlides`
+ * / `chunkNarrative`) makes the deck grow to as many slides as a report's
+ * content actually needs, so "6" stopped being a universal constant. NO
+ * RULE in this file changed for WP3 -- the contract this file enforces is
+ * unchanged in mechanism, only in what "the right number of pages" MEANS:
+ *
+ *   The printed PDF contains exactly `buildDeckSlides(report).length`
+ *   pages -- one page per rendered `.slide`, no more
+ *   (`.slide:last-child { break-after: auto }` below still prevents the
+ *   trailing blank page regardless of how many slides there are) and no
+ *   fewer (the fixed 1280x720 boxes + `break-after: page` below never
+ *   merge or collapse two slides onto one page, no matter which slide
+ *   type or how many of them). This is mechanically checkable independent
+ *   of any fixed number: `scripts/verify-deck-print.ts` imports
+ *   `buildDeckSlides` IN-PROCESS as the source of truth and asserts the
+ *   PDF's own page-tree `/Count` equals it, for every fixture -- including
+ *   three that deliberately overflow into more than six pages. A report
+ *   that never overflows any section still produces exactly six slides /
+ *   six pages, byte-identical to every phase before WP3 (see that
+ *   harness's `baseline-weekly`/`baseline-daily` fixtures) -- pagination
+ *   changed WHAT DETERMINES the page count, not the mechanism that turns
+ *   slide count into page count, which is everything below this comment.
  */
 
 @page {

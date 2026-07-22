@@ -77,18 +77,52 @@ function slideSectionClass(type: DeckSlideBody['type']): string {
 }
 
 /**
+ * The shared section kicker -- e.g. "Task Status" -- now WP3-aware: when
+ * `slide.part` is non-null (a section that spans more than one physical
+ * slide), it appends an explicit, muted "· 2 of 3" part affordance
+ * (`.kickerPart`) so a viewer landing on a continuation slide immediately
+ * understands it's a CONTINUATION of the previous one, not a new section.
+ * `compact` selects `.kickerCompact` instead of `.kicker` -- used ONLY by
+ * the daily "Tasks by Client" slide (see `slideSectionClass`'s sibling
+ * comment on why that slide needs the tighter variant); every other section
+ * uses the plain `.kicker`. A single-slide section (`slide.part === null`,
+ * the overwhelmingly common case -- most reports never overflow at all)
+ * renders byte-identical to every pre-WP3 kicker.
+ */
+function SlideKicker({ slide, compact = false }: { slide: DeckSlide; compact?: boolean }) {
+  return (
+    <div className={compact ? styles.kickerCompact : styles.kicker}>
+      {slide.title}
+      {slide.part ? (
+        <span className={styles.kickerPart}>
+          {' '}
+          &middot; {slide.part.index} of {slide.part.total}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Renders one slide's body (the JSX that used to live inline inside each of
  * the six hardcoded `<section>` blocks pre-WP1, moved verbatim). `report` is
- * still threaded through alongside `slide` -- the `cover`/`summary`/`glance`/
- * `win` branches read report fields directly (title/prepared-for/-by,
- * touchpoints, the win stat/label/narrative), exactly like before. The
+ * still threaded through alongside `slide` -- the `cover` branch reads
+ * report fields directly (title/prepared-for/-by), exactly like before. The
  * `tasks`/`tasksByClient` branches also read full-report on-schedule/blocker
  * counts via `onSchedule`/`openBlockers` for their footnote -- deliberately
  * from `report.tasks`, NOT from `body.rows`/`body.groups` -- because a
- * future chunked Task Status deck must keep showing the same whole-report
- * counts on every chunk (only the LAST chunk shows the footnote at all, per
+ * chunked Task Status deck (WP3) keeps showing the same whole-report counts
+ * on every chunk (only the LAST chunk shows the footnote at all, per
  * `body.showFootnote`), not a per-chunk subset that would silently
  * under-count.
+ *
+ * WP3: `summary`/`glance`/`win` no longer read `report.summaryNarrative`/
+ * `report.win.narrative` directly -- they render `body.narrative`, THIS
+ * SLIDE'S chunk of that text (see `chunkNarrative`, lib/deck-slides.ts), and
+ * gate the StatCard trio / touchpoints caption / win stat+label on
+ * `body.showStats`/`body.showStat` (`true` on a section's first chunk only
+ * -- those are fixed blocks, not flowing text, so they never repeat on a
+ * continuation slide).
  *
  * WP2: takes the whole `slide` (not just `body`) so every section's kicker
  * can render `slide.title` verbatim instead of re-deciding per-kind wording
@@ -101,7 +135,7 @@ function slideSectionClass(type: DeckSlideBody['type']): string {
  * isn't part of `SECTION_HEADINGS`'s contract and is decided inline below.
  */
 function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
-  const { body, title } = slide;
+  const { body } = slide;
   switch (body.type) {
     case 'cover': {
       const periodLabel = reportPeriodLabel(report);
@@ -136,17 +170,30 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
       );
     }
 
+    // WP3: `body.narrative` is THIS SLIDE'S chunk of `report.summaryNarrative`
+    // (see `chunkNarrative`, lib/deck-slides.ts) -- never the full field
+    // directly, so a long narrative's continuation slides each show their
+    // own portion instead of the whole thing repeating (or clipping) on
+    // every chunk. `body.showStats` is `true` only on the section's FIRST
+    // chunk: the StatCard trio + touchpoints caption are a FIXED block, not
+    // flowing text, so they belong on chunk 1 only -- a continuation slide
+    // is narrative-only, matching `summaryFirstChunkBudget`'s smaller
+    // reserved budget on that first chunk.
     case 'summary':
       return (
         <>
-          <div className={styles.kicker}>{title}</div>
-          <p className={styles.narrative}>{report.summaryNarrative}</p>
-          <div className={styles.statsGrid}>
-            <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
-            <StatCard label="Emails" value={String(report.touchpoints.emails || 0)} />
-            <StatCard label="Escalations" value={String(report.touchpoints.escalations || 0)} />
-          </div>
-          {report.touchpoints.narrative ? <p className={styles.caption}>{report.touchpoints.narrative}</p> : null}
+          <SlideKicker slide={slide} />
+          <p className={styles.narrative}>{body.narrative}</p>
+          {body.showStats ? (
+            <>
+              <div className={styles.statsGrid}>
+                <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
+                <StatCard label="Emails" value={String(report.touchpoints.emails || 0)} />
+                <StatCard label="Escalations" value={String(report.touchpoints.escalations || 0)} />
+              </div>
+              {report.touchpoints.narrative ? <p className={styles.caption}>{report.touchpoints.narrative}</p> : null}
+            </>
+          ) : null}
         </>
       );
 
@@ -159,19 +206,24 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
     // volume is still visible at a glance. Reuses `.narrative`/
     // `.statsGrid`/`.caption` verbatim (no new CSS): the "glance" slide
     // is structurally the same shape as `summary`, just a different stat
-    // mix and kicker.
+    // mix and kicker. WP3: same `body.narrative`/`body.showStats` chunking
+    // contract as `summary` above.
     case 'glance': {
       const { onSched, total } = onSchedule(report);
       return (
         <>
-          <div className={styles.kicker}>{title}</div>
-          <p className={styles.narrative}>{report.summaryNarrative}</p>
-          <div className={styles.statsGrid}>
-            <StatCard label="Tasks On Schedule" value={`${onSched} / ${total}`} />
-            <StatCard label="Open Blockers" value={String(openBlockers(report))} />
-            <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
-          </div>
-          {report.touchpoints.narrative ? <p className={styles.caption}>{report.touchpoints.narrative}</p> : null}
+          <SlideKicker slide={slide} />
+          <p className={styles.narrative}>{body.narrative}</p>
+          {body.showStats ? (
+            <>
+              <div className={styles.statsGrid}>
+                <StatCard label="Tasks On Schedule" value={`${onSched} / ${total}`} />
+                <StatCard label="Open Blockers" value={String(openBlockers(report))} />
+                <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
+              </div>
+              {report.touchpoints.narrative ? <p className={styles.caption}>{report.touchpoints.narrative}</p> : null}
+            </>
+          ) : null}
         </>
       );
     }
@@ -187,7 +239,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
       }));
       return (
         <>
-          <div className={styles.kicker}>{title}</div>
+          <SlideKicker slide={slide} />
           <div className={styles.tableWrap}>
             <Table columns={TASK_COLUMNS} rows={taskRows} dense />
           </div>
@@ -241,7 +293,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
               needs a tighter kicker margin, and why that's safe to do
               without touching `.kicker` itself (every other slide,
               including the weekly `tasks` slide, must stay byte-identical). */}
-          <div className={styles.kickerCompact}>{title}</div>
+          <SlideKicker slide={slide} compact />
           <div className={styles.tableWrap}>
             <table className={styles.groupedTable}>
               <thead>
@@ -292,7 +344,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
     case 'risks':
       return (
         <>
-          <div className={styles.kicker}>{title}</div>
+          <SlideKicker slide={slide} />
           {body.rows.length > 0 ? (
             <div className={styles.riskGrid}>
               {body.rows.map((rk) => (
@@ -320,7 +372,7 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
     case 'priorities':
       return (
         <>
-          <div className={styles.kicker}>{title}</div>
+          <SlideKicker slide={slide} />
           <ol className={styles.priorityList}>
             {body.rows.map((p, i) => (
               <li key={p.id} className={styles.priorityItem}>
@@ -328,10 +380,10 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
                     of the old CSS `counter(priority)` -- see
                     ReportDeck.module.css's `.priorityNum` for why the CSS
                     counter approach had to go (it silently restarts at 1 on
-                    every slide, which would misnumber a future chunked
-                    priorities continuation slide). `startIndex` is always 1
-                    in WP1 (no chunking yet), so this renders identically to
-                    the old counter() output today. */}
+                    every slide, which would misnumber a chunked priorities
+                    continuation slide). WP3: `startIndex` now genuinely
+                    varies per chunk (`chunkPriorities`, lib/deck-slides.ts) --
+                    this is the payoff that comment was written ahead of. */}
                 <span className={styles.priorityNum}>{body.startIndex + i}.</span>
                 {p.text}
               </li>
@@ -340,13 +392,23 @@ function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
         </>
       );
 
+    // WP3: `body.narrative` is THIS SLIDE'S chunk of `report.win.narrative`
+    // (see `buildWinSlides`, lib/deck-slides.ts). `body.showStat` is `true`
+    // only on the section's FIRST chunk -- the win stat + label are a FIXED
+    // block, not flowing text, so a continuation slide shows only the
+    // kicker (with its "· 2 of 2" part affordance) and the narrative
+    // continuation, never a repeated (or blank) stat/label.
     case 'win':
       return (
         <>
-          <div className={styles.kicker}>{title}</div>
-          <div className={styles.winStat}>{report.win.stat || '—'}</div>
-          <div className={styles.winLabel}>{report.win.label}</div>
-          <p className={styles.winNarrative}>{report.win.narrative}</p>
+          <SlideKicker slide={slide} />
+          {body.showStat ? (
+            <>
+              <div className={styles.winStat}>{report.win.stat || '—'}</div>
+              <div className={styles.winLabel}>{report.win.label}</div>
+            </>
+          ) : null}
+          <p className={styles.winNarrative}>{body.narrative}</p>
         </>
       );
 

@@ -108,6 +108,13 @@ const EXPECTED_MEDIABOX = [0, 0, 960, 540] as const;
 //   * `daily-many-clients` -- 24 tasks across 6 clients (the daily deck groups
 //     by client, so group headers add their own height and widow rules).
 //   * `daily-no-win` -- a daily whose win was never recorded.
+//   * `overflow-win-narrative` -- a SINGLE giant paragraph (no `\n\n`
+//     anywhere) as the win narrative, long enough to force `chunkNarrative`'s
+//     SENTENCE-level fallback (lib/deck-slides.ts) across several
+//     continuation slides -- the one code path `overflow-mixed`'s multi-
+//     paragraph narrative never exercises (its 6 short paragraphs each fit
+//     within one chunk on their own, so paragraph-level packing alone always
+//     sufficed for it).
 // ---------------------------------------------------------------------------
 
 function core(id: string) {
@@ -169,6 +176,23 @@ const LONG_NARRATIVE = Array.from(
     'This period saw sustained delivery across every active account, with the paid-search restructure landing on schedule and the creative refresh moving into its second review cycle. '.repeat(2)
 ).join('\n\n');
 
+/**
+ * A SINGLE paragraph (deliberately no `\n\n` anywhere) long enough to
+ * overflow several whole win-slide budgets on its own -- `chunkNarrative`'s
+ * paragraph-level packing (lib/deck-slides.ts) can't help here at all (there
+ * is only one paragraph), so this is the one fixture that actually exercises
+ * the SENTENCE-level fallback path, never previously hit by `LONG_NARRATIVE`
+ * above (whose 6 short paragraphs each individually fit within a single
+ * chunk's budget, so `chunkNarrative` never needed to fall through to
+ * sentence-splitting for it). Real sentence boundaries throughout (each
+ * numbered sentence ends in a period) so a passing run here is a genuine
+ * assertion that sentences are never split mid-sentence.
+ */
+const SENTENCE_HEAVY_WIN_NARRATIVE = Array.from(
+  { length: 24 },
+  (_, i) => `Sentence ${i + 1} covers a distinct account milestone reached this week with measurable, client-visible impact.`
+).join(' ');
+
 function weekly(id: string, over: Partial<WeeklyReport>): WeeklyReport {
   return { ...core(id), kind: 'weekly', weekStart: '2026-07-13', weekEnd: '2026-07-17', ...over } as WeeklyReport;
 }
@@ -222,6 +246,16 @@ const FIXTURES: Fixture[] = [
       risks: makeRisks(2),
       priorities: makePriorities(4),
       win: { stat: '', label: '', narrative: '' },
+    }),
+  },
+  {
+    name: 'overflow-win-narrative',
+    base: '/reports',
+    report: weekly('vfy-w-winprose', {
+      tasks: makeTasks(4),
+      risks: makeRisks(1),
+      priorities: makePriorities(2),
+      win: { stat: '87%', label: 'Client satisfaction score', narrative: SENTENCE_HEAVY_WIN_NARRATIVE },
     }),
   },
 ];
