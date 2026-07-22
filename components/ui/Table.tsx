@@ -46,6 +46,31 @@ export interface TableProps {
    * secondary/audit flow.
    */
   scrollX?: boolean;
+  /**
+   * `/tasks` task CRUD follow-up: opt-in per-row click activation, called
+   * with the row's index into `rows` (the caller maps that back to whatever
+   * domain object built that row -- e.g. `TaskList.tsx` indexes its own
+   * `entries` array, which is built in the exact same order as `rows`).
+   * When set, each `<tr>` gains `tabIndex={0}` and an Enter/Space
+   * `onKeyDown` in addition to a plain `onClick` -- satisfying
+   * "keyboard-activatable, not a bare onClick" without requiring a `<button>`
+   * to illegally wrap `<td>` elements, and WITHOUT changing the row's ARIA
+   * role (see the `role="row"` comment on the element itself for why
+   * re-roling it as a button is invalid here). A nested interactive element inside a
+   * clickable row (e.g. TaskList's "View Report" link) MUST call
+   * `stopPropagation()` in its own `onClick`, or activating IT would also
+   * fire this row's `onRowClick` (click events bubble regardless of target).
+   * Keyboard is unaffected by this without any extra work: the row's own
+   * `onKeyDown` only acts when `e.target === e.currentTarget` (i.e. the KEY
+   * PRESS happened on the row itself, not a bubbled-up press from a focused
+   * child), so Enter on a focused nested link still just activates that
+   * link's own native behavior. Strictly opt-in (default `undefined`) so
+   * every existing `Table` consumer (dashboard, daily list, `ReportDeck`,
+   * Consolidate's source tables, ...) renders byte-identical DOM/CSS --
+   * matching this component's established "additive-only" contract (see
+   * `stacked`/`scrollX` above).
+   */
+  onRowClick?: (index: number) => void;
 }
 
 function alignClass(align: TableColumn['align']): string {
@@ -54,7 +79,7 @@ function alignClass(align: TableColumn['align']): string {
   return '';
 }
 
-export function Table({ columns, rows, dense = false, stacked = false, scrollX = false }: TableProps) {
+export function Table({ columns, rows, dense = false, stacked = false, scrollX = false, onRowClick }: TableProps) {
   const table = (
     <table
       role="table"
@@ -71,7 +96,39 @@ export function Table({ columns, rows, dense = false, stacked = false, scrollX =
       </thead>
       <tbody role="rowgroup">
         {rows.map((row, i) => (
-          <tr key={i} role="row" className={styles.tr}>
+          <tr
+            key={i}
+            /* Stays `row` even when clickable. An earlier revision set
+               `role="button"` here, which is INVALID ARIA: this `<tr>` is a
+               child of `<tbody role="rowgroup">`, and a rowgroup's children
+               must be rows -- re-roling it as a button removes the row from
+               the table's accessibility tree entirely, so a screen-reader
+               user loses row/column context for the whole table (and the
+               table reports a malformed structure). Focusability plus the
+               Enter/Space handler below is what makes the row activatable;
+               that needs no role change, and keeping `row` preserves table
+               navigation. */
+            role="row"
+            tabIndex={onRowClick ? 0 : undefined}
+            /* Concatenated conditionally rather than with a template literal
+               so a non-clickable row's className is exactly `styles.tr` with
+               no trailing space -- this component's contract is that every
+               existing consumer (notably `ReportDeck`, whose DOM the 6-page
+               print contract depends on) renders byte-identical output. */
+            className={onRowClick ? `${styles.tr} ${styles.trClickable}` : styles.tr}
+            onClick={onRowClick ? () => onRowClick(i) : undefined}
+            onKeyDown={
+              onRowClick
+                ? (e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRowClick(i);
+                    }
+                  }
+                : undefined
+            }
+          >
             {columns.map((col) => (
               <td
                 key={col.key}

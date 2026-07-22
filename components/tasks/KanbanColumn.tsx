@@ -11,11 +11,12 @@ import styles from './KanbanColumn.module.css';
 export interface KanbanColumnProps {
   status: TaskStatus;
   entries: TaskEntry[];
-  onViewReport: (id: string) => void;
+  /** Task CRUD: opens the edit dialog for a clicked card (was `onViewReport`, which navigated -- see TaskCard's own doc comment). */
+  onTaskOpen: (entry: TaskEntry) => void;
 }
 
 /** One `useDroppable` zone keyed by `status` -- `KanbanBoard`'s `onDragEnd` reads the dropped-over `status` straight off `over.id`. */
-export function KanbanColumn({ status, entries, onViewReport }: KanbanColumnProps) {
+export function KanbanColumn({ status, entries, onTaskOpen }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
@@ -29,11 +30,7 @@ export function KanbanColumn({ status, entries, onViewReport }: KanbanColumnProp
           <div className={styles.emptyState}>No tasks</div>
         ) : (
           entries.map((entry) => (
-            <TaskCard
-              key={`${entry.report.id}::${entry.task.id}`}
-              entry={entry}
-              onView={() => onViewReport(entry.report.id)}
-            />
+            <TaskCard key={`${entry.report.id}::${entry.task.id}`} entry={entry} onOpen={() => onTaskOpen(entry)} />
           ))
         )}
       </div>

@@ -13,7 +13,8 @@ import styles from './KanbanBoard.module.css';
 
 export interface KanbanBoardProps {
   grouped: Record<TaskStatus, TaskEntry[]>;
-  onViewReport: (id: string) => void;
+  /** Task CRUD: opens the edit dialog for a clicked card (was `onViewReport`, which navigated to the parent report -- TaskCard's own doc comment explains why that destination moved into the dialog instead of disappearing). */
+  onTaskOpen: (entry: TaskEntry) => void;
   onTaskStatusChange: (reportId: string, taskId: string, status: TaskStatus) => void;
 }
 
@@ -45,7 +46,7 @@ function isTaskStatus(value: unknown): value is TaskStatus {
  * Space/Enter to pick up and drop, arrow keys to move between droppables,
  * Escape to cancel) is unchanged.
  */
-export function KanbanBoard({ grouped, onViewReport, onTaskStatusChange }: KanbanBoardProps) {
+export function KanbanBoard({ grouped, onTaskOpen, onTaskStatusChange }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -84,10 +85,10 @@ export function KanbanBoard({ grouped, onViewReport, onTaskStatusChange }: Kanba
     >
       <div className={styles.board}>
         {TASK_STATUS_ORDER.map((status) => (
-          <KanbanColumn key={status} status={status} entries={grouped[status]} onViewReport={onViewReport} />
+          <KanbanColumn key={status} status={status} entries={grouped[status]} onTaskOpen={onTaskOpen} />
         ))}
       </div>
-      <DragOverlay>{activeEntry ? <TaskCard entry={activeEntry} onView={() => {}} overlay /> : null}</DragOverlay>
+      <DragOverlay>{activeEntry ? <TaskCard entry={activeEntry} onOpen={() => {}} overlay /> : null}</DragOverlay>
     </DndContext>
   );
 }

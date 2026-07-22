@@ -29,6 +29,21 @@
   margin: 0 0 24px;
 }
 
+/* Task CRUD: shown when there are zero weekly reports -- explains why the
+   header's Add Task button (which mirrors this same condition) is disabled,
+   rather than leaving a disabled button as an unexplained mystery (same
+   "disable, don't hide, and say why" posture as ProjectDetailScreen's
+   `.adminHint`). */
+.addTaskHint {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-panel-muted);
+  padding: 12px 16px;
+  margin: 0 0 20px;
+}
+
 /* Phase 7b (BLOCKER 3): visible feedback when a Kanban drag's PATCH fails
    (e.g. a non-owner drag under Supabase RLS) -- matches ReportScreen's
    `.fieldError` treatment. */

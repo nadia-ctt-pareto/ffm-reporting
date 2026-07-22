@@ -80,6 +80,43 @@ export function withTaskStatus(report: Pick<ReportCore, 'tasks'>, taskId: string
   return report.tasks.map((t) => (t.id === taskId ? { ...t, status } : t));
 }
 
+/**
+ * `/tasks` task CRUD (click-to-edit). Pure helper mirroring `withTaskStatus`
+ * exactly, generalized from a single `status` field to an arbitrary
+ * `Partial<Task>` patch: returns a NEW `tasks` array with the task matching
+ * `taskId` shallow-merged with `patch` (a no-op copy -- same array contents,
+ * fresh outer array reference -- if `taskId` isn't found, matching
+ * `withTaskStatus`'s own no-op behavior). Never touches storage; `TaskDialog`
+ * calls this to build the array it hands to
+ * `useReports().updateReportFields(reportId, { tasks })`, the exact same
+ * write path the Kanban drag handler already uses.
+ */
+export function withTaskEdited(report: Pick<ReportCore, 'tasks'>, taskId: string, patch: Partial<Task>): Task[] {
+  return report.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t));
+}
+
+/**
+ * `/tasks` task CRUD. Pure helper: returns a NEW `tasks` array with the task
+ * matching `taskId` removed (a no-op copy -- identical contents, fresh outer
+ * array -- if `taskId` isn't found). Never touches storage; see
+ * `withTaskEdited`'s doc comment for the write path this feeds.
+ */
+export function withTaskRemoved(report: Pick<ReportCore, 'tasks'>, taskId: string): Task[] {
+  return report.tasks.filter((t) => t.id !== taskId);
+}
+
+/**
+ * `/tasks` task CRUD. Pure helper: returns a NEW `tasks` array with `task`
+ * appended. The caller is responsible for minting `task.id` (via `uid('t')`,
+ * the same prefix `components/wizard/useWizard.ts`'s `addTask` uses) --
+ * this function never mints ids itself, mirroring `withTaskEdited`/
+ * `withTaskRemoved`'s "pure array transform only" scope. Never touches
+ * storage; see `withTaskEdited`'s doc comment for the write path this feeds.
+ */
+export function withTaskAdded(report: Pick<ReportCore, 'tasks'>, task: Task): Task[] {
+  return [...report.tasks, task];
+}
+
 /** Phase 4: the display label for an AnyReport's period -- "Week of ..." for weekly, a short date for daily. Used by lists, the wizard's import panels, the report screen/deck, and CSV export. */
 export function reportPeriodLabel(report: AnyReport): string {
   return report.kind === 'weekly' ? fmtWeekLabel(report.weekStart, report.weekEnd) : fmtDateShort(report.date);

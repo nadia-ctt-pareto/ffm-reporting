@@ -12,16 +12,23 @@ import { useReports } from '@/lib/hooks/useReports';
  *
  * BLOCKER 3 fix (Phase 7b): `updateReportFields` now returns `Promise<void>`
  * (Phase 7b's failure-resilience contract, see useReports.ts) and REJECTS on
- * a failed write. This call site was missed when that contract landed --
- * `onUpdateReportFields` was passed straight through and invoked bare in
- * `KanbanBoard`'s drop handler, so a denied PATCH (e.g. `member@` dragging a
- * `dev@`-owned report's task under Supabase RLS) produced an unhandled
- * promise rejection (React 19's dev overlay / a raw `unhandledrejection`) on
- * top of the card silently snapping back with zero explanation. `.catch(() =>
- * {})` here mirrors the two report-detail page wrappers
- * (app/(shell)/reports/[id]/page.tsx, app/(shell)/daily/[id]/page.tsx);
- * `mutationError` is threaded through so the snap-back at least reads as a
- * visible error instead of "the app broke".
+ * a failed write.
+ *
+ * Task CRUD follow-up: the `.catch(() => {})` that used to live HERE (see
+ * this comment's own prior revision) moved down into `TaskViewScreen`'s
+ * `handleTaskStatusChange` instead of staying at this call site. Reason:
+ * `TaskDialog`'s Save/Add/Delete actions now ALSO go through
+ * `onUpdateReportFields`, and THEY need to `await` its real resolve/reject
+ * outcome to decide "close the dialog" vs. "show an inline error and stay
+ * open" -- swallowing the rejection here, before it ever reaches
+ * `TaskViewScreen`, would make that impossible. So this wrapper now passes
+ * `updateReportFields` straight through, unwrapped, and `TaskViewScreen`
+ * itself decides per call site whether to `.catch(() => {})` (the Kanban
+ * drag path, unchanged end-user behavior) or `await` it directly (the
+ * dialog's Save/Add/Delete, new in this change) -- see that component's own
+ * doc comments. `mutationError` is still threaded through so the Kanban
+ * drag's snap-back still reads as a visible error instead of "the app
+ * broke".
  */
 export default function TasksPage() {
   const { reports, loadError, updateReportFields, mutationError } = useReports();
@@ -34,13 +41,5 @@ export default function TasksPage() {
     return null;
   }
 
-  return (
-    <TaskViewScreen
-      reports={reports}
-      mutationError={mutationError}
-      onUpdateReportFields={(id, patch) => {
-        updateReportFields(id, patch).catch(() => {});
-      }}
-    />
-  );
+  return <TaskViewScreen reports={reports} mutationError={mutationError} onUpdateReportFields={updateReportFields} />;
 }

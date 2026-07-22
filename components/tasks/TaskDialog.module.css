@@ -1,0 +1,64 @@
+.reportLink {
+  display: inline-block;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--link);
+  text-decoration: none;
+  margin: 0 0 20px;
+}
+
+.reportLink:hover {
+  color: var(--link-hover);
+}
+
+.fieldsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+.fieldFull {
+  grid-column: 1 / -1;
+}
+
+/* Mirrors the wizard's own StepTasks/Step.module.css breakpoint (collapse
+   every multi-column field grid to one column at <=767px) -- Dialog.module.css
+   already narrows the panel itself at this width, so two 1fr columns would
+   otherwise get cramped rather than genuinely unreadable. */
+@media screen and (max-width: 767px) {
+  .fieldsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dialogNote {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.fieldError {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--negative);
+  margin: 10px 0 0;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.primaryActions {
+  display: flex;
+  gap: 10px;
+}

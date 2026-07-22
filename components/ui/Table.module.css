@@ -25,6 +25,26 @@
   border-bottom: none;
 }
 
+/*
+ * `/tasks` task CRUD follow-up: opt-in row-click affordance (Table.tsx's
+ * `onRowClick` prop). `outline-offset: -2px` (not the usual positive offset
+ * every other focus ring in this app uses, e.g. TaskCard.module.css) keeps
+ * the ring INSIDE the row's own border instead of being clipped by
+ * `.table`'s `border-collapse: collapse` against the next row.
+ */
+.trClickable {
+  cursor: pointer;
+}
+
+.trClickable:hover {
+  background: var(--surface-panel-muted);
+}
+
+.trClickable:focus-visible {
+  outline: 2px solid var(--ff-green);
+  outline-offset: -2px;
+}
+
 .td {
   padding: 16px;
   font-size: 14px;
