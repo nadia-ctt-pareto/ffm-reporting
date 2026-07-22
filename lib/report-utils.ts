@@ -70,14 +70,38 @@ export function blankDailyDraft(): Draft {
 }
 
 /**
+ * Task completion date: the SINGLE place the auto-stamp/clear rule lives, so
+ * it cannot drift between the three status-change write paths (the wizard's
+ * Status select via `useWizard.ts`'s `updateTask`, the task modal via
+ * `withTaskEdited` AND its own live Select handler in `TaskDialog.tsx`, and
+ * a Kanban drag via `withTaskStatus`). Pure: `today` is passed in
+ * (`nowDate()` at every call site), never read inside.
+ *
+ * - transitioning TO `'Complete'` with no `completedAt` already recorded ->
+ *   `today`.
+ * - transitioning AWAY from `'Complete'` -> `''` (cleared).
+ * - already `'Complete'` and STAYING `'Complete'` -> unchanged, whatever is
+ *   already there (never clobbers a manual correction the user made via the
+ *   task modal's "Completed On" field).
+ */
+export function taskCompletionStamp(current: Pick<Task, 'status' | 'completedAt'>, nextStatus: TaskStatus, today: string): string {
+  if (nextStatus !== 'Complete') return '';
+  if (current.status === 'Complete') return current.completedAt || '';
+  return current.completedAt || today;
+}
+
+/**
  * Phase 3 (Task view Kanban). Pure helper: returns a new `tasks` array with
  * the task matching `taskId` moved to `status` (no-op copy if not found).
  * Callers pass the result straight into `useReports().updateReportFields`
  * (which stamps a fresh `updatedAt` and persists) -- this function never
- * touches storage itself.
+ * touches storage itself. `today` (`nowDate()` at the call site) drives
+ * `taskCompletionStamp` above -- this is what makes a Kanban drag to the
+ * Complete column stamp `completedAt` "for free", and a drag back OFF it
+ * clear the stamp, with zero extra code at the drag-handler call site.
  */
-export function withTaskStatus(report: Pick<ReportCore, 'tasks'>, taskId: string, status: TaskStatus): Task[] {
-  return report.tasks.map((t) => (t.id === taskId ? { ...t, status } : t));
+export function withTaskStatus(report: Pick<ReportCore, 'tasks'>, taskId: string, status: TaskStatus, today: string): Task[] {
+  return report.tasks.map((t) => (t.id === taskId ? { ...t, status, completedAt: taskCompletionStamp(t, status, today) } : t));
 }
 
 /**
@@ -90,9 +114,23 @@ export function withTaskStatus(report: Pick<ReportCore, 'tasks'>, taskId: string
  * calls this to build the array it hands to
  * `useReports().updateReportFields(reportId, { tasks })`, the exact same
  * write path the Kanban drag handler already uses.
+ *
+ * Task completion date: when `patch.status` changes the task's status, the
+ * same `taskCompletionStamp` rule applies -- UNLESS `patch` already carries
+ * its own explicit `completedAt` (as `TaskDialog`'s Save always does, having
+ * already computed one via its own live Select handler using the identical
+ * shared function -- see that component), in which case the caller's value
+ * wins outright. This keeps the rule enforced even for a hypothetical future
+ * caller that changes `status` without separately computing `completedAt`
+ * itself, without ever overriding a value the caller deliberately supplied.
  */
-export function withTaskEdited(report: Pick<ReportCore, 'tasks'>, taskId: string, patch: Partial<Task>): Task[] {
-  return report.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t));
+export function withTaskEdited(report: Pick<ReportCore, 'tasks'>, taskId: string, patch: Partial<Task>, today: string): Task[] {
+  return report.tasks.map((t) => {
+    if (t.id !== taskId) return t;
+    if (patch.status === undefined || patch.status === t.status) return { ...t, ...patch };
+    const completedAt = patch.completedAt !== undefined ? patch.completedAt : taskCompletionStamp(t, patch.status, today);
+    return { ...t, ...patch, completedAt };
+  });
 }
 
 /**

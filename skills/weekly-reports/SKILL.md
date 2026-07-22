@@ -33,7 +33,18 @@ narrative}`), and `touchpoints` (`{calls, emails, escalations,
 narrative}`).
 
 - **Task**: `{client, task, status: "Complete"|"In Progress"|"Blocked",
-  deadline}`.
+  deadline, completedAt?}`. `completedAt` (`yyyy-mm-dd`, optional) is the
+  task's recorded completion date -- the app itself stamps this
+  automatically the moment a task's status becomes `"Complete"` through any
+  of its own write paths (the wizard, the task modal, a Kanban drag). **Do
+  not invent or guess a completion date.** Omit `completedAt` and let the
+  app's own auto-stamp apply (this is the right default for
+  `create_report`/`update_report` whenever the user hasn't told you a
+  specific completion day), or pass the real date ONLY if the user
+  explicitly states one (e.g. "mark it complete -- it actually finished last
+  Tuesday"). A fabricated date here would corrupt the Schedule view's
+  on-time/late reporting (`/tasks?view=schedule`), which trusts this field
+  as a recorded fact, not an inference.
 - **Risk**: `{client, severity: "Blocked"|"At Risk", description,
   nextStep}`.
 - **Priority**: `{text}` -- a next-week priority (weekly) or a next-day one

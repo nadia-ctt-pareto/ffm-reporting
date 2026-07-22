@@ -156,6 +156,17 @@
   padding-right: 36px;
 }
 
+/* Task completion date: the conditional "Completed On" field on a
+   Complete-status task row (StepTasks.tsx's TaskRow) -- a further grid
+   sibling spanning `.taskRow`'s full 5-column width (same technique
+   `PolishPanel` already uses to add a below-the-fold full-width row), capped
+   to a modest width so a single date field doesn't visually stretch across
+   the entire row the way a Polish suggestion's prose reasonably does. */
+.completedOnField {
+  grid-column: 1 / -1;
+  max-width: 220px;
+}
+
 .kicker {
   font-family: var(--font-heading);
   font-weight: 600;

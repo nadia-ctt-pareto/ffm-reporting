@@ -94,6 +94,26 @@ function TaskRow({ task: t, updateTask, removeTask, clientSuggestions, kind, per
         Remove
       </Button>
       <PolishPanel state={polish} />
+      {/* Task completion date: the row already has 5 dense columns (Client/
+          Task/Status/Deadline/Remove) -- rather than widen `.taskRow`'s fixed
+          grid-template-columns for every row (completed or not), this field
+          renders ONLY for a Complete-status row, as a further grid sibling
+          spanning the full row width (the same `grid-column: 1 / -1`
+          technique `PolishPanel` above already uses to add an extra row
+          below the 5 explicit column tracks). `updateTask`'s own 'status'
+          branch (useWizard.ts) already stamps this the moment Status
+          changes to Complete -- this field is for the (less common)
+          after-the-fact correction, not the primary write path. */}
+      {t.status === 'Complete' ? (
+        <div className={styles.completedOnField}>
+          <Input
+            type="date"
+            label="Completed On"
+            value={t.completedAt ?? ''}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'completedAt', e.target.value)}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

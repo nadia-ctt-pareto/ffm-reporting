@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { IconPlus } from '@/components/ui/icons';
 import { Tabs } from '@/components/ui/Tabs';
+import { nowDate } from '@/lib/format';
 import { withTaskStatus } from '@/lib/report-utils';
 import { isScheduleBucket } from '@/lib/task-schedule';
 import type { ScheduleBucket } from '@/lib/task-schedule';
@@ -102,7 +103,7 @@ export function TaskViewScreen({ reports, onUpdateReportFields, mutationError }:
   const handleTaskStatusChange = (reportId: string, taskId: string, status: TaskStatus) => {
     const report = reports.find((r) => r.id === reportId);
     if (!report) return;
-    onUpdateReportFields(reportId, { tasks: withTaskStatus(report, taskId, status) }).catch(() => {});
+    onUpdateReportFields(reportId, { tasks: withTaskStatus(report, taskId, status, nowDate()) }).catch(() => {});
   };
 
   /**

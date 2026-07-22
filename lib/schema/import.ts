@@ -53,7 +53,7 @@ export const ImportReportRowSchema = z.object({
   touchpoints_note: z.string(),
 });
 
-/** `row_type='task'` -- `item` carries the task text, `item_status` is `Complete|In Progress|Blocked`. */
+/** `row_type='task'` -- `item` carries the task text, `item_status` is `Complete|In Progress|Blocked`. `completed_at` (ISO or blank) is optional -- see lib/csv-templates.ts's `taskRow` doc comment for why a blank value on a Complete task is fine (the app's own auto-stamp/Schedule-view week-inference fallback still applies). */
 export const ImportTaskRowSchema = z.object({
   kind: importItemKind,
   report_key: z.string().min(1, 'report_key is required.'),
@@ -62,6 +62,7 @@ export const ImportTaskRowSchema = z.object({
   item: z.string().min(1, 'item (task) is required.'),
   item_status: TaskStatusSchema,
   deadline: isoDateOrEmpty,
+  completed_at: isoDateOrEmpty,
 });
 
 /** `row_type='risk'` -- `item` carries the risk description, `severity` is `Blocked|At Risk`. */

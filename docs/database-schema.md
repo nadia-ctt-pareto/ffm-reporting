@@ -27,9 +27,13 @@ key table + its ciphertext-read RPC) at
 `supabase/migrations/20260722000008_ai_keys.sql` — see "`ai_keys` (BYOK,
 Phase 7c)" below — a Phase 9 delta (the production signup-domain
 allowlist) at `supabase/migrations/20260723000009_production_signup_domains.sql`
-— and a Phase 8b delta (OAuth 2.1 + dynamic client registration for
+— a Phase 8b delta (OAuth 2.1 + dynamic client registration for
 claude.ai) at `supabase/migrations/20260724000010_oauth.sql` — see "OAuth
-2.1 for claude.ai custom connectors (Phase 8b)" below.
+2.1 for claude.ai custom connectors (Phase 8b)" below — and a task
+completion date delta (a nullable `tasks.completed_at` plus the matching
+`replace_reports` update) at
+`supabase/migrations/20260725000014_task_completed_at.sql` — see "Task
+completion date" below.
 
 ## Discriminated union ↔ single table (Phase 4)
 
@@ -166,6 +170,7 @@ too, not just in Zod).
 | `task`              | `task`      | `text`    |                                                     |
 | `status`            | `status`    | `text`    | `check in ('Complete','In Progress','Blocked')`     |
 | `deadline`          | `deadline`  | `date`    | nullable — `''` ↔ `NULL`                            |
+| `completedAt`       | `completed_at` | `date`, nullable | Task completion date delta (`supabase/migrations/20260725000014_task_completed_at.sql`). Same `''` ↔ `NULL` convention as `deadline`. Auto-stamped the moment a task's status becomes `'Complete'` (any write path), cleared when it moves off `'Complete'`, editable afterward. See "Task completion date" below. |
 | —                   | `position`  | `integer` | preserves array order                               |
 
 **Length CHECK constraints** (Phase 7b round 2, same migration as above):
@@ -1688,6 +1693,113 @@ review of its own); no bulk/multi-select delete; no soft-delete/undo (a
 report's data model has no `deleted_at` column and none was added — this
 mirrors `deleteProject`'s "delete is delete" posture, not Phase 8c's
 deferred project-archive idea).
+
+## Task completion date
+
+`supabase/migrations/20260725000014_task_completed_at.sql` adds exactly one
+nullable column, `tasks.completed_at date`, so `lib/task-schedule.ts`'s
+Schedule view (`/tasks?view=schedule`) can classify a task's on-time/late
+delivery to the DAY when a real completion date is on record, instead of
+always falling back to which WEEK a report covered it in (that fallback —
+"completed-timing-unclear" when a deadline falls inside the same reporting
+week a task was first marked complete — still applies, unchanged, for a
+task with no `completed_at`). No other schema/domain shape changed:
+`lib/schema/report.ts`'s `TaskSchema`/`TaskInputSchema` both gained
+`completedAt: isoDateOrEmpty.nullish()` (the SAME `''` ↔ unset convention
+`deadline` already uses, wrapped `.nullish()` — an optional key, `null`
+also accepted — purely so an ALREADY-EXISTING task object, saved before
+this field existed, stays valid with zero migration/backfill; see that
+schema's own doc comment for why every write path THIS app controls still
+normalizes an absent value to a plain `''`, matching `deadline` exactly, in
+practice).
+
+**Auto-stamped, not user-typed by default** — the single rule lives in
+`lib/report-utils.ts`'s `taskCompletionStamp(current, nextStatus, today)`,
+a pure function (`today` passed in, never read inside) every status-change
+write path calls, directly or indirectly, so the rule cannot drift between
+them:
+
+- transitioning TO `'Complete'` with no `completedAt` already recorded ->
+  stamp `today`.
+- transitioning AWAY from `'Complete'` -> clear back to `''`.
+- already `'Complete'` and STAYING `'Complete'` -> leave whatever is
+  already there untouched (never clobbers a manual correction).
+
+The three write paths, and how each reaches `taskCompletionStamp`:
+
+1. **Kanban drag** (`components/tasks/KanbanBoard.tsx` -> `TaskViewScreen.
+   handleTaskStatusChange` -> `withTaskStatus(report, taskId, status,
+   nowDate())`, `lib/report-utils.ts`) — stamps "for free": `withTaskStatus`
+   itself now takes a `today` argument and applies the rule internally, so
+   the drag handler needed no new logic of its own beyond passing
+   `nowDate()` through.
+2. **Task modal** (`components/tasks/TaskDialog.tsx`) — its Status
+   `<Select>`'s own `onChange` calls `taskCompletionStamp` directly against
+   its live `completedAt`/`status` state, so the stamp/clear happens as the
+   user picks a status, BEFORE Save; an editable "Completed On" date field
+   renders only while Status reads `'Complete'`, prefilled from
+   `entry.task.completedAt` in Edit mode, letting a PM correct the recorded
+   day (reports are often written up after the fact). `withTaskEdited`
+   (also given a `today` argument) applies the same rule as a fallback ONLY
+   when a caller's patch changes `status` without separately supplying its
+   own `completedAt` — the dialog's Save always does supply one, so this is
+   defense-in-depth, not the primary path for this particular caller.
+3. **Wizard Status select** (`components/wizard/steps/StepTasks.tsx` ->
+   `useWizard.ts`'s `updateTask`) — branches on `field === 'status'` BEFORE
+   calling the generic `updateDraftItem` (which would already have
+   overwritten `status` by the time a second read could see the prior
+   value), computing the new `completedAt` from the task's CURRENT
+   status/completedAt in one `setDraft` call. A conditional "Completed On"
+   field appears on a Complete-status wizard row (a further grid sibling
+   spanning `.taskRow`'s full width, the same technique the row's Polish
+   suggestion panel already uses) for the same after-the-fact correction —
+   the row stays 5 columns wide for every other status, unchanged.
+
+**CSV** (`lib/csv-templates.ts`'s `IMPORT_COLUMNS` contract, `lib/schema/
+import.ts`, `lib/import.ts`): a `completed_at` column (ISO or blank) was
+added to the long-format import contract, right after `deadline` — OPTIONAL
+on a task row (a Complete task with a blank `completed_at` is valid; the
+Schedule view's week-level fallback still applies to it). `lib/csv.ts`'s
+`buildAllTasksCsv` (the flat "export all tasks" download, a separate format
+from the `IMPORT_COLUMNS` contract) gained a trailing "Completed On" column
+— purely additive at the end, so a consumer reading the first 9 columns by
+position is unaffected.
+
+**MCP** (`lib/server/mcp-tools.ts`): `create_report`'s task input shape
+gained an optional `completed_at` (defaults `''`); `update_report` inherits
+it automatically (it reuses `ReportPatchSchema`, itself built on
+`ReportCoreInputSchema` -> `TaskInputSchema`, verbatim — see that tool's own
+doc comment on why it alone takes camelCase). No tool was added, renamed, or
+removed — `scripts/check-mcp-tool-contract.ts` still reports the same 8
+names and no `delete_report`. `skills/weekly-reports/SKILL.md`'s Task-shape
+section tells a connecting model never to invent or guess this value: omit
+it and let the app's own auto-stamp apply, or pass the real date only if
+the user explicitly states one.
+
+**`replace_reports`** (last redefined by `20260720000006_post_review_
+hardening_round2.sql`) inserts `tasks` via an EXPLICIT column list, not a
+dynamic jsonb-key expansion — so this migration ALSO re-declares the whole
+function (`CREATE OR REPLACE`, byte-identical to the round-2 version except
+the `tasks` insert now also carries `completed_at`), or the new column
+would silently never persist through the transactional write path (CSV
+import, the localStorage->Supabase import, and `updateReport`'s single-row
+write all go through this one function).
+
+**Seed data** (`lib/seed.ts`): `T()` gained an optional 5th argument
+(`completedAt`, omitted — not defaulted — when a caller doesn't pass one,
+so every pre-existing call keeps producing a task with no `completedAt`
+key at all). Exactly two already-`'Complete'` WEEKLY tasks (`r1`'s "Paid
+social campaign launch", `r6`'s "Copy testing wrapped" — the Schedule view
+is weekly-only, so stamping a daily-report task would demonstrate nothing)
+were given a recorded `completedAt`: one a day BEFORE its deadline
+(`completed-on-time`, evidence tagged "(recorded)"), one a day AFTER its
+deadline (`completed-late`, evidence tagged "(recorded)") despite that
+report's own period end equaling the deadline — a case the PRE-EXISTING
+week-level inference alone would have called on-time, demonstrating that
+the day-level path genuinely answers a question week-level inference
+cannot. Every other seeded Complete task is deliberately left un-stamped,
+so the Schedule view's week-level inference fallback also has real,
+unaffected data to demonstrate side by side with the recorded-date path.
 
 ## Cutover checklist
 

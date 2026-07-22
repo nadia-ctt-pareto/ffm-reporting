@@ -149,6 +149,7 @@ function buildTask(row: ParsedItemRow<TaskRowData>, projects: Project[]): Task {
     task: row.data.item,
     status: row.data.item_status,
     deadline: row.data.deadline,
+    completedAt: row.data.completed_at,
   };
 }
 

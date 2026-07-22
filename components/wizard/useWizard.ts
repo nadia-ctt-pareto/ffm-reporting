@@ -4,7 +4,16 @@ import { useState } from 'react';
 import { nowDate, uid } from '@/lib/format';
 import { aggregateDailiesIntoDraft } from '@/lib/aggregate';
 import { projectIdForClientName } from '@/lib/projects';
-import { blankDailyDraft, blankDraft, dailyDateConflict, draftToReport, reportPeriodEnd, reportPeriodLabel, validateStep } from '@/lib/report-utils';
+import {
+  blankDailyDraft,
+  blankDraft,
+  dailyDateConflict,
+  draftToReport,
+  reportPeriodEnd,
+  reportPeriodLabel,
+  taskCompletionStamp,
+  validateStep,
+} from '@/lib/report-utils';
 import type { AnyReport, DailyReport, Draft, Priority, Project, ReportKind, Risk, Task } from '@/lib/types';
 
 export interface ImportCandidate {
@@ -220,8 +229,27 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * Phase 6a: when `field` is `'client'`, also stamps `projectId` via an
    * exact-name match against `options.projects` (undefined on no match --
    * never creates a project from the wizard, see UseWizardOptions.projects).
+   *
+   * Task completion date: when `field` is `'status'`, this is the wizard's
+   * own status-change write path (`StepTasks.tsx`'s Status select) -- it
+   * stamps/clears `completedAt` via the SAME `taskCompletionStamp` rule
+   * `withTaskStatus`/`withTaskEdited` use (lib/report-utils.ts), so the rule
+   * cannot drift between the wizard and the other two write paths. This
+   * branches BEFORE calling `updateDraftItem` (rather than after) because it
+   * needs the task's CURRENT (pre-change) status/completedAt to decide the
+   * transition -- `updateDraftItem` alone would already have overwritten
+   * `status` by the time a second read could see the old value.
    */
   function updateTask<F extends keyof Task>(id: string, field: F, value: Task[F]) {
+    if (field === 'status') {
+      const nextStatus = value as Task['status'];
+      const today = nowDate();
+      setDraft((d) => ({
+        ...d,
+        tasks: d.tasks.map((t) => (t.id === id ? { ...t, status: nextStatus, completedAt: taskCompletionStamp(t, nextStatus, today) } : t)),
+      }));
+      return;
+    }
     updateDraftItem('tasks', id, field, value);
     if (field === 'client') {
       updateDraftItem('tasks', id, 'projectId', projectIdForClientName(value as string, options.projects ?? []));

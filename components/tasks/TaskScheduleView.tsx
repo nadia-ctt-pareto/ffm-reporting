@@ -74,13 +74,13 @@ function emptyStateCopy(bucket: ScheduleBucket): string {
     case 'overdue-unresolved':
       return "No open task is overdue without also being marked Blocked.";
     case 'completed-on-time':
-      return "Nothing has landed here yet. Completion timing is inferred from the week a task is first reported Complete -- once a task's first-Complete report ends on or before its deadline, it will show up in this bucket.";
+      return "Nothing has landed here yet. Completion timing comes from a task's recorded Completed On date when one exists, or is inferred from the week it was first reported Complete otherwise -- once that timing lands on or before the deadline, it will show up in this bucket.";
     case 'completed-late-after-block':
-      return 'Nothing has landed here yet. This bucket needs a task that was reported Blocked at some point, then later reported Complete in a reporting period that started after its deadline had already passed.';
+      return 'Nothing has landed here yet. This bucket needs a task that was reported Blocked at some point, then later completed (by its recorded Completed On date, or inferred from the week it was first reported Complete) after its deadline had already passed.';
     case 'completed-late':
-      return 'Nothing has landed here yet. This bucket needs a task first reported Complete in a reporting period that started after its deadline -- without ever being reported Blocked beforehand.';
+      return 'Nothing has landed here yet. This bucket needs a task completed (by its recorded Completed On date, or inferred from the week it was first reported Complete) after its deadline -- without ever being reported Blocked beforehand.';
     case 'completed-timing-unclear':
-      return "Nothing has landed here yet. This bucket is for a task whose deadline falls inside the SAME week it was first reported complete -- weekly reporting genuinely can't tell whether it landed before or after that day, so this view says so instead of guessing.";
+      return "Nothing has landed here yet. This bucket is for a task with no recorded Completed On date whose deadline falls inside the SAME week it was first reported complete -- weekly reporting genuinely can't tell whether it landed before or after that day, so this view says so instead of guessing. A task WITH a recorded Completed On date can never land here -- a known date is never ambiguous.";
     default:
       return 'No tasks in this bucket.';
   }
@@ -114,13 +114,14 @@ export function TaskScheduleView({ reports, initialFilter }: TaskScheduleViewPro
   return (
     <div>
       <p className={styles.explainer}>
-        Completion timing below is <strong>inferred from report history</strong>, not stored directly -- a
-        task&rsquo;s status is read off every weekly report it appears in, matched by client + task text. Two honest
-        caveats:
-        weekly reporting resolves to a <strong>week, not a day</strong>, so a task first reported complete in the
-        same week as its deadline lands in &ldquo;Timing Unclear&rdquo; rather than a guessed on-time/late call; and
-        a task is tracked across reports by its <strong>client + task text</strong>, so renaming a task&rsquo;s title
-        starts a new tracking chain.
+        Completion timing below uses a task&rsquo;s <strong>recorded Completed On date</strong> when one exists (a
+        precise, day-level answer, marked &ldquo;recorded&rdquo; in the Evidence column) -- and otherwise falls back
+        to <strong>inference from report history</strong>, reading a task&rsquo;s status off every weekly report it
+        appears in, matched by client + task text (marked &ldquo;inferred from week&rdquo;). Two honest caveats apply
+        to the INFERRED case only: weekly reporting resolves to a <strong>week, not a day</strong>, so a task first
+        reported complete in the same week as its deadline, with no recorded date to fall back on, lands in
+        &ldquo;Timing Unclear&rdquo; rather than a guessed on-time/late call; and a task is tracked across reports by
+        its <strong>client + task text</strong>, so renaming a task&rsquo;s title starts a new tracking chain.
       </p>
 
       {BUCKET_GROUPS.map((group) => (

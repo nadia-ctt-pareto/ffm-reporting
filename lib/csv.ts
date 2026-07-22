@@ -141,14 +141,21 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
-/** Lines 636-638 */
+/**
+ * Lines 636-638. Task completion date: gained a trailing "Completed On"
+ * column (`t.completedAt ?? ''` -- covers both a plain unset '' and the
+ * `.nullish()` undefined/null an older/imported task object might carry,
+ * see lib/schema/report.ts's `TaskSchema.completedAt` doc comment) -- a
+ * pure additive column at the end, so any existing consumer of this export
+ * that only reads the first 9 columns by position is unaffected.
+ */
 export function buildAllTasksCsv(reports: AnyReport[]): string {
   const rows: (string | number)[][] = [
-    ['Report ID', 'Period', 'Prepared For', 'Prepared By', 'Report Status', 'Client', 'Task', 'Task Status', 'Deadline'],
+    ['Report ID', 'Period', 'Prepared For', 'Prepared By', 'Report Status', 'Client', 'Task', 'Task Status', 'Deadline', 'Completed On'],
   ];
   reports.forEach((r) => {
     r.tasks.forEach((t) => {
-      rows.push([r.id, reportPeriodLabel(r), r.preparedFor, r.preparedBy, r.status, t.client, t.task, t.status, t.deadline]);
+      rows.push([r.id, reportPeriodLabel(r), r.preparedFor, r.preparedBy, r.status, t.client, t.task, t.status, t.deadline, t.completedAt ?? '']);
     });
   });
   return rows.map((row) => row.map(csvEscape).join(',')).join('\n');

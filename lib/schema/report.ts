@@ -75,6 +75,33 @@ export const TaskSchema = z.object({
   task: z.string(),
   status: TaskStatusSchema,
   deadline: isoDateOrEmpty,
+  /**
+   * Task completion date: the SAME `isoDateOrEmpty` convention `deadline`
+   * uses ('' = unset, maps to SQL NULL -- see
+   * supabase/migrations/20260725000014_task_completed_at.sql's nullable
+   * `tasks.completed_at date`), wrapped in `.nullish()` (optional key,
+   * `null` also accepted) purely so an ALREADY-EXISTING task object --
+   * anything sitting in a browser's `ff.reports.v2` before this field
+   * existed, or any object literal in code that never mentions this key --
+   * stays a valid `Task` with zero migration/backfill. Every write path
+   * this app controls (lib/server/db-mapping.ts's `mapTaskRow`,
+   * lib/import.ts's `buildTask`, lib/server/mcp-tools.ts's `create_report`)
+   * always normalizes an absent/NULL value to `''`, matching `deadline`
+   * exactly, so application code can treat `Task.completedAt` as a plain
+   * string in practice -- the `.nullish()` here exists only to keep OLD
+   * data valid, not because new code is expected to produce `null`/
+   * `undefined`.
+   *
+   * Auto-stamped (never invented/guessed): the moment a task's status
+   * becomes `'Complete'` through ANY write path, `lib/report-utils.ts`'s
+   * `taskCompletionStamp` stamps today's date here if nothing is recorded
+   * yet; moving a task OFF `'Complete'` clears it back to `''`. Editable
+   * afterward (a PM can correct it -- reports are often written up days
+   * later) -- see `components/tasks/TaskDialog.tsx`'s "Completed On" field.
+   * Powers `lib/task-schedule.ts`'s day-level (not just week-level)
+   * on-time/late classification when present.
+   */
+  completedAt: isoDateOrEmpty.nullish(),
 });
 
 export const RiskSchema = z.object({
@@ -217,6 +244,8 @@ export const TaskInputSchema = z.object({
   task: z.string().max(MAX_LONG_TEXT),
   status: TaskStatusSchema,
   deadline: isoDateOrEmpty,
+  /** See TaskSchema.completedAt above -- same bounded-write-boundary treatment `deadline` gets (no separate `.max()` needed; `isoDateOrEmpty` is already a fixed-shape regex, not free text). */
+  completedAt: isoDateOrEmpty.nullish(),
 });
 
 export const RiskInputSchema = z.object({

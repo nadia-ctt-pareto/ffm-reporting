@@ -199,6 +199,15 @@ const McpTaskInputSchema = z.object({
   task: z.string().min(1).max(20_000),
   status: TaskStatusSchema.optional().default('In Progress'),
   deadline: isoDateOrEmpty.optional().default(''),
+  /**
+   * Task completion date -- optional, defaults to '' (not recorded). See
+   * skills/weekly-reports/SKILL.md's Task-shape guidance: an MCP caller
+   * must never INVENT or guess this value -- omit it (letting the app's own
+   * auto-stamp rule, `lib/report-utils.ts`'s `taskCompletionStamp`, apply on
+   * a later status-change write path) unless the user explicitly states the
+   * real completion date.
+   */
+  completed_at: isoDateOrEmpty.optional().default(''),
 });
 
 const McpRiskInputSchema = z.object({
@@ -416,7 +425,15 @@ const createReportTool: ToolCallback<typeof CreateReportInputSchema.shape> = asy
       createdAt: now,
       updatedAt: now,
       summaryNarrative: input.summary_narrative,
-      tasks: input.tasks.map((t) => ({ id: uid('t'), client: t.client, projectId: t.project_id ?? undefined, task: t.task, status: t.status, deadline: t.deadline })),
+      tasks: input.tasks.map((t) => ({
+        id: uid('t'),
+        client: t.client,
+        projectId: t.project_id ?? undefined,
+        task: t.task,
+        status: t.status,
+        deadline: t.deadline,
+        completedAt: t.completed_at,
+      })),
       risks: input.risks.map((r) => ({ id: uid('rk'), client: r.client, projectId: r.project_id ?? undefined, severity: r.severity, description: r.description, nextStep: r.next_step })),
       priorities: input.priorities.map((p) => ({ id: uid('p'), text: p.text })),
       win: input.win ?? { stat: '', label: '', narrative: '' },

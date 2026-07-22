@@ -12,6 +12,16 @@
 // days -- with the status/nextStep progressing day to day -- so the
 // aggregator's "keep the latest daily's version" dedup logic has something
 // real to demonstrate.
+//
+// Task completion date adds an optional 5th argument to T() (completedAt,
+// see that helper's own doc comment) -- stamped on exactly two already-
+// Complete WEEKLY tasks (r1, r6; the Schedule view, `/tasks?view=schedule`,
+// is weekly-only, see lib/task-schedule.ts, so stamping a daily-report task
+// here would demonstrate nothing) so the Schedule view's day-level
+// on-time/late classification has real recorded-date data to show
+// side-by-side with its week-level inference fallback, right out of the
+// box. Every other seeded task is left un-stamped on purpose, exactly as
+// it always was.
 
 import { FF_CLIENTS } from './constants';
 import { uid } from './format';
@@ -77,8 +87,20 @@ function mkDaily(
   };
 }
 
-function T(client: string, task: string, status: Task['status'], deadline: string): Task {
-  return { id: uid('t'), client, task, status, deadline };
+/**
+ * Task completion date: `completedAt` is an OPTIONAL 5th argument
+ * (omitted entirely -- not defaulted to `''` -- when a caller doesn't pass
+ * one), so every pre-existing `T(...)` call below keeps producing a task
+ * with no `completedAt` key at all, exactly like a task saved before this
+ * field existed. `seedReports()` stamps it on exactly two already-Complete
+ * tasks (see below) to demonstrate the Schedule view's day-level on-time
+ * vs. late buckets out of the box; every other Complete task in this seed
+ * intentionally stays un-stamped, so the Schedule view's week-level
+ * inference fallback ALSO has real data to demonstrate, side by side with
+ * the recorded-date path.
+ */
+function T(client: string, task: string, status: Task['status'], deadline: string, completedAt?: string): Task {
+  return completedAt !== undefined ? { id: uid('t'), client, task, status, deadline, completedAt } : { id: uid('t'), client, task, status, deadline };
 }
 
 function R(client: string, severity: Risk['severity'], description: string, nextStep: string): Risk {
@@ -98,7 +120,12 @@ export function seedReports(): WeeklyReport[] {
       '2026-06-05',
       'Sent',
       [
-        T(FF_CLIENTS[0], 'Paid social campaign launch', 'Complete', '2026-06-05'),
+        // Task completion date demo: a RECORDED completedAt one day before
+        // the deadline -- the Schedule view classifies this to the day
+        // ("completed-on-time", evidence tagged "(recorded)"), not via the
+        // week-level fallback every other Complete task in this seed still
+        // uses.
+        T(FF_CLIENTS[0], 'Paid social campaign launch', 'Complete', '2026-06-05', '2026-06-04'),
         T(FF_CLIENTS[1], 'Search campaign audit', 'Complete', '2026-06-05'),
         T(FF_CLIENTS[2], 'Onboarding kickoff call', 'In Progress', '2026-06-12'),
         T(FF_CLIENTS[3], 'Website conversion audit', 'Complete', '2026-06-05'),
@@ -260,7 +287,14 @@ export function seedReports(): WeeklyReport[] {
       'Final',
       [
         T(FF_CLIENTS[0], 'Ad refresh live', 'Complete', '2026-07-10'),
-        T(FF_CLIENTS[1], 'Copy testing wrapped', 'Complete', '2026-07-10'),
+        // Task completion date demo: a RECORDED completedAt ONE DAY AFTER
+        // the deadline -- classified "completed-late" from the recorded
+        // date, even though this report's period end (2026-07-10) equals
+        // the deadline, which the pre-existing WEEK-level inference alone
+        // would have called on-time. Demonstrates the day-level check
+        // genuinely catching something week-level inference would miss
+        // (a PM correcting the record after the report was already filed).
+        T(FF_CLIENTS[1], 'Copy testing wrapped', 'Complete', '2026-07-10', '2026-07-11'),
         T(FF_CLIENTS[2], 'Automation QA continuing', 'In Progress', '2026-07-17'),
         T(FF_CLIENTS[3], 'Landing page build', 'Blocked', '2026-07-10'),
       ],

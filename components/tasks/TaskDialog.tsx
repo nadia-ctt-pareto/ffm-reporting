@@ -8,9 +8,9 @@ import { Dialog } from '@/components/ui/Dialog';
 import { IconPlus, IconTrash } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { uid } from '@/lib/format';
+import { nowDate, uid } from '@/lib/format';
 import { TASK_STATUS_OPTIONS } from '@/lib/constants';
-import { reportPeriodLabel, withTaskAdded, withTaskEdited, withTaskRemoved } from '@/lib/report-utils';
+import { reportPeriodLabel, taskCompletionStamp, withTaskAdded, withTaskEdited, withTaskRemoved } from '@/lib/report-utils';
 import type { Report, Task, TaskStatus } from '@/lib/types';
 import type { TaskEntry } from '@/lib/view-utils';
 import styles from './TaskDialog.module.css';
@@ -70,9 +70,13 @@ function errorMessage(err: unknown, fallback: string): string {
  * (`confirmingDelete`) instead of deleting on a single click -- an internal
  * state toggle, not a nested Radix Dialog, since a second step inside the
  * same panel reads cleaner here than stacking two dismissable layers for
- * what's ultimately one decision.
+ * what's ultimately one decision. A fifth field, "Completed On"
+ * (`completedAt`), appears ONLY while Status reads 'Complete' -- prefilled
+ * from `entry.task.completedAt`, auto-stamped/cleared live as Status
+ * changes (see the Select's own `onChange`), and independently editable
+ * afterward for a PM's correction.
  *
- * **Add mode**: the same four fields (blank, `status` defaulting to
+ * **Add mode**: the same fields (blank, `status` defaulting to
  * `'In Progress'` -- matching `useWizard.ts`'s own `addTask()` default)
  * PLUS a Report picker, defaulting to `mostRecentReportId(reports)`.
  *
@@ -98,6 +102,16 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
   const [taskText, setTaskText] = useState('');
   const [status, setStatus] = useState<TaskStatus>('In Progress');
   const [deadline, setDeadline] = useState('');
+  /**
+   * Task completion date: mirrors `deadline`'s plain-string convention
+   * exactly ('' = unset). Prefilled from `entry.task.completedAt` on open
+   * (Edit mode); stamped/cleared live as the Status select below changes,
+   * via the SAME `taskCompletionStamp` rule every other status-change path
+   * uses (see that function's doc comment) -- so a Save always carries an
+   * explicit, already-correct value into `withTaskEdited`/`withTaskAdded`,
+   * rather than relying on `withTaskEdited`'s own fallback stamping.
+   */
+  const [completedAt, setCompletedAt] = useState('');
   const [reportId, setReportId] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -112,11 +126,13 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
       setTaskText(entry.task.task);
       setStatus(entry.task.status);
       setDeadline(entry.task.deadline);
+      setCompletedAt(entry.task.completedAt ?? '');
     } else {
       setClient('');
       setTaskText('');
       setStatus('In Progress');
       setDeadline('');
+      setCompletedAt('');
       setReportId(mostRecentReportId(reports));
     }
     setConfirmingDelete(false);
@@ -137,10 +153,10 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
     if (!targetReport || submitting) return;
     setSubmitting(true);
     setError(null);
-    const fields = { client, task: taskText, status, deadline };
+    const fields = { client, task: taskText, status, deadline, completedAt };
     const nextTasks =
       mode === 'edit' && entry
-        ? withTaskEdited(targetReport, entry.task.id, fields)
+        ? withTaskEdited(targetReport, entry.task.id, fields, nowDate())
         : withTaskAdded(targetReport, { id: uid('t'), ...fields });
     try {
       await onSubmit(targetReport.id, nextTasks);
@@ -205,7 +221,14 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
               label="Status"
               options={[...TASK_STATUS_OPTIONS]}
               value={status}
-              onChange={(value) => setStatus(value as TaskStatus)}
+              onChange={(value) => {
+                const nextStatus = value as TaskStatus;
+                // Task completion date: stamp/clear live, via the same rule
+                // every other status-change path uses -- see
+                // `taskCompletionStamp`'s doc comment (lib/report-utils.ts).
+                setCompletedAt((prevCompletedAt) => taskCompletionStamp({ status, completedAt: prevCompletedAt }, nextStatus, nowDate()));
+                setStatus(nextStatus);
+              }}
             />
             <Input
               type="date"
@@ -213,6 +236,16 @@ export function TaskDialog({ mode, open, onClose, entry, reports, onSubmit }: Ta
               value={deadline}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setDeadline(e.target.value)}
             />
+            {status === 'Complete' ? (
+              <div className={styles.fieldFull}>
+                <Input
+                  type="date"
+                  label="Completed On"
+                  value={completedAt}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setCompletedAt(e.target.value)}
+                />
+              </div>
+            ) : null}
             {mode === 'add' ? (
               <div className={styles.fieldFull}>
                 <Select label="Report" options={reportOptions} value={reportId} onChange={setReportId} />

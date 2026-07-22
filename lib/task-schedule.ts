@@ -6,16 +6,29 @@
 //
 // THE PROBLEM THIS SOLVES
 // ------------------------
-// `Task` (lib/schema/report.ts) has no `completedAt`, no status-change
-// history, and no task<->risk link -- a single task row only ever records
-// its CURRENT status and CURRENT deadline. So "was this task delivered on
-// time, and why not" cannot be read off one row. It has to be INFERRED from
-// how the same logical task's status changed across every weekly report it
-// appears in, ordered by that report's period end. This module is exactly
-// that inference, and nothing else -- it never mutates a report, never
-// invents a completion date that wasn't actually reported, and (see
-// `completed-timing-unclear` below) refuses to guess precision the source
-// data doesn't have.
+// A task row only ever records its CURRENT status, CURRENT deadline, and
+// (now) an OPTIONAL `completedAt` -- the day it was actually marked
+// Complete, auto-stamped by `lib/report-utils.ts`'s `taskCompletionStamp`
+// the moment that happens, and editable afterward. When that field is
+// present, "was this task delivered on time" is a plain day-level string
+// comparison against the deadline -- no ambiguity, no inference needed.
+//
+// But `completedAt` is a recent addition, and it's genuinely absent for
+// (a) every task that existed before it did, and (b) any task whose
+// completion this app never captured a real-time stamp for in the first
+// place (e.g. a CSV-imported historical report). For those, "was this task
+// delivered on time, and why not" still has to be INFERRED from how the
+// same logical task's status changed across every weekly report it
+// appears in, ordered by that report's period end -- this module does
+// BOTH: it prefers a recorded `completedAt` when one exists, and falls
+// back to the week-level inference otherwise. Either way, it never mutates
+// a report, never invents a completion date that wasn't actually recorded
+// or reported, and (see `completed-timing-unclear` below) never guesses
+// precision the source data doesn't have -- see `classifyBucket`'s two
+// branches (`if (completedAt) {...}` vs. the week-level fallback below it)
+// for exactly where the two paths diverge, and the evidence string always
+// says which one produced a given task's answer ("(recorded)" vs.
+// "(inferred from week)").
 //
 // IDENTITY: SAME KEY `lib/aggregate.ts` ALREADY USES
 // ---------------------------------------------------
@@ -31,13 +44,15 @@
 //
 // TWO HONEST CAVEATS (surfaced in the UI, not just here)
 // --------------------------------------------------------
-// 1. Weekly reporting resolves to a WEEK, not a day. All this module ever
-//    knows about "when" a task was first reported complete is the
-//    `[weekStart, weekEnd]` of the report that first said so. If a task's
-//    deadline falls inside that same week, there is genuinely no way to
-//    tell whether it landed before or after that day -- see
-//    `completed-timing-unclear` below, which exists specifically so this
-//    view says "we don't know" instead of guessing.
+// 1. Weekly reporting resolves to a WEEK, not a day -- but ONLY for a task
+//    with no recorded `completedAt`. For those, all this module knows about
+//    "when" a task was first reported complete is the `[weekStart,
+//    weekEnd]` of the report that first said so; if its deadline falls
+//    inside that same week, there is genuinely no way to tell whether it
+//    landed before or after that day -- see `completed-timing-unclear`
+//    below, which exists specifically so this view says "we don't know"
+//    instead of guessing. This bucket is UNREACHABLE for a task that DOES
+//    have a recorded `completedAt` -- a known date is never ambiguous.
 // 2. Identity is `(client, task text)` -- see above.
 //
 // Dates are ISO strings, compared with `localeCompare` -- never `Date`
@@ -167,6 +182,21 @@ function classify(key: string, occurrences: TaskOccurrence[], today: string): Sc
     }
   }
 
+  // Task completion date: same backward scan as deadline above -- the most
+  // recent occurrence that actually recorded a `completedAt` wins (a later
+  // report's correction, including the auto-stamp on whichever occurrence
+  // first flipped the task to Complete, always takes precedence over an
+  // earlier or blank value). '' when no occurrence ever recorded one --
+  // callers fall back to the pre-existing week-level inference in that case,
+  // see classifyBucket below.
+  let completedAt = '';
+  for (let i = occurrences.length - 1; i >= 0; i -= 1) {
+    if (occurrences[i].task.completedAt) {
+      completedAt = occurrences[i].task.completedAt as string;
+      break;
+    }
+  }
+
   const firstCompleteIndex = occurrences.findIndex((o) => o.task.status === 'Complete');
   const firstCompleteOccurrence = firstCompleteIndex === -1 ? null : occurrences[firstCompleteIndex];
 
@@ -182,6 +212,7 @@ function classify(key: string, occurrences: TaskOccurrence[], today: string): Sc
     latest,
     currentStatus,
     deadline,
+    completedAt,
     firstCompleteIndex,
     firstCompleteOccurrence,
     blockedBeforeCompletion,
@@ -206,12 +237,13 @@ function classifyBucket(args: {
   latest: TaskOccurrence;
   currentStatus: TaskStatus;
   deadline: string;
+  completedAt: string;
   firstCompleteIndex: number;
   firstCompleteOccurrence: TaskOccurrence | null;
   blockedBeforeCompletion: boolean;
   today: string;
 }): { bucket: ScheduleBucket; evidence: string } {
-  const { occurrences, latest, currentStatus, deadline, firstCompleteIndex, firstCompleteOccurrence, blockedBeforeCompletion, today } = args;
+  const { occurrences, latest, currentStatus, deadline, completedAt, firstCompleteIndex, firstCompleteOccurrence, blockedBeforeCompletion, today } = args;
 
   // No deadline recorded, ever -- cannot be judged either way, regardless of
   // current status. This check runs FIRST and unconditionally: a deadline
@@ -250,13 +282,46 @@ function classifyBucket(args: {
   // guaranteed non-null: `currentStatus` is the LATEST occurrence's status,
   // so if it's 'Complete', `findIndex` above found at least that one.
   const first = firstCompleteOccurrence!;
+
+  // Day-level: a real `completedAt` is on record for this task -- classify
+  // straight off it, no week-level reasoning needed at all. A KNOWN date is
+  // never ambiguous, which is exactly why `completed-timing-unclear` (the
+  // "we genuinely can't tell" bucket, see below) is UNREACHABLE from this
+  // branch -- comparing two ISO date strings directly always resolves to
+  // either on-time or late, never "unclear".
+  if (completedAt) {
+    if (completedAt.localeCompare(deadline) <= 0) {
+      return {
+        bucket: 'completed-on-time',
+        evidence: `Completed ${fmtDateShort(completedAt)} (recorded) - deadline ${deadlineLabel}.`,
+      };
+    }
+    if (blockedBeforeCompletion) {
+      // The most recent Blocked occurrence strictly before completion --
+      // the one most directly explaining the delay.
+      const blockedOccurrence = [...occurrences.slice(0, firstCompleteIndex)].reverse().find((o) => o.task.status === 'Blocked');
+      return {
+        bucket: 'completed-late-after-block',
+        evidence: `Blocked w/e ${blockedOccurrence ? weekEndLabel(blockedOccurrence.report) : '?'} · completed ${fmtDateShort(completedAt)} (recorded), after the ${deadlineLabel} deadline.`,
+      };
+    }
+    return {
+      bucket: 'completed-late',
+      evidence: `Completed ${fmtDateShort(completedAt)} (recorded), after the ${deadlineLabel} deadline had already passed.`,
+    };
+  }
+
+  // No recorded completedAt for this task -- fall back to the pre-existing
+  // week-level inference (unchanged logic, evidence text now explicitly
+  // tagged "(inferred from week)" so a user can tell the two apart at a
+  // glance, per this module's own "two honest caveats" header comment).
   const periodStart = first.report.weekStart;
   const periodEnd = first.report.weekEnd;
 
   if (periodEnd.localeCompare(deadline) <= 0) {
     return {
       bucket: 'completed-on-time',
-      evidence: `First reported complete w/e ${weekEndLabel(first.report)}, on or before the ${deadlineLabel} deadline.`,
+      evidence: `First reported complete w/e ${weekEndLabel(first.report)} (inferred from week), on or before the ${deadlineLabel} deadline.`,
     };
   }
 
@@ -267,12 +332,12 @@ function classifyBucket(args: {
       const blockedOccurrence = [...occurrences.slice(0, firstCompleteIndex)].reverse().find((o) => o.task.status === 'Blocked');
       return {
         bucket: 'completed-late-after-block',
-        evidence: `Blocked w/e ${blockedOccurrence ? weekEndLabel(blockedOccurrence.report) : '?'} · first reported complete w/e ${weekEndLabel(first.report)} · deadline ${deadlineLabel}`,
+        evidence: `Blocked w/e ${blockedOccurrence ? weekEndLabel(blockedOccurrence.report) : '?'} · first reported complete w/e ${weekEndLabel(first.report)} (inferred from week) · deadline ${deadlineLabel}`,
       };
     }
     return {
       bucket: 'completed-late',
-      evidence: `First reported complete w/e ${weekEndLabel(first.report)} · deadline ${deadlineLabel} had already passed before that reporting period even started.`,
+      evidence: `First reported complete w/e ${weekEndLabel(first.report)} (inferred from week) · deadline ${deadlineLabel} had already passed before that reporting period even started.`,
     };
   }
 

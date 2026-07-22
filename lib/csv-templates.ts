@@ -32,6 +32,7 @@ export const IMPORT_COLUMNS = [
   'item',
   'item_status',
   'deadline',
+  'completed_at',
   'severity',
   'next_step',
   'win_stat',
@@ -108,9 +109,26 @@ function reportRow(
   };
 }
 
-/** `row_type='task'` -- `item_status` is `Complete|In Progress|Blocked`; `deadline` is ISO or blank. */
-function taskRow(kind: 'weekly' | 'daily', reportKey: string, client: string, item: string, itemStatus: string, deadline: string): ImportRow {
-  return { ...blankRow(), kind, report_key: reportKey, row_type: 'task', client, item, item_status: itemStatus, deadline };
+/**
+ * `row_type='task'` -- `item_status` is `Complete|In Progress|Blocked`;
+ * `deadline`/`completed_at` are each ISO or blank. `completed_at` is
+ * OPTIONAL: the app auto-stamps it the moment a task's status becomes
+ * Complete through any other write path, so a CSV import may leave it
+ * blank for a Complete task and simply not have a recorded completion
+ * date yet (the Schedule view falls back to week-level inference in that
+ * case) -- passing an explicit value is only for importing a task whose
+ * real completion date is already known.
+ */
+function taskRow(
+  kind: 'weekly' | 'daily',
+  reportKey: string,
+  client: string,
+  item: string,
+  itemStatus: string,
+  deadline: string,
+  completedAt: string = ''
+): ImportRow {
+  return { ...blankRow(), kind, report_key: reportKey, row_type: 'task', client, item, item_status: itemStatus, deadline, completed_at: completedAt };
 }
 
 /** `row_type='risk'` -- `severity` is `Blocked|At Risk`; `item` carries the risk description. */
@@ -153,7 +171,7 @@ export function buildWeeklyImportTemplateCsv(): string {
         touchpointsNote: 'Weekly check-in calls with all four clients; one escalation resolved same-day.',
       }
     ),
-    taskRow('weekly', reportKey, 'Helitech Foundation & Waterproofing', 'Finalize Q3 change order', 'Complete', '2026-08-05'),
+    taskRow('weekly', reportKey, 'Helitech Foundation & Waterproofing', 'Finalize Q3 change order', 'Complete', '2026-08-05', '2026-08-05'),
     taskRow('weekly', reportKey, 'DryRoot Waterproofing', 'Submit city permit application', 'Blocked', '2026-08-08'),
     riskRow('weekly', reportKey, 'DryRoot Waterproofing', 'Permit office backlog delaying groundwork start', 'Blocked', 'Escalate to city liaison Monday'),
     priorityRow('weekly', reportKey, 'Close out DryRoot permit blocker'),
@@ -189,7 +207,7 @@ export function buildDailyImportTemplateCsv(): string {
         touchpointsNote: 'Both calls were routine status check-ins.',
       }
     ),
-    taskRow('daily', reportKey, 'Summit Basement Solutions', 'On-site waterproofing inspection', 'Complete', '2026-08-04'),
+    taskRow('daily', reportKey, 'Summit Basement Solutions', 'On-site waterproofing inspection', 'Complete', '2026-08-04', '2026-08-04'),
     taskRow('daily', reportKey, 'TerraFirm Foundation Repair', 'Draft assessment proposal for referral', 'In Progress', '2026-08-06'),
     riskRow(
       'daily',

@@ -448,6 +448,19 @@ key bump — the change is purely additive (a report without `projectId` is stil
 valid `AnyReport`). `lib/hooks/useProjects.ts` mirrors `useReports.ts`'s
 optimistic-update pattern.
 
+**Task completion date**: `Task` (`lib/schema/report.ts`) also carries an optional
+`completedAt` (`isoDateOrEmpty.nullish()` — the same `''` = unset convention
+`deadline` uses, purely additive the same way `projectId` is). Auto-stamped to
+today's date the moment a task's status becomes `'Complete'` through ANY write
+path (wizard Status select, the task modal, a Kanban drag), cleared the moment it
+moves back off `'Complete'`, and independently editable afterward — the single
+rule lives in `lib/report-utils.ts`'s `taskCompletionStamp`. Powers
+`lib/task-schedule.ts`'s Schedule view (`/tasks?view=schedule`) with day-level
+(not just week-level) on-time/late classification when a recorded date exists; a
+task without one still falls back to the pre-existing week-level inference. See
+`docs/database-schema.md`'s "Task completion date" section for the full
+cross-layer story (Zod, db-mapping, CSV, MCP).
+
 **One daily per day, PER PROJECT BUCKET**: Since imported dailies may share dates
 with house dailies, the uniqueness rule became "one per day, per project bucket."
 A "bucket" = a project (`projectId` set, for imports) or "house" (`projectId`
@@ -1366,6 +1379,15 @@ earlier draft plan that considered loosening them).
 **Phase 8d**: `supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` — grant hygiene only, **applied to production 2026-07-22**. The `reports_delete` RLS policy already exists (Phase 7a), so report delete requires no schema changes. The one migration written is `revoke all on public.reports, public.tasks, public.risks, public.priorities from anon` — mirroring Phase 8c's identical hygiene fix for `projects`. Verified live (read-only): RLS is enabled on all four tables and every policy targets `authenticated` only, so `anon` has no policy and is **already denied everything** — these grants are latent cleanup, NOT a live vulnerability, and must not be described as one. Safe for the anon-reachable share/present path because `get_shared_report` is SECURITY DEFINER and runs as its owning role regardless of the caller's table grants.
 
 **Post-apply verification (run against the hosted DB, read-only, immediately after applying)** — the same shape Phase 8c used for its `projects` revoke: `anon` now holds NO grants on any of the four tables; `authenticated` retains `DELETE` on all four (so report delete still works); `share_token` still has **no `SELECT`** for `authenticated`, i.e. Phase 7b's column-grant hardening survived the revoke untouched; and a REAL live share token still resolves through `get_shared_report` (2 tokens were live at the time) while a bogus token still returns null. The anonymous share/present path is therefore confirmed working after the revoke, not merely assumed to be.
+
+**Task completion date**: `supabase/migrations/20260725000014_task_completed_at.sql`
+— **written but NOT applied** (the user applies migrations themselves). Adds a
+single nullable `tasks.completed_at date` (same `''` ↔ `NULL` convention as
+`deadline`) plus a matching re-declaration of `replace_reports` (it inserts
+`tasks` via an explicit column list, so the new column needed to be added there
+too or it would silently never persist through the transactional write path).
+See `docs/database-schema.md`'s "Task completion date" section for the full
+story across every layer (Zod, db-mapping, CSV, MCP, the Schedule view).
 
 ## Layout
 

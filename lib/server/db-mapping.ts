@@ -56,6 +56,8 @@ export interface TaskRow {
   task: string;
   status: TaskStatus;
   deadline: string | null;
+  /** Task completion date (supabase/migrations/20260725000014_task_completed_at.sql) -- a nullable `date` column, mapped exactly like `deadline` above (never the timestamptz normalization path -- see this file's header comment). */
+  completed_at: string | null;
   position: number;
 }
 
@@ -143,7 +145,15 @@ function byPosition<T extends { position: number }>(rows: T[]): T[] {
 }
 
 function mapTaskRow(t: TaskRow): Task {
-  return { id: t.id, client: t.client, projectId: t.project_id ?? undefined, task: t.task, status: t.status, deadline: t.deadline ?? '' };
+  return {
+    id: t.id,
+    client: t.client,
+    projectId: t.project_id ?? undefined,
+    task: t.task,
+    status: t.status,
+    deadline: t.deadline ?? '',
+    completedAt: t.completed_at ?? '',
+  };
 }
 
 function mapRiskRow(r: RiskRow): Risk {
@@ -270,7 +280,15 @@ export function reportToRow(report: AnyReportInput) {
     created_at: toUtcInstant(report.createdAt),
     updated_at: toUtcInstant(report.updatedAt),
     project_id: report.projectId ?? null,
-    tasks: report.tasks.map((t) => ({ id: t.id, client: t.client, project_id: t.projectId ?? null, task: t.task, status: t.status, deadline: t.deadline || null })),
+    tasks: report.tasks.map((t) => ({
+      id: t.id,
+      client: t.client,
+      project_id: t.projectId ?? null,
+      task: t.task,
+      status: t.status,
+      deadline: t.deadline || null,
+      completed_at: t.completedAt || null,
+    })),
     risks: report.risks.map((r) => ({ id: r.id, client: r.client, project_id: r.projectId ?? null, severity: r.severity, description: r.description, next_step: r.nextStep })),
     priorities: report.priorities.map((p) => ({ id: p.id, text: p.text })),
   };
