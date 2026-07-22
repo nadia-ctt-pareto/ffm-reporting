@@ -5,12 +5,12 @@
 // OUTSIDE Settings. RECONCILIATION DELTA: `components/settings/AiKeySection.tsx`
 // does NOT use this hook -- it's modeled on `McpAccessSection.tsx`'s
 // self-contained fetch/CRUD state instead (see that component's header
-// comment). This hook exists purely so `components/ai/PolishButton.tsx`
-// (rendered many times over a single wizard page -- one per polishable
-// field) issues ONE `GET /api/ai/key` per page session, not one per button.
+// comment). This hook exists purely so `components/ai/usePolishField.ts`
+// (called many times over a single wizard page -- once per polishable
+// field) issues ONE `GET /api/ai/key` per page session, not one per field.
 //
 // Deliberately much smaller than `AiKeySection`'s own state: this only ever
-// needs the boolean "should a Polish button render at all", never the
+// needs the boolean "should a Polish trigger render at all", never the
 // hint/timestamps `AiKeySection` displays.
 
 import { useEffect, useState } from 'react';
@@ -41,7 +41,7 @@ async function fetchStatus(): Promise<AiKeyStatusState> {
 
 /**
  * Post-review-hardening-precedent invalidation hook: `AiKeySection` calls
- * this after a successful save/remove so a `PolishButton` that mounts
+ * this after a successful save/remove so a `usePolishField` call that mounts
  * LATER in the SAME browser tab (e.g. navigating from `/settings` to a
  * wizard page, in the same tab, after saving a key) picks up the new state
  * without a full reload. `cachedState`/`inFlight` are plain module-scope

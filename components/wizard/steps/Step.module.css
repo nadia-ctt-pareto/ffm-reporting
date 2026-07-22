@@ -83,38 +83,77 @@
   margin-bottom: 28px;
 }
 
-/* Phase 7c: wraps an Input + its PolishButton inside one grid cell of
-   .taskRow/.riskRow/.priorityRow, replacing the bare Input as that cell's
-   direct grid child -- the column's own width still governs the field
-   (and its suggestion panel, when open), it does not span the whole row.
-   `min-width: 0` lets the Input still shrink inside its fr-sized column
-   (a plain grid item without this can refuse to shrink below its content's
-   intrinsic width, which the bare Input never hit but this wrapper div
-   could). align-items: end on the outer row still holds -- this wrapper's
-   bottom edge is what aligns, same as the bare Input did before it.
+/* Row-alignment fix (Nav IA polish-affordance pass): the non-grid sibling
+   of `.fieldWithPolish` above, for the Textarea fields that carry a Polish
+   trigger (StepBasics' summary narrative; StepTouchpointsWin's touchpoints
+   and win narratives). `position: relative` anchors PolishTrigger.tsx's
+   `anchor="textarea"` variant (top-right, NOT vertically centered -- a
+   textarea has no fixed height, see PolishTrigger.module.css's
+   `.anchorTextarea` comment). These call sites were never inside a
+   multi-column grid row, so they never had the alignment bug
+   `.fieldWithPolish` fixes above -- this class exists purely to give the
+   trigger a `position: relative` anchor and reserve the textarea's own
+   trailing padding, same as `.fieldWithPolish input` does for Input
+   fields. Combine with `.textareaSpacer` via a second class on the same
+   element where the old margin-bottom is still wanted (StepTouchpointsWin);
+   StepBasics' summary field needs no such spacer, so it uses this class
+   alone. */
+.textareaField {
+  position: relative;
+}
 
-   Post-review (NIT 6): the suggestion panel rendered inside this wrapper
-   is column-constrained (~250-300px for .taskRow's "Task"/.riskRow's
-   "Description"/"Next Step" columns) -- narrower than ideal for a
-   multi-sentence rewrite, which the field's own length cap (POLISH_FIELDS,
-   lib/prompts.ts -- one sentence / ~10 words for these specific fields)
-   keeps merely cramped, not unusable. A genuine full-row-width span was
-   evaluated and deliberately NOT done: CSS Grid's `grid-column` only
-   affects DIRECT children of the grid container, so the panel (nested two
-   levels inside .taskRow -- .taskRow > .fieldWithPolish > PolishButton's
-   own wrapper > the panel) cannot span parent columns without either (a)
-   `subgrid` (real added complexity/support-matrix consideration for a
-   cosmetic width fix) or (b) splitting PolishButton's trigger and panel
-   into two independently-positioned pieces sharing state, so the panel
-   can be rendered as its own direct grid sibling with `grid-column: 1/-1`
-   -- a real component-API change across all 4 of its call sites for a
-   cosmetic gain. Neither is worth it here -- see CLAUDE.md's "don't
-   over-engineer" guidance. StepBasics/StepTouchpointsWin's panels (not
-   inside a multi-column grid row at all) are already genuinely full-width. */
+.textareaField textarea {
+  padding-right: 36px;
+}
+
+/* Phase 7c; row-alignment fix (Nav IA polish-affordance pass): wraps an
+   Input + its PolishTrigger inside one grid cell of
+   .taskRow/.riskRow/.priorityRow, replacing the bare Input as that cell's
+   direct grid child. `min-width: 0` lets the Input still shrink inside its
+   fr-sized column (a plain grid item without this can refuse to shrink
+   below its content's intrinsic width, which the bare Input never hit but
+   this wrapper div could). `align-items: end` on the outer row still
+   holds -- this wrapper's bottom edge is what aligns, same as the bare
+   Input did before it.
+
+   `position: relative` is new: it's what lets PolishTrigger.tsx's
+   icon-only button anchor `position: absolute` against THIS wrapper
+   (specifically its bottom 42px, matching Input's own fixed height --
+   see PolishTrigger.module.css's `.anchorInput` comment) rather than the
+   nearest ancestor with a CSS `position` set, which used to be the page
+   body. Because the trigger is absolutely positioned, it now contributes
+   ZERO in-flow height to this wrapper -- this cell's height is once again
+   governed solely by the bare `<Input>`, exactly like every sibling cell
+   in the row, which is the actual bug this fixes: the old inline
+   trigger button (a normal flex child alongside the Input) made this
+   cell taller than its siblings, so `align-items: end` floated the whole
+   Task/Description/Next Step field above the Client/Status/Deadline
+   fields in the same row -- worse still whenever a suggestion panel was
+   open (see the `input` padding-right rule and PolishPanel's own
+   `grid-column: 1 / -1` for the panel's half of this fix; that panel is
+   now rendered as this wrapper's own OUTER grid sibling, not nested here,
+   which is what makes the full-row-width span possible at all -- CSS
+   Grid's `grid-column` only affects DIRECT children of the grid
+   container). */
 .fieldWithPolish {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/* Reserves room so the field's own text never runs under the absolutely
+   positioned trigger (see PolishTrigger.module.css's `.anchorInput`). A
+   plain `input` type selector, not a class, deliberately: `Input`'s own
+   `<input>` renders under a CSS-Modules-hashed class name from a DIFFERENT
+   module (components/ui/Input.module.css) that this file can't reference
+   directly, but a bare element-type selector scoped under `.fieldWithPolish`
+   matches it regardless -- CSS Modules only renames class selectors, never
+   type selectors, so this rule's specificity (one class + one type
+   selector) still safely outranks Input.module.css's own single-class
+   `.input` rule without needing `!important`. */
+.fieldWithPolish input {
+  padding-right: 36px;
 }
 
 .kicker {
@@ -149,7 +188,25 @@
 
 /* Mobile P4: stack every multi-field row to one column. .priorityRow is
    deliberately excluded -- it's just an Input + a Remove button (1fr auto),
-   which already fits at 375px without stacking. */
+   which already fits at 375px without stacking.
+
+   Row-alignment fix (Nav IA polish-affordance pass) found a real bug here
+   during CDP verification: this rule used to read `.taskRow > *:last-child`
+   /`.riskRow > *:last-child`, back when the Remove button truly was always
+   each row's last child. Now that `PolishPanel` can render as a further
+   grid sibling AFTER Remove (see TaskRow/RiskRow in StepTasks.tsx/
+   StepRisks.tsx), an OPEN panel becomes the new `:last-child` -- so this
+   rule silently started giving the PANEL `justify-self: end` (shrink-to-
+   content, right-aligned) instead of the Remove button, which is exactly
+   backwards: a screenshot/measurement-verified regression (panel collapsed
+   to about a third of the row's width, right-aligned, at <=767px) caught
+   by the CDP alignment script referenced in this change's summary.
+   Targeting `button` directly instead of `:last-child` fixes it for good
+   regardless of what renders after Remove: Remove is the only `<button>`
+   that's a DIRECT child of `.taskRow`/`.riskRow` (Client/Task/Status/
+   Deadline are all `<label>`s or a `<div class="fieldWithPolish">`;
+   PolishPanel renders a `<div>`, never a `<button>`), so this can never
+   again accidentally re-target whatever happens to render last. */
 @media screen and (max-width: 767px) {
   .grid2,
   .grid3,
@@ -159,8 +216,8 @@
     grid-template-columns: 1fr;
   }
 
-  .taskRow > *:last-child,
-  .riskRow > *:last-child {
+  .taskRow > button,
+  .riskRow > button {
     justify-self: end;
   }
 }

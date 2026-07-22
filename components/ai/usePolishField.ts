@@ -1,44 +1,66 @@
 'use client';
 
-// Phase 7c (BYOK AI field polish): the "Polish" button + inline suggestion
-// panel rendered next to each of the 7 polishable wizard fields (see
-// lib/prompts.ts's POLISH_FIELDS for the complete, locked field list --
-// `client` is never one of them, see that registry's own comment). Renders
-// `null` entirely (no dead affordance) whenever `useAiKeyStatus()` reports
-// anything other than 'configured' -- demo mode, no key saved yet, or the
-// status check hasn't resolved yet.
+// Phase 7c (BYOK AI field polish) + the row-alignment layout fix that split
+// the old monolithic `PolishButton` into a TRIGGER (an in-field icon
+// button, see PolishTrigger.tsx) and a PANEL (the suggestion/error block,
+// see PolishPanel.tsx). CSS Grid's `grid-column` only affects DIRECT
+// children of a grid container, so a `.taskRow`/`.riskRow`/`.priorityRow`
+// row (Step.module.css) needs its suggestion panel to be a direct grid
+// sibling of the row's other cells, not nested two levels inside one of
+// them -- see Step.module.css's `.fieldWithPolish` comment for the full
+// story of the bug this fixes (a taller cell floating above its
+// `align-items: end` siblings whenever a suggestion panel was open).
 //
-// Never touches the draft directly -- `onAccept(next)` is the ONLY way this
-// component changes anything, and it's always one of useWizard's existing
-// setters (setDraftField/setTouchpointsField/setWinField/updateRisk/
-// updateTask/updatePriority), passed in by the calling step. Nothing here
-// persists anything -- Save Draft/Publish behave exactly as before.
+// This file is a pure EXTRACTION, not a rewrite: every staleness guard,
+// timeout, concurrency cap, and accept/discard/undo/error transition below
+// is byte-for-byte the same logic the old `PolishButton.tsx` had. Call this
+// hook ONCE per polishable field (never once per PolishTrigger AND once per
+// PolishPanel -- that would create two independent state machines racing
+// each other) and pass the single returned state object to both.
 
 import { useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/Button';
-import { IconPolish } from '@/components/ui/icons';
-import { useAiKeyStatus } from '@/lib/hooks/useAiKeyStatus';
-import { POLISH_FIELDS, type PolishFieldId } from '@/lib/prompts';
+import { useAiKeyStatus, type AiKeyStatusState } from '@/lib/hooks/useAiKeyStatus';
+import { POLISH_FIELDS, type PolishFieldId, type PolishFieldSpec } from '@/lib/prompts';
 import type { PolishContext } from '@/lib/schema/api';
-import styles from './PolishButton.module.css';
 
 /** Mirrors PolishRequestSchema's `text` cap (lib/schema/api.ts) -- checked here BEFORE any request leaves the browser. */
 const MAX_POLISH_CHARS = 4000;
-/** "a module-level cap of 2 concurrent polish calls client-side" -- shared across every PolishButton instance on the page, not per-instance. */
+/** A module-level cap of 2 concurrent polish calls client-side -- shared across every usePolishField instance on the page, not per-instance. */
 const MAX_CONCURRENT_CLIENT_REQUESTS = 2;
 /** Slightly above the server's own 20s Anthropic timeout (lib/server/ai-polish.ts's UPSTREAM_TIMEOUT_MS) -- covers a hang BEFORE the upstream call too (e.g. inside the route handler or the network path to this app itself), which the server's own timeout never bounds. Without this, a hang there leaves `phase='busy'` and the concurrency counter elevated forever, with no client-side recovery. */
 const CLIENT_FETCH_TIMEOUT_MS = 25_000;
 
 let activeRequestCount = 0;
 
-type Phase = 'idle' | 'busy' | 'suggested' | 'accepted' | 'error';
+export type PolishPhase = 'idle' | 'busy' | 'suggested' | 'accepted' | 'error';
 
-export interface PolishButtonProps {
+export interface UsePolishFieldArgs {
   field: PolishFieldId;
   value: string;
   context?: PolishContext;
   /** Called with the polished text on Accept, and again with the ORIGINAL text on Undo -- always one of useWizard's existing field setters. */
   onAccept: (next: string) => void;
+}
+
+export interface PolishFieldState {
+  /**
+   * `'configured'` is the only status a Polish affordance ever renders for
+   * -- both `PolishTrigger` and `PolishPanel` return `null` for any other
+   * value (demo mode, no key saved yet, or the status check hasn't
+   * resolved). Exposed here (rather than each component re-deriving it)
+   * so the two can never disagree on whether polish is available.
+   */
+  status: AiKeyStatusState;
+  phase: PolishPhase;
+  suggestion: string;
+  errorMessage: string;
+  isDisabled: boolean;
+  spec: PolishFieldSpec;
+  trigger: () => void;
+  accept: () => void;
+  discard: () => void;
+  undo: () => void;
+  dismissError: () => void;
 }
 
 async function readApiError(response: Response, fallback: string): Promise<string> {
@@ -50,9 +72,13 @@ async function readApiError(response: Response, fallback: string): Promise<strin
   }
 }
 
-export function PolishButton({ field, value, context, onAccept }: PolishButtonProps) {
+/**
+ * The polish state machine for exactly one field. See this file's header
+ * comment for the "call once, share the result" contract.
+ */
+export function usePolishField({ field, value, context, onAccept }: UsePolishFieldArgs): PolishFieldState {
   const status = useAiKeyStatus();
-  const [phase, setPhase] = useState<Phase>('idle');
+  const [phase, setPhase] = useState<PolishPhase>('idle');
   const [suggestion, setSuggestion] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   // The field's value at the moment Accept was pressed (for Undo) and what
@@ -60,18 +86,18 @@ export function PolishButton({ field, value, context, onAccept }: PolishButtonPr
   // below. `null` when there is nothing to undo.
   const acceptedFromRef = useRef<string | null>(null);
   const acceptedToRef = useRef<string | null>(null);
-  // SHOULD-FIX 1 (stale-suggestion race): the exact `value` this button
-  // last submitted for polishing -- compared against the LIVE value below
-  // to detect an edit that happened while a request was in flight, or
-  // after a suggestion arrived but before Accept. `null` when nothing is
-  // in flight/pending.
+  // SHOULD-FIX 1 (stale-suggestion race): the exact `value` this hook last
+  // submitted for polishing -- compared against the LIVE value below to
+  // detect an edit that happened while a request was in flight, or after a
+  // suggestion arrived but before Accept. `null` when nothing is in
+  // flight/pending.
   const submittedTextRef = useRef<string | null>(null);
   // Always holds the CURRENT `value` prop, kept in sync via the effect
   // below -- `handlePolish`'s async continuation closes over the `value`
   // from the render that started it (a stale snapshot equal to what was
-  // just submitted, by construction), so it can never observe a LATER
-  // edit through that closure alone. This ref is what lets the post-await
-  // check in `handlePolish` see the truly-latest value instead.
+  // just submitted, by construction), so it can never observe a LATER edit
+  // through that closure alone. This ref is what lets the post-await check
+  // in `handlePolish` see the truly-latest value instead.
   const latestValueRef = useRef(value);
   useEffect(() => {
     latestValueRef.current = value;
@@ -103,8 +129,6 @@ export function PolishButton({ field, value, context, onAccept }: PolishButtonPr
       submittedTextRef.current = null;
     }
   }, [value, phase]);
-
-  if (status !== 'configured') return null;
 
   const trimmed = value.trim();
   const isDisabled = trimmed.length === 0 || phase === 'busy';
@@ -206,54 +230,17 @@ export function PolishButton({ field, value, context, onAccept }: PolishButtonPr
     setPhase('idle');
   }
 
-  return (
-    <div className={styles.wrap}>
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={isDisabled}
-        aria-busy={phase === 'busy'}
-        title={`Polish ${spec.label.toLowerCase()}`}
-        onClick={handlePolish}
-      >
-        <span className={styles.triggerContent}>
-          <IconPolish width={14} height={14} className={styles.triggerIcon} />
-          {phase === 'busy' ? 'Polishing…' : 'Polish'}
-        </span>
-      </Button>
-
-      {phase === 'suggested' ? (
-        <div className={styles.panel} role="status" aria-live="polite">
-          <div className={styles.panelLabel}>Suggested Rewrite</div>
-          <p className={styles.suggestionText}>{suggestion}</p>
-          <div className={styles.panelActions}>
-            <Button variant="dark" size="sm" onClick={handleAccept}>
-              Accept
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleDiscard}>
-              Discard
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {phase === 'accepted' ? (
-        <div className={styles.panel} role="status" aria-live="polite">
-          <div className={styles.panelLabel}>Polished</div>
-          <Button variant="ghost" size="sm" onClick={handleUndo}>
-            Undo
-          </Button>
-        </div>
-      ) : null}
-
-      {phase === 'error' ? (
-        <div className={styles.panelError} role="alert">
-          <p className={styles.errorText}>{errorMessage}</p>
-          <Button variant="ghost" size="sm" onClick={handleDismissError}>
-            Dismiss
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
+  return {
+    status,
+    phase,
+    suggestion,
+    errorMessage,
+    isDisabled,
+    spec,
+    trigger: handlePolish,
+    accept: handleAccept,
+    discard: handleDiscard,
+    undo: handleUndo,
+    dismissError: handleDismissError,
+  };
 }

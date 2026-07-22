@@ -1,8 +1,11 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import { PolishButton } from '@/components/ai/PolishButton';
+import { PolishPanel } from '@/components/ai/PolishPanel';
+import { PolishTrigger } from '@/components/ai/PolishTrigger';
+import { usePolishField } from '@/components/ai/usePolishField';
 import { Button } from '@/components/ui/Button';
+import { IconPlus, IconTrash } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ImportPanel } from '@/components/wizard/ImportPanel';
@@ -25,6 +28,74 @@ export interface StepTasksProps {
   importTaskCandidates: ImportCandidateProps[];
   importTaskDisabled: boolean;
   importSelectedTasks: () => void;
+}
+
+interface TaskRowProps {
+  task: Task;
+  updateTask: <F extends keyof Task>(id: string, field: F, value: Task[F]) => void;
+  removeTask: (id: string) => void;
+  clientSuggestions?: string[];
+  kind: Draft['kind'];
+  period: string;
+}
+
+/**
+ * Row-alignment fix (Nav IA polish-affordance pass): one row's worth of
+ * `usePolishField` state has to live in a component of its own -- React's
+ * rules of hooks forbid calling a hook a variable number of times inside a
+ * single component's render (which is what calling `usePolishField` inline
+ * inside `draft.tasks.map(...)` back in `StepTasks` would do, since the
+ * number of tasks changes across renders). Extracting one `TaskRow` per
+ * task, each its own component instance keyed by `task.id`, is what makes
+ * "call the hook once per field" (see usePolishField's own header comment)
+ * actually legal here. This also happens to be exactly the shape the
+ * PolishTrigger/PolishPanel split needs anyway: `PolishPanel` renders as
+ * this row's own grid sibling (`grid-column: 1 / -1`), immediately after
+ * the Remove button -- not nested inside the Task field's wrapper -- so it
+ * spans the row's full width instead of just the Task column's.
+ */
+function TaskRow({ task: t, updateTask, removeTask, clientSuggestions, kind, period }: TaskRowProps) {
+  const polish = usePolishField({
+    field: 'taskTitle',
+    value: t.task,
+    context: { kind, period, client: t.client, status: t.status },
+    onAccept: (next) => updateTask(t.id, 'task', next),
+  });
+
+  return (
+    <div className={styles.taskRow}>
+      <Input
+        label="Client"
+        value={t.client}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'client', e.target.value)}
+        suggestions={clientSuggestions}
+      />
+      <div className={styles.fieldWithPolish}>
+        <Input
+          label="Task"
+          value={t.task}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'task', e.target.value)}
+        />
+        <PolishTrigger state={polish} />
+      </div>
+      <Select
+        label="Status"
+        options={[...TASK_STATUS_OPTIONS]}
+        value={t.status}
+        onChange={(value) => updateTask(t.id, 'status', value as Task['status'])}
+      />
+      <Input
+        type="date"
+        label="Deadline"
+        value={t.deadline}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'deadline', e.target.value)}
+      />
+      <Button variant="danger" size="sm" icon={<IconTrash />} onClick={() => removeTask(t.id)}>
+        Remove
+      </Button>
+      <PolishPanel state={polish} />
+    </div>
+  );
 }
 
 /** Ported from design-source lines 138-171. */
@@ -59,45 +130,18 @@ export function StepTasks({
 
       <div className={styles.rowsList}>
         {draft.tasks.map((t) => (
-          <div key={t.id} className={styles.taskRow}>
-            <Input
-              label="Client"
-              value={t.client}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'client', e.target.value)}
-              suggestions={clientSuggestions}
-            />
-            <div className={styles.fieldWithPolish}>
-              <Input
-                label="Task"
-                value={t.task}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'task', e.target.value)}
-              />
-              <PolishButton
-                field="taskTitle"
-                value={t.task}
-                context={{ kind: draft.kind, period, client: t.client, status: t.status }}
-                onAccept={(next) => updateTask(t.id, 'task', next)}
-              />
-            </div>
-            <Select
-              label="Status"
-              options={[...TASK_STATUS_OPTIONS]}
-              value={t.status}
-              onChange={(value) => updateTask(t.id, 'status', value as Task['status'])}
-            />
-            <Input
-              type="date"
-              label="Deadline"
-              value={t.deadline}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => updateTask(t.id, 'deadline', e.target.value)}
-            />
-            <Button variant="ghost" size="sm" onClick={() => removeTask(t.id)}>
-              Remove
-            </Button>
-          </div>
+          <TaskRow
+            key={t.id}
+            task={t}
+            updateTask={updateTask}
+            removeTask={removeTask}
+            clientSuggestions={clientSuggestions}
+            kind={draft.kind}
+            period={period}
+          />
         ))}
       </div>
-      <Button variant="outline" size="sm" onClick={addTask}>
+      <Button variant="accent" size="sm" icon={<IconPlus />} onClick={addTask}>
         Add Task
       </Button>
     </div>

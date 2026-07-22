@@ -92,6 +92,17 @@
   }
 }
 
+/* Restrained-colour pass: see DashboardScreen.module.css's identical `.rowActionDanger`. */
+.rowActionDanger {
+  border-color: var(--action-danger);
+  color: var(--action-danger);
+}
+
+.rowActionDanger:hover:not(:disabled) {
+  background: var(--action-danger);
+  color: var(--text-on-dark);
+}
+
 .emptyState {
   padding: 64px 0;
   text-align: center;

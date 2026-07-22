@@ -24,7 +24,8 @@
 // name, so the web app and Claude-via-MCP can never drift into two
 // different voices. `POLISH_FIELD_IDS`/`PolishFieldId`/`POLISH_FIELDS`
 // (below) are the per-field editorial-intent registry that powers each
-// polishable field's "Polish" button (components/ai/PolishButton.tsx) --
+// polishable field's "Polish" trigger (components/ai/PolishTrigger.tsx,
+// state machine in components/ai/usePolishField.ts) --
 // deliberately NOT one generic "improve this" prompt; see `POLISH_FIELDS`'s
 // own doc comment for what's excluded and why.
 
@@ -46,7 +47,7 @@ export const HOUSE_VOICE =
 
 /**
  * Phase 7c. The complete set of report fields the BYOK polish feature will
- * ever touch -- `PolishButton` only ever renders for one of these ids. See
+ * ever touch -- `usePolishField` only ever runs for one of these ids. See
  * `POLISH_FIELDS` below for what's deliberately EXCLUDED, and why.
  */
 export const POLISH_FIELD_IDS = [

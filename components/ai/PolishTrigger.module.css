@@ -1,0 +1,75 @@
+/*
+ * Row-alignment fix: this button MUST contribute zero height to its
+ * enclosing field wrapper (`.fieldWithPolish` in
+ * components/wizard/steps/Step.module.css, or the analogous textarea
+ * wrapper) -- a `.taskRow`/`.riskRow`/`.priorityRow` grid uses
+ * `align-items: end`, so any extra in-flow height on one cell floats that
+ * whole cell above its siblings (see Step.module.css's own comment for the
+ * full bug this replaces). `position: absolute` is what makes that true:
+ * the button is taken clean out of normal flow, so its own box can be
+ * whatever height it needs without ever influencing the row's height. The
+ * enclosing wrapper must be `position: relative` for this to anchor
+ * correctly (already true of `.fieldWithPolish`/the textarea wrapper).
+ */
+.trigger {
+  position: absolute;
+  right: 6px;
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-heading-accent);
+  cursor: pointer;
+}
+
+.trigger:hover:not(:disabled) {
+  color: var(--link-hover);
+  background: var(--surface-panel-muted);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--ff-green);
+  outline-offset: -2px;
+}
+
+.trigger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.trigger[aria-busy='true'] {
+  opacity: 0.6;
+}
+
+/*
+ * Anchors against `components/ui/Input.module.css`'s `.input` box, a FIXED
+ * 42px tall at every breakpoint (see that file) and always the
+ * LAST-rendered element inside `Input`'s own `<label>` -- the field's label
+ * text, if present, sits above it. Anchoring from the BOTTOM of the wrapper
+ * with an explicit 42px height -- rather than `top: 50%; transform:
+ * translateY(-50%)` against the WHOLE wrapper (label + input together) --
+ * is what centers this on the input specifically: a wrapper-relative
+ * vertical center would instead land between the label text and the input,
+ * visibly off-center against the input alone.
+ */
+.anchorInput {
+  bottom: 0;
+  height: 42px;
+}
+
+/*
+ * A textarea has no fixed height (`min-height: 80px`, `resize: vertical` --
+ * see app/globals.css's `.ffr-textarea`), so the bottom-anchored trick
+ * above doesn't apply: anchoring from the bottom would track the user's own
+ * resize handle, drifting the icon wherever they last dragged it. Anchoring
+ * from the TOP instead, offset past the field's label (`.ffr-label`: 11px
+ * text + 6px margin, ~20px total), lands the icon just inside the
+ * textarea's own top-right corner regardless of how tall the field grows.
+ */
+.anchorTextarea {
+  top: 24px;
+  height: 26px;
+}

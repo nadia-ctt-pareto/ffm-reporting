@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
+import { IconTrash } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
@@ -171,7 +172,7 @@ export function ProjectDetailScreen({ project, weeklies, dailies, onRename, onDe
           <Button variant="outline" size="sm" onClick={openRename} disabled={!isAdmin}>
             Rename
           </Button>
-          <Button variant="outline" size="sm" onClick={openDelete} disabled={!isAdmin}>
+          <Button variant="danger" size="sm" icon={<IconTrash />} onClick={openDelete} disabled={!isAdmin}>
             Delete
           </Button>
         </div>
@@ -278,7 +279,7 @@ export function ProjectDetailScreen({ project, weeklies, dailies, onRename, onDe
             <Button variant="ghost" size="sm" onClick={() => setDeleteOpen(false)}>
               Cancel
             </Button>
-            <Button variant="outline" size="sm" onClick={handleDelete} disabled={referenced || isDeleting}>
+            <Button variant="dangerSolid" size="sm" icon={<IconTrash />} onClick={handleDelete} disabled={referenced || isDeleting}>
               {isDeleting ? 'Deleting…' : 'Delete Project'}
             </Button>
           </div>

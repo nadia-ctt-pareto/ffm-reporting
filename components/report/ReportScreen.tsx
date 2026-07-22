@@ -8,6 +8,7 @@ import { ConfirmDeleteReportDialog } from '@/components/dialogs/ConfirmDeleteRep
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { IconTrash } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { StatCard } from '@/components/ui/StatCard';
@@ -361,8 +362,9 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
               Edit Report
             </Button>
             <Button
-              variant="outline"
+              variant="danger"
               size="sm"
+              icon={<IconTrash />}
               onClick={() => setDeleteOpen(true)}
               disabled={!canDelete}
               title={!canDelete ? deleteHint : undefined}

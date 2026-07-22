@@ -6,7 +6,7 @@
 // Supabase-mode gate (SettingsScreen.tsx mounts this only when
 // `isSupabaseConfigured()`), same self-contained fetch/CRUD state (no
 // shared hook -- `lib/hooks/useAiKeyStatus.ts` exists purely for
-// `PolishButton`'s much smaller "is polish available" check, see that
+// `usePolishField`'s much smaller "is polish available" check, see that
 // hook's own doc comment), the same `readApiError` helper shape, and the
 // same "secret shown/accepted once, never re-displayed" posture -- except
 // here the key is NEVER shown even once (unlike an MCP token's plaintext,
@@ -177,7 +177,7 @@ export function AiKeySection() {
       if (!res.ok) throw new Error(await readApiError(res, 'This key was rejected -- nothing was saved.'));
       setApiKeyInput('');
       setIsEditing(false);
-      // So a PolishButton that mounts LATER in this SAME browser tab (not
+      // So a usePolishField call that mounts LATER in this SAME browser tab (not
       // an already-open one elsewhere -- see useAiKeyStatus.ts's own doc
       // comment for why that reach is narrower than it might sound) picks
       // up the newly-saved key without a full reload.

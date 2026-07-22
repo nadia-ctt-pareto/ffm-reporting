@@ -2,6 +2,7 @@
 
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
+import { IconTrash } from '@/components/ui/icons';
 import { reportPeriodLabel } from '@/lib/report-utils';
 import type { AnyReport } from '@/lib/types';
 import styles from './ConfirmDeleteReportDialog.module.css';
@@ -79,7 +80,7 @@ export function ConfirmDeleteReportDialog({ open, report, isDeleting, error, onC
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={isDeleting}>
             Cancel
           </Button>
-          <Button variant="outline" size="sm" onClick={onConfirm} disabled={isDeleting}>
+          <Button variant="dangerSolid" size="sm" icon={<IconTrash />} onClick={onConfirm} disabled={isDeleting}>
             {isDeleting ? 'Deleting…' : 'Delete Report'}
           </Button>
         </div>

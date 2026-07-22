@@ -98,7 +98,7 @@ export function DailyListScreen({
           {/* Phase 8d (report delete): see DashboardScreen.tsx's identical row-Delete comment. */}
           <button
             type="button"
-            className={styles.rowAction}
+            className={`${styles.rowAction} ${styles.rowActionDanger}`}
             onClick={() => onDeleteReport(r.id)}
             disabled={!deletable}
             title={!deletable ? DELETE_REPORT_HINT : undefined}

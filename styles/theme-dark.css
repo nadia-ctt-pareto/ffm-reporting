@@ -18,4 +18,28 @@
   --text-muted: #9ba394;
   --link: var(--ff-sage);
   --link-hover: var(--ff-white);
+
+  /*
+   * Restrained-colour pass (dark-mode correction): `--negative` (#8C2F22)
+   * and `--ff-green` (#283625) are NOT overridden anywhere else in this
+   * file, and measured against this theme's page background (`--ff-black`
+   * #0A0A0A) they read as 2.40:1 and 1.55:1 respectively -- both fail even
+   * the 3:1 large-text floor. That's fine for `--negative`/`--ff-green`'s
+   * EXISTING uses (always a FILL with light text on top, e.g. `Button`'s
+   * `primary` variant, never text/border color on the dark page itself),
+   * but it means `--action-danger`/`--action-accent` (styles/theme.css,
+   * used as TEXT/BORDER colors by `Button`'s `danger`/`accent` variants
+   * before their hover-fill state) need real dark-safe replacements here,
+   * not a reuse of the raw light-mode hex.
+   *
+   * --action-danger: #D9695A measures 5.77:1 against #0A0A0A -- clears AA
+   * for normal text (4.5:1) with margin.
+   */
+  --action-danger: #d9695a;
+  /*
+   * --action-accent: #8FA383 (same sage family as this file's own
+   * `--text-heading-accent: #9ba394` override just above) measures 7.29:1
+   * against #0A0A0A -- clears AA comfortably.
+   */
+  --action-accent: #8fa383;
 }

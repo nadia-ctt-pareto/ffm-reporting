@@ -132,7 +132,7 @@ export type PolishContext = z.infer<typeof PolishContextSchema>;
 
 /**
  * `POST /api/ai/polish` body. `text` is capped at 4,000 chars (CLAUDE.md's
- * Phase 7c abuse-control caps) -- `components/ai/PolishButton.tsx` also
+ * Phase 7c abuse-control caps) -- `components/ai/usePolishField.ts` also
  * enforces this client-side before ever issuing the request, so an
  * oversized paste never leaves the browser.
  */

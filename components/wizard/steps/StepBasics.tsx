@@ -1,7 +1,9 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import { PolishButton } from '@/components/ai/PolishButton';
+import { PolishPanel } from '@/components/ai/PolishPanel';
+import { PolishTrigger } from '@/components/ai/PolishTrigger';
+import { usePolishField } from '@/components/ai/usePolishField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
@@ -34,6 +36,13 @@ export function StepBasics({
   weekDailiesImported = false,
   onImportWeekDailies,
 }: StepBasicsProps) {
+  const summaryPolish = usePolishField({
+    field: 'summary',
+    value: draft.summaryNarrative,
+    context: { kind: draft.kind, period: draftPeriodLabel(draft) },
+    onAccept: (next) => setDraftField('summaryNarrative', next),
+  });
+
   return (
     <div>
       <div className={styles.title}>Basics</div>
@@ -99,18 +108,16 @@ export function StepBasics({
           onChange={(e: ChangeEvent<HTMLInputElement>) => setDraftField('preparedBy', e.target.value)}
         />
       </div>
-      <Textarea
-        label="Executive Summary"
-        placeholder="How did the week go, overall?"
-        value={draft.summaryNarrative}
-        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setDraftField('summaryNarrative', e.target.value)}
-      />
-      <PolishButton
-        field="summary"
-        value={draft.summaryNarrative}
-        context={{ kind: draft.kind, period: draftPeriodLabel(draft) }}
-        onAccept={(next) => setDraftField('summaryNarrative', next)}
-      />
+      <div className={styles.textareaField}>
+        <Textarea
+          label="Executive Summary"
+          placeholder="How did the week go, overall?"
+          value={draft.summaryNarrative}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setDraftField('summaryNarrative', e.target.value)}
+        />
+        <PolishTrigger state={summaryPolish} anchor="textarea" />
+      </div>
+      <PolishPanel state={summaryPolish} />
       <div className={styles.preview}>{draftPeriodLabel(draft)}</div>
     </div>
   );

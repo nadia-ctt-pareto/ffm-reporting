@@ -1,7 +1,9 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import { PolishButton } from '@/components/ai/PolishButton';
+import { PolishPanel } from '@/components/ai/PolishPanel';
+import { PolishTrigger } from '@/components/ai/PolishTrigger';
+import { usePolishField } from '@/components/ai/usePolishField';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { draftPeriodLabel } from '@/lib/report-utils';
@@ -29,6 +31,18 @@ function nonNegativeInt(raw: string): number {
 /** Ported from design-source lines 173-197. */
 export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: StepTouchpointsWinProps) {
   const context = { kind: draft.kind, period: draftPeriodLabel(draft) };
+  const touchpointsPolish = usePolishField({
+    field: 'touchpointsNarrative',
+    value: draft.touchpoints.narrative,
+    context,
+    onAccept: (next) => setTouchpointsField('narrative', next),
+  });
+  const winPolish = usePolishField({
+    field: 'winNarrative',
+    value: draft.win.narrative,
+    context,
+    onAccept: (next) => setWinField('narrative', next),
+  });
   return (
     <div>
       <div className={styles.title}>{"This Week's Touchpoints & Win"}</div>
@@ -52,20 +66,16 @@ export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: 
           onChange={(e: ChangeEvent<HTMLInputElement>) => setTouchpointsField('escalations', nonNegativeInt(e.target.value))}
         />
       </div>
-      <div className={styles.textareaSpacer}>
+      <div className={`${styles.textareaField} ${styles.textareaSpacer}`}>
         <Textarea
           label="Touchpoints Notes"
           placeholder="Anything noteworthy about client communication this week?"
           value={draft.touchpoints.narrative}
           onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTouchpointsField('narrative', e.target.value)}
         />
-        <PolishButton
-          field="touchpointsNarrative"
-          value={draft.touchpoints.narrative}
-          context={context}
-          onAccept={(next) => setTouchpointsField('narrative', next)}
-        />
+        <PolishTrigger state={touchpointsPolish} anchor="textarea" />
       </div>
+      <PolishPanel state={touchpointsPolish} />
       <div className={styles.divider}>
         <div className={styles.kicker}>{"This Week's Win"}</div>
         <div className={styles.grid1x2}>
@@ -80,13 +90,16 @@ export function StepTouchpointsWin({ draft, setTouchpointsField, setWinField }: 
             onChange={(e: ChangeEvent<HTMLInputElement>) => setWinField('label', e.target.value)}
           />
         </div>
-        <Textarea
-          label="Win Narrative"
-          placeholder="Tell the story behind the number."
-          value={draft.win.narrative}
-          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setWinField('narrative', e.target.value)}
-        />
-        <PolishButton field="winNarrative" value={draft.win.narrative} context={context} onAccept={(next) => setWinField('narrative', next)} />
+        <div className={styles.textareaField}>
+          <Textarea
+            label="Win Narrative"
+            placeholder="Tell the story behind the number."
+            value={draft.win.narrative}
+            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setWinField('narrative', e.target.value)}
+          />
+          <PolishTrigger state={winPolish} anchor="textarea" />
+        </div>
+        <PolishPanel state={winPolish} />
       </div>
     </div>
   );

@@ -108,6 +108,30 @@
   }
 }
 
+/*
+ * Restrained-colour pass: this row's Delete action is destructive, unlike
+ * its "Continue"/"View" sibling in the same `.rowActions` group -- give it
+ * `--action-danger` (text + border at rest, filled with `--text-on-dark`
+ * on hover/active) so intent is visible at a glance, matching `Button`'s
+ * `danger` variant. No icon here on purpose (judgement call, per CLAUDE.md):
+ * this is a dense two-button row and `.rowAction` isn't built on the
+ * `Button` component's icon slot -- colour alone keeps the row scannable
+ * without crowding it. Applied ALONGSIDE `.rowAction` (not instead of it),
+ * so `.rowAction:disabled`'s dimmed/no-hover-fill treatment above still
+ * wins unchanged when this button is disabled -- this rule's own hover
+ * variant is scoped with `:not(:disabled)` specifically so it can never
+ * fight that.
+ */
+.rowActionDanger {
+  border-color: var(--action-danger);
+  color: var(--action-danger);
+}
+
+.rowActionDanger:hover:not(:disabled) {
+  background: var(--action-danger);
+  color: var(--text-on-dark);
+}
+
 .emptyState {
   padding: 64px 0;
   text-align: center;

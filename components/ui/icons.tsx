@@ -123,7 +123,7 @@ export function IconMenu(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Phase 7c: a 4-point sparkle -- "AI polish" (components/ai/PolishButton.tsx). A single filled straight-edged star, not the rounded/curved sparkle glyph most "AI" affordances use elsewhere -- straight line segments stay on-brand with this design system's square-corner rule even though the shape itself is a star, not a rectangle. */
+/** Phase 7c: a 4-point sparkle -- "AI polish" (components/ai/PolishTrigger.tsx, formerly PolishButton.tsx). A single filled straight-edged star, not the rounded/curved sparkle glyph most "AI" affordances use elsewhere -- straight line segments stay on-brand with this design system's square-corner rule even though the shape itself is a star, not a rectangle. */
 export function IconPolish(props: SVGProps<SVGSVGElement>) {
   return (
     <IconBase {...props}>
@@ -160,6 +160,53 @@ export function IconChevron(props: SVGProps<SVGSVGElement>) {
   return (
     <IconBase {...props}>
       <path d="M6 3.5L10.5 8L6 12.5" />
+    </IconBase>
+  );
+}
+
+/**
+ * Restrained-colour pass: a square-cornered trash can (lid + body + two
+ * ribs) -- pairs with `Button`'s `danger` variant on every destructive
+ * action (wizard row Remove, report/project delete). Straight strokes
+ * throughout, no rounded corners, matching every other icon in this file.
+ */
+export function IconTrash(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M2.3 4H13.7" />
+      <path d="M5.7 4V2.1H10.3V4" />
+      <path d="M3.6 4L4.2 13.9H11.8L12.4 4" />
+      <path d="M6.5 6.6V11.6" />
+      <path d="M9.5 6.6V11.6" />
+    </IconBase>
+  );
+}
+
+/**
+ * Restrained-colour pass: a square-cornered plus -- pairs with `Button`'s
+ * `accent` variant on every constructive "add a row" action (Add Task/Risk/
+ * Priority). Two straight strokes, not a rounded "+", staying on-brand.
+ */
+export function IconPlus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M8 2.3V13.7" />
+      <path d="M2.3 8H13.7" />
+    </IconBase>
+  );
+}
+
+/**
+ * Restrained-colour pass: a standalone checkmark -- pairs with `Button`'s
+ * `primary` (green-fill) variant on the Polish suggestion panel's Accept
+ * action. Same check geometry as `IconTasks`' checkbox glyph, without the
+ * surrounding square, so it reads as a plain affirmative mark rather than a
+ * repeat of the Tasks nav icon.
+ */
+export function IconCheck(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M3 8.4L6.5 12L13 4.5" />
     </IconBase>
   );
 }

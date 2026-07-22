@@ -2,6 +2,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   font-family: var(--font-heading);
   font-weight: 600;
   text-transform: uppercase;
@@ -12,6 +13,12 @@
     background var(--speed-fast) var(--ease-brand),
     color var(--speed-fast) var(--ease-brand),
     border-color var(--speed-fast) var(--ease-brand);
+}
+
+/* Restrained-colour pass: the optional leading-icon slot (Button.tsx's `icon` prop). `flex: none` keeps a long label from squeezing the glyph. */
+.icon {
+  display: inline-flex;
+  flex: none;
 }
 
 .button:disabled {
@@ -105,4 +112,111 @@
   background: var(--ff-green);
   border-color: var(--ff-green);
   color: var(--text-on-dark);
+}
+
+/*
+ * TWO destructive weights, on purpose. A first pass gave `danger` a full
+ * 1px `--action-danger` border, which was then reviewed against a real
+ * screenshot of the wizard's Task Status step: with four task rows, the
+ * four bordered red boxes down the right rail became the single most
+ * prominent thing on the page, out-weighing the form content they merely
+ * act on. That is the product register's "no heavy colour on inactive
+ * states" ban -- a REPEATED row affordance must stay quiet.
+ *
+ * `danger` (this one) -- quiet: no border, `--action-danger` text + icon
+ * only. Intent is legible at a glance without the control becoming a
+ * visual block. Hover/focus fills solid, so the destructive weight appears
+ * exactly when the pointer is on it. For repeated row actions (wizard row
+ * Remove) and inline page actions (report/project Delete).
+ *
+ * `dangerSolid` (below) -- the deliberate, one-per-dialog confirm. There
+ * the destructive action IS the primary action and should carry full
+ * weight.
+ *
+ * Both fill with `--text-on-dark` (white in both themes): a fill carries
+ * its own contrast regardless of theme, the same reasoning `primary`'s
+ * green fill relies on above. `--action-danger` itself is the part that
+ * needed a real dark-mode correction (see styles/theme.css /
+ * theme-dark.css's token comments for the measured ratios) -- unlike
+ * `--negative`, which is only ever safe as a FILL, never as a rest-state
+ * text colour.
+ */
+.danger {
+  background: transparent;
+  color: var(--action-danger);
+  border: 1px solid transparent;
+}
+
+.danger:hover:not(:disabled),
+.danger:focus-visible:not(:disabled) {
+  background: var(--action-danger);
+  color: var(--text-on-dark);
+  border-color: var(--action-danger);
+}
+
+.danger:active:not(:disabled) {
+  background: var(--action-danger);
+  color: var(--text-on-dark);
+  border-color: var(--action-danger);
+  opacity: 0.85;
+}
+
+.danger:focus-visible {
+  outline: 2px solid var(--action-danger);
+  outline-offset: 2px;
+}
+
+/* The full-weight sibling -- see the two-weights comment above `.danger`. */
+.dangerSolid {
+  background: var(--action-danger);
+  color: var(--text-on-dark);
+  border: 1px solid var(--action-danger);
+}
+
+.dangerSolid:hover:not(:disabled),
+.dangerSolid:focus-visible:not(:disabled) {
+  background: var(--text-heading);
+  color: var(--surface-page);
+  border-color: var(--text-heading);
+}
+
+.dangerSolid:active:not(:disabled) {
+  opacity: 0.85;
+}
+
+.dangerSolid:focus-visible {
+  outline: 2px solid var(--action-danger);
+  outline-offset: 2px;
+}
+
+/*
+ * `accent` -- confirming/constructive actions ("Add Task/Risk/Priority").
+ * Same "quiet by default, fills on interaction" posture as `danger`, using
+ * `--action-accent` (the brand green in light mode, a lightened dark-safe
+ * sage in dark mode -- see the token comments) instead of a destructive
+ * tone.
+ */
+.accent {
+  background: transparent;
+  color: var(--action-accent);
+  border: 1px solid var(--action-accent);
+}
+
+.accent:hover:not(:disabled),
+.accent:focus-visible:not(:disabled) {
+  background: var(--action-accent);
+  color: var(--text-on-dark);
+  border-color: var(--action-accent);
+}
+
+.accent:active:not(:disabled) {
+  background: var(--action-accent);
+  color: var(--text-on-dark);
+  border-color: var(--action-accent);
+  opacity: 0.85;
+}
+
+.accent:focus-visible {
+  outline: 2px solid var(--action-accent);
+  outline-offset: 2px;
 }

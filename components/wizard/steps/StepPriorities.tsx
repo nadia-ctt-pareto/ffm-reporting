@@ -1,12 +1,16 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
-import { PolishButton } from '@/components/ai/PolishButton';
+import { PolishPanel } from '@/components/ai/PolishPanel';
+import { PolishTrigger } from '@/components/ai/PolishTrigger';
+import { usePolishField } from '@/components/ai/usePolishField';
 import { Button } from '@/components/ui/Button';
+import { IconPlus, IconTrash } from '@/components/ui/icons';
 import { Input } from '@/components/ui/Input';
 import { ImportPanel } from '@/components/wizard/ImportPanel';
 import type { ImportCandidateProps } from '@/components/wizard/ImportPanel';
 import { draftPeriodLabel } from '@/lib/report-utils';
+import type { PolishContext } from '@/lib/schema/api';
 import type { Draft, Priority } from '@/lib/types';
 import styles from './Step.module.css';
 
@@ -21,6 +25,46 @@ export interface StepPrioritiesProps {
   importPriorityCandidates: ImportCandidateProps[];
   importPriorityDisabled: boolean;
   importSelectedPriorities: () => void;
+}
+
+interface PriorityRowProps {
+  priority: Priority;
+  index: number;
+  updatePriority: <F extends keyof Priority>(id: string, field: F, value: Priority[F]) => void;
+  removePriority: (id: string) => void;
+  context: PolishContext;
+}
+
+/**
+ * Row-alignment fix (Nav IA polish-affordance pass): mirrors `TaskRow`/
+ * `RiskRow` -- one component instance per priority, each owning its own
+ * `usePolishField` call (rules-of-hooks requires this once the hook is
+ * called per-row rather than once per step; see TaskRow's own doc comment).
+ */
+function PriorityRow({ priority: p, index: i, updatePriority, removePriority, context }: PriorityRowProps) {
+  const polish = usePolishField({
+    field: 'priority',
+    value: p.text,
+    context,
+    onAccept: (next) => updatePriority(p.id, 'text', next),
+  });
+
+  return (
+    <div className={styles.priorityRow}>
+      <div className={styles.fieldWithPolish}>
+        <Input
+          label={`Priority ${i + 1}`}
+          value={p.text}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => updatePriority(p.id, 'text', e.target.value)}
+        />
+        <PolishTrigger state={polish} />
+      </div>
+      <Button variant="danger" size="sm" icon={<IconTrash />} onClick={() => removePriority(p.id)}>
+        Remove
+      </Button>
+      <PolishPanel state={polish} />
+    </div>
+  );
 }
 
 /**
@@ -60,22 +104,17 @@ export function StepPriorities({
 
       <div className={styles.rowsList}>
         {draft.priorities.map((p, i) => (
-          <div key={p.id} className={styles.priorityRow}>
-            <div className={styles.fieldWithPolish}>
-              <Input
-                label={`Priority ${i + 1}`}
-                value={p.text}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => updatePriority(p.id, 'text', e.target.value)}
-              />
-              <PolishButton field="priority" value={p.text} context={context} onAccept={(next) => updatePriority(p.id, 'text', next)} />
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => removePriority(p.id)}>
-              Remove
-            </Button>
-          </div>
+          <PriorityRow
+            key={p.id}
+            priority={p}
+            index={i}
+            updatePriority={updatePriority}
+            removePriority={removePriority}
+            context={context}
+          />
         ))}
       </div>
-      <Button variant="outline" size="sm" onClick={addPriority}>
+      <Button variant="accent" size="sm" icon={<IconPlus />} onClick={addPriority}>
         Add Priority
       </Button>
     </div>

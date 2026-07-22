@@ -163,7 +163,7 @@ export function DashboardScreen({
               ProjectDetailScreen precedent. */}
           <button
             type="button"
-            className={styles.rowAction}
+            className={`${styles.rowAction} ${styles.rowActionDanger}`}
             onClick={() => onDeleteReport(r.id)}
             disabled={!deletable}
             title={!deletable ? DELETE_REPORT_HINT : undefined}

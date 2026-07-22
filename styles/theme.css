@@ -32,6 +32,31 @@
    * `.rowAction`-style mobile bump here instead of a fifth hand-copied rule.
    */
   --row-action-pad-mobile: 10px 16px;
+
+  /*
+   * Restrained-colour pass: semantic "intent" tokens for destructive
+   * (`danger`) and confirming/constructive (`accent`) actions -- see
+   * components/ui/Button.tsx's `danger`/`accent` variants. Deliberately NOT
+   * a reuse of `--negative`/`--ff-green` directly: those two are safe as a
+   * FILL (white text on top has huge contrast either way) but are not
+   * verified as safe for TEXT/BORDER use on a dark page background, and in
+   * fact `--negative` fails there -- see styles/theme-dark.css's override
+   * comment for the measured numbers. Light-mode values here are the
+   * existing brand colors (already proven accessible on the light
+   * `--surface-page`); only dark mode needed a genuinely different hex.
+   *
+   * --action-danger: light value = --negative's own hex (#8C2F22), measured
+   * at 8.25:1 against white (--surface-page in light mode) -- clears AA for
+   * both normal and large text.
+   */
+  --action-danger: #8c2f22;
+  /*
+   * --action-accent: light value = --ff-green (#283625), the existing brand
+   * accent, measured at 12.8:1 against white -- the same pairing
+   * `Button`'s `primary` fill already relies on, just used here as a
+   * text/border color instead of a fill.
+   */
+  --action-accent: var(--ff-green);
 }
 
 @media screen and (max-width: 767px) {

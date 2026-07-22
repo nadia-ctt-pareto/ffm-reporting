@@ -1,0 +1,69 @@
+/*
+ * Row-alignment fix: `grid-column: 1 / -1` makes this panel span every
+ * column of its parent grid WHEN its parent is a CSS Grid (`.taskRow` /
+ * `.riskRow` / `.priorityRow`, Step.module.css) -- CSS Grid's
+ * `grid-column` only affects direct children of a grid container, which is
+ * exactly why this component is rendered as a direct grid sibling rather
+ * than nested inside the same wrapper `PolishTrigger` lives in (see this
+ * file's own call sites). At <=767px those rows collapse to a single
+ * column (`grid-template-columns: 1fr`); `1 / -1` in a 1-column grid still
+ * just means "the only column", so this keeps working unchanged there --
+ * verified, not assumed (see the CDP verification script referenced in
+ * this change's summary).
+ *
+ * For the two NON-grid call sites (StepBasics' summary narrative,
+ * StepTouchpointsWin's touchpoints/win narratives), this component's
+ * parent is a plain block-flow `<div>`, not a grid container -- CSS
+ * ignores `grid-column` on a non-grid-item entirely, so it's a harmless
+ * no-op there and the panel renders exactly as full-width flow content it
+ * already was pre-refactor.
+ */
+.panel {
+  grid-column: 1 / -1;
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 14px 16px;
+  margin-top: 8px;
+  color: var(--text-body);
+}
+
+.panelLabel {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 10px;
+}
+
+.suggestionText {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-body);
+  margin: 0 0 14px;
+  white-space: pre-wrap;
+}
+
+.panelActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.panelError {
+  grid-column: 1 / -1;
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--negative);
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+
+.errorText {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-body);
+  margin: 0 0 10px;
+}
