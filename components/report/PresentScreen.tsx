@@ -1,15 +1,16 @@
 'use client';
 
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
+import { buildDeckSlides } from '@/lib/deck-slides';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
 import { useReports } from '@/lib/hooks/useReports';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { AnyReport, ReportKind } from '@/lib/types';
-import { DECK_SLIDE_COUNT, DECK_SLIDE_HEIGHT, DECK_SLIDE_TITLES, DECK_SLIDE_WIDTH, ReportDeck } from './ReportDeck';
+import { DECK_SLIDE_HEIGHT, DECK_SLIDE_WIDTH, ReportDeck } from './ReportDeck';
 import '@/styles/print.css';
 import styles from './PresentScreen.module.css';
 
@@ -46,14 +47,22 @@ const SWIPE_THRESHOLD = 48;
 const NEXT_KEYS = new Set(['ArrowRight', 'ArrowDown', ' ', 'Spacebar', 'PageDown']);
 const PREV_KEYS = new Set(['ArrowLeft', 'ArrowUp', 'PageUp']);
 const SPACE_KEYS = new Set([' ', 'Spacebar']);
-// Derived from DECK_SLIDE_COUNT (not hardcoded) so the digit-jump shortcut
-// never silently drifts out of sync with the deck's actual slide count.
-// Assumes DECK_SLIDE_COUNT stays a single digit (1-9) -- true today (6) and
-// for any deck size this app is realistically going to have.
-const DIGIT_KEY = new RegExp(`^[1-${DECK_SLIDE_COUNT}]$`);
+/**
+ * WP1 (dynamic slide model): the deck's slide count is no longer a
+ * compile-time constant (see `buildDeckSlides`, lib/deck-slides.ts), so this
+ * can no longer be built from it. Fixed at `1-9` instead -- decks with 10 or
+ * more slides simply get digit shortcuts only for slides 1-9 (every digit
+ * key still needs a real, explicit `n <= slideCount` guard below before
+ * calling `goToSlide`, since this regex alone can't know today's slide
+ * count). Deliberately no multi-digit input buffer (e.g. typing "1" then "2"
+ * within a short window to reach slide 12) -- dots/arrows/Home/End already
+ * cover reaching any slide, and a buffer adds real complexity (a timeout,
+ * a partial-input indicator) for a case this app doesn't have yet.
+ */
+const DIGIT_KEY = /^[1-9]$/;
 
-function clampSlide(n: number): number {
-  return Math.min(Math.max(1, n), DECK_SLIDE_COUNT);
+function clampSlide(n: number, count: number): number {
+  return Math.min(Math.max(1, n), count);
 }
 
 /**
@@ -83,15 +92,24 @@ function notFoundCopy(usingToken: boolean): string {
  *
  * Phase 5: this is now an INTERACTIVE deck -- one slide visible at a time,
  * with prev/next, a dot navigator, digit/arrow/Home/End keyboard shortcuts,
- * basic touch swipe, a `?slide=n` deep link, and a fullscreen toggle. All 6
- * slides stay permanently mounted (`<ReportDeck activeSlide={slide - 1}>`)
- * -- "one slide at a time" is implemented purely as a `@media
- * screen`-scoped CSS hiding rule in ReportDeck.module.css, so print output
- * is completely unaffected by which slide happens to be showing on screen;
- * see that file's doc comment. Conditionally rendering only the active
- * slide is explicitly avoided: `window.print()` snapshots the current DOM
- * synchronously, and `beforeprint` cannot reliably flush a React
- * re-render first -- that would resurrect the old 7-page-PDF class of bug.
+ * basic touch swipe, a `?slide=n` deep link, and a fullscreen toggle. ALL of
+ * the deck's slides stay permanently mounted
+ * (`<ReportDeck slides={slides} activeSlide={current - 1}>`) -- "one slide
+ * at a time" is implemented purely as a `@media screen`-scoped CSS hiding
+ * rule in ReportDeck.module.css, so print output is completely unaffected
+ * by which slide happens to be showing on screen; see that file's doc
+ * comment. Conditionally rendering only the active slide is explicitly
+ * avoided: `window.print()` snapshots the current DOM synchronously, and
+ * `beforeprint` cannot reliably flush a React re-render first -- that would
+ * resurrect the old 7-page-PDF class of bug.
+ *
+ * WP1 (dynamic slide model): the slide LIST itself is now data
+ * (`buildDeckSlides`, lib/deck-slides.ts), memoized here off `report`, not a
+ * hardcoded "6" -- `slideCount`/`current`/the digit-key guard/the dot
+ * navigator/the "n / N" counter all read off `slides`/`slides.length`
+ * rather than a module constant. WP1 itself never varies the count (always
+ * exactly six, for every report), so this is purely a representation
+ * change: the rendered deck and printed PDF are unaffected.
  *
  * `?print=1` auto-triggers `window.print()` once the report has loaded,
  * fonts are ready, and one animation frame has passed -- byte-identical to
@@ -144,11 +162,25 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
   const [stageEl, setStageEl] = useState<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
 
-  // 1-based in the URL/UI (matches DECK_SLIDE_TITLES' natural numbering and
-  // the "3 / 6" counter); converted to 0-based when handed to <ReportDeck>.
+  // 1-based in the URL/UI (matches the present-page navigator's dot
+  // numbering and the "3 / N" counter); converted to 0-based when handed to
+  // <ReportDeck>.
+  //
+  // WP1 (dynamic slide model): this initial value can no longer be clamped
+  // against the deck's real slide count -- `slides` (below) doesn't exist
+  // yet on this very first render, since it's derived from `report`, which
+  // itself hasn't loaded on the session-based path's first pass (see the
+  // "still-loading gate" further down). So `slide` deliberately keeps the
+  // user's RAW intent (only floored at 1 -- never 0 or negative) rather than
+  // clamping it here; `current` (below `slides`) is the actual clamped,
+  // rendered position, derived fresh on every render once the real slide
+  // count is known. This is what lets a stale `?slide=99` deep link (or one
+  // for a report that has since shrunk) degrade to showing the last slide
+  // instead of blanking, without this state ever needing to know the count
+  // up front.
   const [slide, setSlide] = useState(() => {
     const raw = Number(searchParams.get('slide'));
-    return Number.isFinite(raw) ? clampSlide(Math.trunc(raw)) : 1;
+    return Number.isFinite(raw) ? Math.max(1, Math.trunc(raw)) : 1;
   });
 
   const [fullscreenSupported, setFullscreenSupported] = useState(false);
@@ -202,6 +234,22 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
   // rather than a permanent blank page.
   const notFound = usingToken ? report === null : report === null || Boolean(hookLoadError);
 
+  // WP1 (dynamic slide model): `slides` is `null` until `report` resolves --
+  // `buildDeckSlides` (lib/deck-slides.ts) is a pure function of `report`
+  // alone (see that module's doc comment on why that purity is load-bearing:
+  // a future server-rendered token path must never disagree with this
+  // client `useMemo`). `slideCount`/`current` fall back to `1` while
+  // `slides` is still `null` so every hook/handler below this point can be
+  // declared unconditionally (React's rules of hooks) without a `slides!`
+  // non-null assertion; the real render (further down) bails out before
+  // ever reading a bogus `slideCount`/`current` if `report` never resolves.
+  const slides = useMemo(() => (report ? buildDeckSlides(report) : null), [report]);
+  const slideCount = slides ? slides.length : 1;
+  // The clamped, ACTUALLY-rendered 1-based slide position -- see `slide`'s
+  // own doc comment above for why this is derived fresh every render instead
+  // of being what `slide` itself holds.
+  const current = clampSlide(slide, slideCount);
+
   // Deep-link sync: `history.replaceState` (never `router.replace`, and
   // never mixed with it for this same param) so a slide change never
   // triggers a Next re-render/scroll-restoration pass -- Next 14.1+ keeps
@@ -222,19 +270,32 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
   // every slide change). `goToSlide` is only ever called from event
   // handlers (click/keydown/pointerup), never during render, so calling it
   // directly here is safe.
-  const goToSlide = useCallback((next: number) => {
-    const clamped = clampSlide(next);
-    setSlide(clamped);
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      params.set('slide', String(clamped));
-      const query = params.toString();
-      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-    }
-  }, []);
+  const goToSlide = useCallback(
+    (next: number) => {
+      const clamped = clampSlide(next, slideCount);
+      setSlide(clamped);
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        params.set('slide', String(clamped));
+        const query = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+      }
+    },
+    [slideCount],
+  );
 
-  const goNext = useCallback(() => goToSlide(slide + 1), [goToSlide, slide]);
-  const goPrev = useCallback(() => goToSlide(slide - 1), [goToSlide, slide]);
+  // Arithmetic is against `current` (the CLAMPED, rendered position), not
+  // the raw `slide` state -- deliberate, and only matters for a stale/
+  // out-of-range deep link (see `slide`'s doc comment). Example: `?slide=99`
+  // on a 6-slide deck leaves raw `slide` at 99 while `current` renders 6;
+  // pressing Previous must land on slide 5, the slide before what's ON
+  // SCREEN. Computing `goPrev` from the raw value would do `clampSlide(99 -
+  // 1, 6)` = `clampSlide(98, 6)` = 6 -- clamped straight back to the same
+  // slide, silently stranding Previous with no effect. Basing it on
+  // `current` instead (`clampSlide(6 - 1, 6)` = 5) makes Previous/Next
+  // always move exactly one slide from whatever is actually visible.
+  const goNext = useCallback(() => goToSlide(current + 1), [goToSlide, current]);
+  const goPrev = useCallback(() => goToSlide(current - 1), [goToSlide, current]);
 
   // Keyboard nav -- guarded against modifier keys, already-handled events,
   // and typing inside a form control. Escape is deliberately NOT bound to
@@ -269,15 +330,26 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
         goToSlide(1);
       } else if (e.key === 'End') {
         e.preventDefault();
-        goToSlide(DECK_SLIDE_COUNT);
+        goToSlide(slideCount);
       } else if (DIGIT_KEY.test(e.key)) {
-        e.preventDefault();
-        goToSlide(Number(e.key));
+        // WP1: DIGIT_KEY alone only knows "single digit 1-9" -- it has no
+        // idea how many slides this particular deck actually has. The
+        // explicit `n <= slideCount` guard is what keeps, say, pressing "9"
+        // on today's 6-slide deck a no-op instead of jumping past the end
+        // (`goToSlide` would silently clamp it back to the last slide
+        // anyway, but skipping the call entirely also skips the
+        // `history.replaceState` write and the digit-key `preventDefault`,
+        // matching every other "not a valid shortcut right now" key above).
+        const n = Number(e.key);
+        if (n <= slideCount) {
+          e.preventDefault();
+          goToSlide(n);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [goNext, goPrev, goToSlide]);
+  }, [goNext, goPrev, goToSlide, slideCount]);
 
   // Touch/pen only -- NOT mouse. `pointerdown`/`pointerup` also fire for
   // `pointerType: 'mouse'`, so without this gate, selecting text across a
@@ -372,6 +444,15 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
   }
 
   if (!report) return null;
+  // Type-narrowing safety net, not a reachable branch: `slides` is derived
+  // from `report` via `useMemo(() => (report ? buildDeckSlides(report) :
+  // null), [report])`, computed synchronously during THIS render -- by the
+  // time control reaches this line, `report` is non-null (checked just
+  // above), so `slides` is already the just-recomputed `DeckSlide[]` for it.
+  // TypeScript can't see that correlation across two separately-derived
+  // variables, so this satisfies the type checker for `slides.length`/
+  // `slides.map` below without an `as DeckSlide[]` cast.
+  if (!slides) return null;
 
   return (
     <div className={`${styles.page} presentPage`}>
@@ -419,7 +500,7 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
             transformOrigin: 'center center',
           }}
         >
-          <ReportDeck report={report} activeSlide={slide - 1} />
+          <ReportDeck report={report} slides={slides} activeSlide={current - 1} />
         </div>
 
         <div className={`${styles.nav} presentNav`}>
@@ -427,16 +508,16 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
             &larr;
           </button>
           <div className={styles.navDots}>
-            {DECK_SLIDE_TITLES.map((title, i) => {
+            {slides.map((s, i) => {
               const n = i + 1;
-              const active = n === slide;
+              const active = n === current;
               return (
                 <button
-                  key={title}
+                  key={s.key}
                   type="button"
                   className={`${styles.navDot} ${active ? styles.navDotActive : ''}`}
                   onClick={() => goToSlide(n)}
-                  aria-label={`Slide ${n}: ${title}`}
+                  aria-label={`Slide ${n}: ${s.title}${s.part ? ` (${s.part.index} of ${s.part.total})` : ''}`}
                   aria-current={active ? 'true' : undefined}
                 />
               );
@@ -446,7 +527,7 @@ export function PresentScreen({ id, kind = 'weekly', shared }: PresentScreenProp
             &rarr;
           </button>
           <span className={styles.navCounter}>
-            {slide} / {DECK_SLIDE_COUNT}
+            {current} / {slides.length}
           </span>
           {fullscreenSupported ? (
             <button

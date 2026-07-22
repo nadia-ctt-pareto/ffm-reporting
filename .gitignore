@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+# scripts/verify-deck-print.ts builds into its own dir so it can never race a
+# dev server or build running in the same checkout (see check-single-dev.mjs).
+/.next-verify/
 
 # production
 /build

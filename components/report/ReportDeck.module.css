@@ -269,11 +269,9 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  counter-reset: priority;
 }
 
 .priorityItem {
-  counter-increment: priority;
   display: flex;
   align-items: baseline;
   gap: 16px;
@@ -284,8 +282,20 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.priorityItem::before {
-  content: counter(priority) '.';
+/*
+ * WP1 (dynamic slide model): replaced the `::before { content: counter(...) }`
+ * numbering with an explicit JSX number (`{slide.body.startIndex + i}.`,
+ * see ReportDeck.tsx's 'priorities' render branch). The old `counter-reset:
+ * priority` on `.priorityList` restarted the count at 1 on EVERY slide --
+ * harmless today (priorities always fit on one slide), but it would have
+ * silently renumbered a future chunked-priorities continuation slide back
+ * to "1." instead of continuing the running count from the previous chunk.
+ * Fixing it now, while this DOM is already changing for the slides-as-data
+ * refactor, avoids a second pass later. Font/color declarations copied
+ * verbatim from the old `::before` rule -- a single-slide priorities list
+ * (every report today) renders byte-identical to before.
+ */
+.priorityNum {
   font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-heading-accent);
