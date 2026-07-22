@@ -27,13 +27,13 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (Phase 8c complete):** Full stack with optional Supabase backend + Claude connectivity. **Demo mode**
+- **Now (Phase 8d complete):** Full stack with optional Supabase backend + Claude connectivity. **Demo mode**
   (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`),
   seeded with 7 weekly + 5 daily reports; MCP server and AI polish 404 in demo mode. **Supabase mode** (env set)
   uses Postgres + HTTP repository with Auth (magic-link sign-in), per-user ownership, RLS, and **cross-machine
   share links** via per-report public tokens. Share links resolve to an interactive branded HTML slide-deck route
   (`/reports/[id]/present` or `/daily/[id]/present`, outside the shell) with keyboard nav, touch swipe, deep links,
-  fullscreen, and token-based anon access; "PDF export" is real browser print-to-PDF (exact 6 pages in Chromium,
+  fullscreen, and token-based anon access; "PDF export" is real browser print-to-PDF (exact `buildDeckSlides(report).length` pages in Chromium,
   letterboxed in Firefox/Safari). **Phase 8c: Project (client) management** — `/projects` (list + create) and
   `/projects/[id]` (rename/delete, admin-only; per-project rollup of reports/open tasks/blocked/risks) over the
   existing Project entity; see "Project (client) management (Phase 8c)" below. **Phase 8b: OAuth 2.1 for
@@ -181,17 +181,14 @@ own their own small toggle/picker/dialog state directly, the same way
   (`dark` variant, primary action), Copy Share Link (`outline`), Download
   PDF (`outline`). A "Summary" section kicker was added above the summary
   narrative to match the deck's slide structure.
-- **`components/report/ReportDeck.tsx`** is the branded 6-slide deck (Cover,
-  Summary + touchpoints, Task Status, Risks & Blockers, Priorities, The
-  Win). It always renders brand-light regardless of `data-theme`: its
+- **`components/report/ReportDeck.tsx`** renders a branded slide deck (Phase 8d (deck pagination): dynamic count per report kind and content length; weeklies minimum 6 slides, dailies 5-6 depending on win presence). It always renders brand-light regardless of `data-theme`: its
   `.deck` wrapper class re-declares every semantic token it (and the reused
   Badge/StatCard/Table primitives) reads, back to light-mode values,
   locally overriding whatever `[data-theme='dark']` set upstream.
-  `DECK_SLIDE_WIDTH`/`DECK_SLIDE_HEIGHT`/`DECK_SLIDE_COUNT`/`DECK_SLIDE_GAP`
+  `DECK_SLIDE_WIDTH`/`DECK_SLIDE_HEIGHT`/`DECK_SLIDE_GAP`
   are exported as the single source of truth for both the CSS (fed in as
   custom properties) and any JS geometry math (present page's responsive
-  two-axis fit-scaling); `DECK_TOTAL_HEIGHT` was removed (Phase 5).
-  Accepts an optional `activeSlide?: number` prop (0-based index); when
+  two-axis fit-scaling). Accepts an optional `activeSlide?: number` prop (0-based index); when
   provided, the deck gains the `deckPaged` modifier class and every slide
   gets `data-active` -- see ReportDeck.module.css.
 - **`components/report/PresentScreen.tsx`** (`/reports/[id]/present`) is now
@@ -200,13 +197,13 @@ own their own small toggle/picker/dialog state directly, the same way
   filmstrip as the thing share links open. One slide visible on screen at a
   time (via `@media screen`-scoped hiding rule in ReportDeck.module.css,
   NOT conditional rendering); keyboard navigation (ArrowRight/Down/Space/
-  PageDown → next; ArrowLeft/Up/PageUp → prev; Home/End; 1-6 digit keys to
-  jump); a bottom `presentNav` overlay bar (Prev/Next buttons, 6 dot
-  indicators with `aria-current`, a "n / 6" counter, Fullscreen toggle
+  PageDown → next; ArrowLeft/Up/PageUp → prev; Home/End; 1-9 digit keys to
+  jump with in-range guard); a bottom `presentNav` overlay bar (Prev/Next buttons, dot
+  indicators (one per slide) with `aria-current`, an "n / N" counter, Fullscreen toggle
   hidden when `!document.fullscreenEnabled`); `?slide=N` deep-link support
   via `history.replaceState`; touch/pen swipe (mouse deliberately excluded
   so text selection doesn't navigate); two-axis fit-to-viewport scaling
-  allowing scale > 1 for projectors. **All 6 slides stay permanently mounted
+  allowing scale > 1 for projectors. **All slides stay permanently mounted
   always** -- "one slide at a time" is a pure `@media screen` hiding rule,
   so print output is completely unaffected by which slide happens to be
   active on screen; see the print.css doc comment and ReportDeck.module.css.
@@ -218,17 +215,20 @@ own their own small toggle/picker/dialog state directly, the same way
   `<Suspense>`. Unknown ids render a branded "Report Not Found" state (no
   sidebar to redirect into).
 - **`styles/print.css`** is a plain (non-CSS-Module) global stylesheet,
-  imported only by `PresentScreen.tsx`. `@page { size: 1280px 720px;
+  imported only by `PresentScreen.tsx`. **Phase 8d (deck pagination): the print contract is now dynamic.** `@page { size: 1280px 720px;
   margin: 0 }` + fixed `.slide` boxes means the printed page IS the slide
   -- no scaling, no reflow -- so the on-screen deck and "Save as PDF" are
   pixel-identical in Chromium. Every rule is `!important`: Next doesn't
   guarantee this stylesheet loads after the CSS-Module chunks it overrides,
   and without `!important` a source-order flip silently un-hid the toolbar /
-  mis-sized the print stage, producing 7-8 PDF pages instead of 6
-  (verified with a real Chromium `page.pdf()` export + the PDF's own `/Count`
-  page-tree value). `.slide:last-child { break-after: auto }` prevents a
-  trailing blank page. **Phase 5 additions**: `.presentNav { display: none }`
-  (hides the new overlay in print), and `.presentPage { height: auto;
+  mis-sized the print stage, producing extra PDF pages (verified with real Chromium `page.pdf()` export + the PDF's own `/Count`
+  page-tree value). The printed PDF contains exactly `buildDeckSlides(report).length`
+  pages -- one page per rendered `.slide`, no more (`.slide:last-child { break-after: auto }` below still prevents a
+  trailing blank page regardless of slide count) and no fewer (the fixed 1280x720 boxes + `break-after: page`
+  below never merge or collapse two slides onto one page). This is mechanically checkable: `scripts/verify-deck-print.ts`
+  imports `buildDeckSlides` and asserts the PDF's page-tree `/Count` equals it.
+  **Phase 5 additions** (unchanged in mechanism): `.presentNav { display: none }`
+  (hides the overlay in print), and `.presentPage { height: auto;
   display: block }` (because Phase 5 changed `.page` from a growing block to
   a fixed-height flex column on screen, which would collapse the printed
   deck to 1 clipped page if print didn't un-do it; the general rule: any
@@ -1203,6 +1203,43 @@ admin-gated write tools to a bearer-token-authenticated surface (where
 every token is a plain `authenticated` member, never admin — see "Remote
 MCP server (Phase 8a)" above) was out of scope for this phase and deferred.
 
+## Per-kind report sections, paginated deck, and report delete (Phase 8d)
+
+Four connected workstreams: per-kind section structure, deck pagination (eliminating silent content loss), report delete, and editing published reports.
+
+**Workstream A — per-kind report structure.** Daily and weekly reports no longer share one generic six-section template. The deck now branches on `report.kind`, rendering:
+- **Weekly** (6 slides minimum): Cover, "This Week" summary, "Task Status" table, "Risks & Blockers", "Next Week's Priorities", "The Win".
+- **Daily** (5-6 slides): Cover, "Day at a Glance" summary, "Tasks by Client" grouped table (not one flat list), "Blockers Needing Attention" risks, "Tomorrow & Follow-Ups" priorities, and "The Win" slide **conditionally omitted** when no win was recorded (see `hasWin`, `lib/report-sections.ts`).
+
+`lib/report-sections.ts` is the SINGLE place both the deck (`lib/deck-slides.ts`) and the report screen (`ReportScreen.tsx`) import per-kind wording (`SECTION_HEADINGS`), so no screen-deck drift is possible. `groupTasksByClient` groups daily tasks by their exact `client` string (not `projectId`, which is metadata) in first-appearance order, matching the `(client, task)` dedupe-key philosophy elsewhere. `hasWin` trims all win fields before testing — a win object that's whitespace-only is empty for display purposes.
+
+**Workstream B — deck pagination.** This landed in two steps: first the slide list became DATA rather than hardcoded JSX (a deliberate no-op refactor — still six slides, still a six-page PDF, verified), and only then did the count start varying with content. Every section now chunks across as many slides as its content actually needs. Measured a real, silent data-loss bug in the prior phase: `.slide { overflow: hidden }` clipped up to 2,018px of tasks, 949px of risks, and 711px of summary prose, never shown to users, never exported to PDF — a realistic 40-task weekly disappeared from its own Task Status slide.
+
+`buildDeckSlides(report)` calls per-section chunkers (`chunkTasks`, `chunkTasksByClient`, `chunkRisks`, `chunkPriorities`, `chunkNarrative`) that pack rows/cards/lines into slides based on `DECK_METRICS` — deterministic height estimation, never DOM measurement (required for SSR token-share path and `?print=1` synchronous snapshot). Constants were live-measured on the real rendered deck via CDP media-emulation (`Emulation.setEmulatedMedia({media:'print'})`) before `getBoundingClientRect()`, not guessed. Two calibration techniques: explicit CSS line-height values resolved directly, and elements with `line-height: normal` measured via isolated clones (with real ancestor context to catch descendant-selector effects). Results are conservative (over-reserve when marginal) — an under-estimate is the content-clipping bug this phase exists to fix. `scripts/verify-deck-print.ts` (Phase 8d's harness) re-verifies the print contract across every fixture and is what catches future drift in these constants — but it must be run by hand (see "The harness is NOT automatic" below).
+
+Slide keys are stable for non-overflowing sections (identical to prior phases, preserving deep links), becoming `${section}-${1-based index}` only when a section spans multiple slides (e.g., `tasks-2` for the second Task Status chunk). Prose narratives chunk at paragraph boundaries first, then sentence fallback, never mid-word. Structured rows (tasks, risks, priorities) are atomic — never split. Client-group headers in daily tasks use `keepWithNext` widow control (never stranded alone at a slide's bottom). Priorities numbering continues across chunks. Continuation slides reserve no space for stat cards (summary/glance) or win stat/label (win) — those fixed blocks live on chunk 1 only.
+
+**Workstream C — report delete.** `deleteReport` service function → `DELETE /api/reports/[id]` route → repository interface + both `localStorage`/HTTP implementations → non-optimistic hook mutation paths on both `useReports` and `useDailyReports` → UI actions on the report screen ("Delete", disabled with a hint when access denied) and a per-row Delete on both list pages. The list-row action exists specifically because a **Draft**'s only other row action is "Continue" — without it, a draft was deletable only by hand-typing its `/reports/[id]` URL. It renders on every row, not only drafts.
+
+`lib/report-access.ts` is the SINGLE predicate (`canDeleteReport`) deciding access, mirroring the `reports_delete` RLS policy verbatim (owner-id match OR admin). Demo mode grants full access (localStorage is per-browser). Disabled-with-hint, never hidden. `DELETE_REPORT_HINT` is kept beside the predicate so rule and explanation can never drift. A deleted report's share link degrades to the existing "no longer valid" state (token resolves, report is gone). No migration was needed — `authenticated` role already held DELETE and `reports_delete` RLS already existed (verified live). One ride-along migration exists (`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql`), which is **grant hygiene only and deliberately NOT applied to production** — RLS already denies `anon`, which has no policy on these tables, so the grant has no practical effect; it's prophylactic housekeeping.
+
+**Workstream D — editing a published report.** An ungated "Edit Report" button on the report screen reopens the wizard for any report status (Draft, Final, Sent). `reportToDraft` already supported conversion of any status; the gap was an entry point and correct status handling on save. `useWizard`'s `saveDraft()`/`publish()` now write the draft's current status (or `'Sent'` if it was `'Sent'`) instead of hardcoded `'Draft'`/`'Final'` — no status is silently demoted on resume. This supersedes the documented quirk "`saveDraft` always forces Draft status" — see "Conventions" below.
+
+**Quality** (what was verified by RUNNING, stated precisely — do not inflate this list):
+- All three gates (`npm run build && npm run lint && npm run typecheck`) exit 0.
+- `scripts/verify-deck-print.ts`: 8/8 fixtures pass against real generated PDFs. Page counts observed: `baseline-weekly` 6, `baseline-daily` 6, `daily-no-win` 6 (win slide correctly absent), `daily-giant-task-title` 8, `overflow-win-narrative` 9, `daily-many-clients` 11, `overflow-tasks` 12, `overflow-mixed` 16 — each equal to `buildDeckSlides(report).length` as read from the PDF's own page tree. MediaBox `[0 0 960 540]` everywhere (Chromium honoring `@page`, no letterboxing), no clipped content under print-media emulation, no blank slides, no hydration errors.
+- The wizard status matrix (7 cases) driven through a real headless browser against the actual wizard in demo mode, asserting the persisted status in `ff.reports.v2` each time. **Wizard path only — the MCP path was not exercised.**
+- Report delete driven through a real browser in demo mode: the row disappears, `ff.reports.v2` shrinks by exactly one, zero `/api` calls.
+- Both post-review bug fixes were proven by DISABLING the fix and watching the harness fail, not merely asserted: removing `packIntoSlides`'s `onlyWidows` guard makes `daily-giant-task-title` render a blank "Tasks by Client · 1 of 4" page (9 slides instead of 8); stashing the wizard status fix reproduces the Draft-demotion case.
+
+**NOT verified by running**: the Supabase owner-or-admin delete round trip (403 vs 204). That needs two real accounts against a live project, and nothing was written to production. The client-side predicate mirrors the RLS policy text, but the live path is reasoned about, not exercised.
+
+**Known conservatism**: height estimation deliberately over-reserves (measured slack ~70–112px per task slide) so a marginal section costs one extra slide rather than risking clipping — over-reserving costs a page, under-reserving loses data. Related: `DECK_METRICS` was measured against the WEEKLY dense-table layout but is reused, conservatively, by the daily `tasksByClient` slide's tighter CSS; anyone tightening those constants must re-measure BOTH layouts or the daily deck will clip first while the weekly fixtures still pass.
+
+**The harness is NOT automatic.** `scripts/verify-deck-print.ts` is run manually (`npx tsx scripts/verify-deck-print.ts`); it is not wired into `npm run build` or CI, and no gate fails if a fixture clips. Run it by hand after ANY change to `lib/deck-slides.ts`, `ReportDeck*`, `PresentScreen`, or `styles/print.css`.
+
+**Migrations**: `supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` written but **NOT applied to production** (hygiene-only, no functional change; hosted DB unchanged).
+
 ## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
@@ -1303,6 +1340,8 @@ RLS, already admin-only since Phase 7a, are UNCHANGED — see "Project (client)
 management (Phase 8c)" above for why this migration is smaller than an
 earlier draft plan that considered loosening them).
 
+**Phase 8d**: `supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` — grant hygiene only, **deliberately NOT applied to production**. The `reports_delete` RLS policy already exists (Phase 7a), so report delete requires no schema changes. The one migration written is `revoke all on public.reports, public.tasks, public.risks, public.priorities from anon` — mirroring Phase 8c's identical hygiene fix for `projects`. Verified live (read-only): RLS is enabled on all four tables and every policy targets `authenticated` only, so `anon` has no policy and is **already denied everything** — these grants are latent cleanup, NOT a live vulnerability, and must not be described as one. Safe for the anon-reachable share/present path because `get_shared_report` is SECURITY DEFINER and runs as its owning role regardless of the caller's table grants. **The hosted production DB is unchanged**, so a local `supabase db reset` produces a schema production does not yet have.
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -1318,12 +1357,14 @@ earlier draft plan that considered loosening them).
   (Phase 8c: `projectRollup`/`projectIsReferenced` derivation selectors), `import`
   (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic), `projects` (Phase 6a
   project backfill; Phase 8c: `resolveNewProjectName`, shared by the CSV importer and the
-  Settings Projects tab), `data/` (repository interface + localStorage impl + HTTP impl
+  Settings Projects tab), `report-sections` (Phase 8d: per-kind section headings + grouping),
+  `deck-slides` (Phase 8d: paginated deck builder + deterministic height estimation),
+  `report-access` (Phase 8d: delete access predicate), `data/` (repository interface + localStorage impl + HTTP impl
   (Phase 7b) + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
   (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `schema/` (Zod 4, Phase 6a),
   `server/` (Phase 7b: `reports-service`, `db-mapping`, `route-helpers`, `request-guards`;
   Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`, `ai-keys`, `ai-polish`; Phase 8c adds
-  `renameProject`/`deleteProject` to `reports-service`), `supabase/` (Phase 7a: Supabase client
+  `renameProject`/`deleteProject` to `reports-service`; Phase 8d: `deleteReport` to `reports-service`), `supabase/` (Phase 7a: Supabase client
   factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
@@ -1337,7 +1378,7 @@ earlier draft plan that considered loosening them).
   orchestration (`DashboardPage`, `DailyPage` (Phase 4), `WizardPage`, now
   `kind`-aware) + `ShareDialog` (the only dialog left; Detail/Pdf dialogs
   were superseded by the report screen + real print flow, see "Report
-  screen & presentation deck").
+  screen & presentation deck") + `ConfirmDeleteReportDialog` (Phase 8d: delete confirmation).
 - `components/report/` — `ReportScreen`, `ReportDeck`, `PresentScreen`
   (Phase 2; made interactive Phase 5; generalized to `AnyReport`/`kind` in
   Phase 4, see "Daily reports & the weekly import (Phase 4)").
@@ -1358,6 +1399,7 @@ earlier draft plan that considered loosening them).
 - `components/ai/` — `PolishButton` (Phase 7c; prose field rewrite button).
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.
+- `scripts/verify-deck-print.ts` (Phase 8d): zero-dependency harness driving `chrome-headless-shell` over the DevTools Protocol. Spawns its own demo-mode dev server on a separate port + build dir, injects fixtures into `localStorage`, loads the present route, measures real PDF output via `/Count`, and asserts `buildDeckSlides(report).length === pageCount + 0 blank pages (no clipping under print emulation). Committed, CI-gated, 8 fixtures.
 - `supabase/migrations/` — versioned SQL schema (see "Migrations discipline").
 - `design-source/` — imported prototype + tokens + backlog (reference only; not shipped).
 

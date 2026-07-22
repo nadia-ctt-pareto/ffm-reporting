@@ -1,5 +1,57 @@
 # Progress Log — Weekly Reports Dashboard
 
+## 2026-07-22: Phase 8d — per-kind report sections, paginated deck, report delete, editing published reports
+
+**Summary**: Four connected workstreams. The deck stopped silently losing content, daily and weekly reports stopped sharing one generic template, reports became deletable, and a published report became correctable without being demoted.
+
+### The bug that motivated most of this
+
+`.slide` is `height: 720px; overflow: hidden`, so any content past one slide was **silently dropped** — from the on-screen deck AND from the exported PDF, with no error and nothing to notice. Measured against realistic fixtures before the fix: 2,018px of tasks, 949px of risks, and 711px of summary prose gone. A 40-task week exported a PDF quietly missing most of its tasks. This was live in production.
+
+### What was built
+
+**A — per-kind report structure.** `lib/report-sections.ts` (pure) is the single place the deck and the report screen agree on per-kind wording (`SECTION_HEADINGS`) and grouping. Weekly: cover / this week / task status / risks & blockers / next week's priorities / the win. Daily: cover / day at a glance / tasks **by client** / blockers needing attention / tomorrow & follow-ups / the win **only when one was recorded**, so a daily deck can legitimately be 5 slides. `groupTasksByClient` groups on the exact `client` string, never `projectId` — this is display grouping, not identity, and `client` is the dedupe key the aggregator depends on. The report screen also gained a read-only Win section, without which "screen and deck agree on methodology" was unachievable.
+
+**B — deck pagination.** Landed in two steps: the slide list first became data (`lib/deck-slides.ts`, `buildDeckSlides`) as a deliberate no-op refactor — still 6 slides, still a 6-page PDF, verified — and only then began varying with content. Overflowing sections now split into continuation slides with a "· 2 of 3" affordance, repeated table headers, atomic (never split) rows, and priority numbering that continues across chunks. Prose narratives chunk too, at paragraph boundaries first, sentence boundaries as fallback, never mid-sentence.
+
+Chunking is **deterministic height estimation**, never DOM measurement. Measurement was rejected for two independent reasons: the token-share path renders the deck server-side, so a measure-then-re-chunk pass would either hydration-mismatch or flash an unmeasured layout at exactly the anonymous recipients the artifact exists for; and `?print=1` fires after `fonts.ready` + one rAF, so a re-chunk state update would have to be provably committed before `window.print()`'s synchronous DOM snapshot — the bug class `styles/print.css` already warns about. `buildDeckSlides` is therefore a pure function of `report`.
+
+`DECK_METRICS` constants were **measured** against the live rendered deck under print emulation, not guessed. Two were wrong on first calibration and the harness caught both: task rows are floored by the Status badge (~63px) regardless of title length, and an isolated `.priorityItem` clone under-measures the real two-child flex row.
+
+**C — report delete.** Service function → `DELETE /api/reports/[id]` → repository interface and both implementations → non-optimistic hook actions on both hooks → UI on the report screen and as a per-row action on both list pages (a Draft's only other row action is "Continue", so without it drafts were deletable only by URL). Owner-or-admin, mirroring `reports_delete` RLS, through one shared predicate (`lib/report-access.ts`'s `canDeleteReport`); disabled with a hint, never hidden. Children are removed by the existing `ON DELETE CASCADE`; a deleted report's share link degrades to the existing "no longer valid" state.
+
+**No migration was needed.** Verified live (read-only) against the hosted database before writing code: `authenticated` already held table-level DELETE on `reports`/`tasks`/`risks`/`priorities`, and `reports_delete` (owner-or-admin) has existed since Phase 7a.
+
+**D — editing a published report.** An ungated "Edit Report" on the report screen reopens the wizard. `saveDraft()` hardcoded `'Draft'` and `publish()` hardcoded `'Final'`, so editing a Final report and saving **silently demoted it**, republishing a Sent report demoted it to Final, and clicking header Save right after publishing demoted the just-published report back to Draft. All three now preserve status. Wizard copy is resume-aware. This supersedes CLAUDE.md's "`saveDraft` always forces Draft" quirk.
+
+### Review findings, and the two real bugs they caught
+
+An independent security pass traced the delete boundary end to end (middleware → route → service → RLS → MCP) and found **no way for a non-owner to delete another user's report**, and no anonymous reach. It did find that row-level delete was one-shot per page load (`isDeleting` never reset on success — the copied precedent only works because those components unmount), which is fixed.
+
+An independent diff review then caught two genuine bugs, both now fixed and regression-tested:
+1. A widowed client-group header could print a **completely blank page** into the PDF, inflating every "n of N" label. Trigger: a single task title long enough to wrap past a whole slide (well within the 20k schema cap; CSV/LLM-authored titles are an anticipated source).
+2. A **failed** publish left the draft stamped `Final`, so the next "Save Draft" persisted a report as Final that had never been published successfully — introduced by workstream D itself, one commit earlier.
+
+### Verified by RUNNING
+
+- All three gates (`npm run build && npm run lint && npm run typecheck`) exit 0.
+- `scripts/verify-deck-print.ts`: **8/8 fixtures**, real generated PDFs. Observed page counts, each equal to `buildDeckSlides(report).length` read from the PDF's own page tree: `baseline-weekly` 6, `baseline-daily` 6, `daily-no-win` 6, `daily-giant-task-title` 8, `overflow-win-narrative` 9, `daily-many-clients` 11, `overflow-tasks` 12, `overflow-mixed` 16. Plus `MediaBox [0 0 960 540]` everywhere, no clipped content under print emulation, no blank slides, no hydration errors.
+- The wizard status matrix (7 cases) driven through a real headless browser against the actual wizard, asserting the persisted status in `ff.reports.v2`. **Wizard path only — the MCP path was not exercised.**
+- Report delete driven through a real browser in demo mode: row disappears, `ff.reports.v2` shrinks by exactly one, zero `/api` calls.
+- Both bug fixes proven by **disabling the fix and watching the harness fail**, not merely asserted: without the `onlyWidows` guard, `daily-giant-task-title` goes to 9 slides and fails with `blank slides: [2:Tasks by Client · 1 of 4]`; stashing the wizard fix reproduces the Draft demotion.
+
+### NOT verified by running
+
+- **The Supabase owner-or-admin delete round trip (403 vs 204).** It needs two real accounts against a live project, and nothing was written to production. The client predicate mirrors the RLS policy text, but the live path is reasoned about, not exercised.
+- **`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` is written but NOT APPLIED.** The hosted database does not have it. It is grant hygiene only: RLS is enabled on those four tables and every policy targets `authenticated`, so `anon` has no policy and is already denied — latent cleanup, not a live vulnerability. A `supabase db reset` locally will therefore produce a schema production does not yet have.
+
+### Known limitations, recorded deliberately
+
+- Height estimation **over-reserves** (measured slack ~70–112px per task slide), so a marginal section can cost one extra slide rather than risk clipping. Over-reserving costs a page; under-reserving loses data.
+- `DECK_METRICS` was measured against the weekly dense-table layout and is reused, conservatively, by the daily `tasksByClient` slide's tighter CSS. Tightening those constants requires re-measuring BOTH layouts, or the daily deck clips first while weekly fixtures still pass.
+- **The print harness is not automatic** — it is not wired into `npm run build` or CI. Run `npx tsx scripts/verify-deck-print.ts` by hand after any change to `lib/deck-slides.ts`, `ReportDeck*`, `PresentScreen`, or `styles/print.css`.
+- The wizard save path still has no compare-and-swap; it is a full upsert through `replace_reports`, the same last-write-wins exposure a draft resume always had.
+
 ## 2026-07-21: BYOK AI field polish — multi-provider generalization (Anthropic + OpenAI-compatible)
 
 **Summary**: Generalized the BYOK AI polish feature from Anthropic-only to any provider. Users can now bring their own key to the native Anthropic API, OpenAI's Chat Completions API, or any OpenAI-compatible endpoint (OpenRouter, Groq, Together, DeepSeek, Mistral, local models). Provider is selected in Settings' "Claude & AI" tab; base URL and model are required only for `openai_compatible` mode. Server-side SSRF hardening closes all attack vectors: https-only, private/reserved/metadata range rejection (IPv4 all forms, IPv6 including embedded-IPv4 mappings, NAT64, 6to4, ULA, link-local, loopback), redirect blocking, DNS-rebinding closure via IP pinning with undici dispatcher, and rate-limited validation.
