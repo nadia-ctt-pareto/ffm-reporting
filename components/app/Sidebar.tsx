@@ -12,6 +12,7 @@ import {
   IconDaily,
   IconDashboard,
   IconHome,
+  IconMyWeek,
   IconReports,
   IconSettings,
   IconSignOut,
@@ -63,8 +64,12 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 // `/reports`. "Reports" is a collapsible group nesting Weekly (the old
 // dashboard, keeping IconDashboard), Daily, and Tasks. Projects left the
 // sidebar entirely -- it now lives as a Settings tab (`/settings?tab=projects`).
+// WP6: "My Week" (a personal digest + PDF export over the merged task set,
+// see lib/my-week.ts) sits right after Home -- both are personal overview
+// screens, as opposed to the Reports group's per-record browsing.
 const NAV_ENTRIES: NavEntry[] = [
   { href: '/', label: 'Home', icon: IconHome },
+  { href: '/my-week', label: 'My Week', icon: IconMyWeek },
   {
     label: 'Reports',
     icon: IconReports,

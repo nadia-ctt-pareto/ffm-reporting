@@ -27,8 +27,19 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (WP0 through WP3 complete):** Full stack with optional Supabase backend + Claude connectivity, plus a
-  four-package role/team-directory/access-scoping rollout. **WP0/WP1: role ladder + team directory** — a
+- **Now (WP0 through WP6 complete):** Full stack with optional Supabase backend + Claude connectivity, plus a
+  six-package role/team-directory/access-scoping/personal-digest rollout. **WP6: "My Week" / "My Day" export** —
+  `/my-week` (a personal digest over the WP4 merged task set: your own reports + tasks you own or are assigned,
+  filterable to a single week or, via drill-down, a single day) and its print route `/my-week/present` (a
+  synthetic, NEVER-PERSISTED report composed from `blankDraft()`/`aggregateReportsIntoDraft`/`draftToReport`
+  and rendered through the unmodified `ReportDeck`/`styles/print.css`); a Mine/Everyone scope toggle, visible
+  only for pm+, whose "Everyone" export genuinely includes every teammate's work the viewer's own session can
+  already read. See "My Week / My Day export (WP6)" below. Earlier packages in this same rollout: **WP4/WP5:
+  merged task surfaces** — `lib/task-merge.ts`'s `mergeTaskSources` is now the ONE shared derivation combining
+  a caller's fully-loaded reports with their assigned-elsewhere tasks (WP3's bridge), powering Home's Needs
+  Attention, `/tasks`' List/Kanban, and the Calendar's new task-lens layer (`lib/task-calendar.ts`, a
+  deadline/created/completed date picker drawing status-toned chips alongside the pre-existing report bars).
+  **WP0/WP1: role ladder + team directory** — a
   three-tier `member`/`pm`/`admin` role ladder (`public.role_rank()`/`has_role_at_least()`, infrastructure
   only — no existing policy changed) and a standalone `team_members` directory (list/create/rename/delete,
   admin-gated, Settings → Team tab) with a verified-email self-link RPC for account linking; see "Role ladder
@@ -67,20 +78,25 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
   Zod (6a), added Project entity (6a), CSV import (6b), consolidation (6b); Phase 7a added Supabase schema +
   Auth; Phase 7b connected UI → Postgres with cross-machine sharing + two adversarial hardening passes.
 - **Later:** surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up); project
-  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now); a "My Assigned
-  Tasks" UI surface over WP3's `useAssignedTasks()` hook (the plumbing — repository/service/route/hook — landed
-  in WP3, but no screen renders it yet); Task view/Calendar surfacing assignees (filter/group by assignee, not
-  just the picker WP2 already added); a "My Week" export; and a possible future `list_team_members` MCP read
-  tool (flagged, not decided, by WP2 — see "Task assignee and creation date (WP2)" below).
+  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now); `/tasks`'
+  List/Kanban surfacing an assignee filter/group-by (Calendar's own task lens already gained a Team Member
+  filter in WP5 — see "My Week / My Day export (WP6)" below for `lib/task-merge.ts`'s shared merge that both
+  build on; `/tasks` itself still only offers the Assignee `<Select>` picker WP2 added, no filter); and a
+  possible future `list_team_members` MCP read tool (flagged, not decided, by WP2 — see "Task assignee and
+  creation date (WP2)" below). WP3's `useAssignedTasks()` plumbing (repository/service/route/hook) is no longer
+  un-rendered — WP4 wired it into Home/`/tasks`/Calendar's merged set, and WP6 into `/my-week` — but there is
+  still no STANDALONE "only my assigned-elsewhere tasks" list; `/my-week`'s Mine scope is the closest thing
+  today (it also includes the viewer's own reports, not just bridge tasks).
 - **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
 ## Routing
 
 Real App Router routes. Every route lives inside the `(shell)` route group
-(a sidebar + content grid) **except** `/reports/[id]/present` and
-`/daily/[id]/present`, which deliberately sit outside it so only the root
-layout applies (no sidebar on the bare, shareable slide-deck routes):
+(a sidebar + content grid) **except** `/reports/[id]/present`,
+`/daily/[id]/present`, and (WP6) `/my-week/present`, which deliberately sit
+outside it so only the root layout applies (no sidebar on the bare,
+shareable/exportable slide-deck routes):
 
 ```
 app/
@@ -88,6 +104,7 @@ app/
   (shell)/
     layout.tsx                        # 'use client' -- <AppShell> (sidebar + main)
     page.tsx                          # /                       Home overview (weekly + daily counts, recent, quick actions)
+    my-week/page.tsx                  # /my-week                 Personal week/day digest + PDF export (WP6)
     reports/page.tsx                  # /reports                 Weekly report list (was /)
     reports/new/page.tsx              # /reports/new             Weekly wizard (blank)
     reports/[id]/edit/page.tsx        # /reports/:id/edit        Weekly wizard (resume draft)
@@ -104,6 +121,7 @@ app/
     settings/page.tsx                 # /settings                Settings (Appearance, Projects, Import, Claude & AI tabs; Theme, Prompts, CSV, MCP, AI polish; Phase 5+)
   reports/[id]/present/page.tsx       # /reports/:id/present     Interactive slide-deck route (Phase 2; made interactive Phase 5, outside (shell))
   daily/[id]/present/page.tsx        # /daily/:id/present        Interactive slide-deck route (Phase 4; made interactive Phase 5, outside (shell))
+  my-week/present/page.tsx          # /my-week/present          Synthetic digest print route (WP6, outside (shell), session-gated not token-gated)
 ```
 
 `app/(shell)/reports/[id]/page.tsx` and `app/reports/[id]/present/page.tsx`
@@ -115,7 +133,12 @@ in `next build`'s route table (no route-group collision error) and by
 inspecting the rendered DOM (only the `present` route is sidebar-free). If a
 future route ever needs a genuinely different `[id]` param name at the same
 segment depth, promote `present/` into its own `(present)` route group
-instead of relying on this.
+instead of relying on this. `app/(shell)/my-week/page.tsx` and
+`app/my-week/present/page.tsx` (WP6) follow the identical split -- no `[id]`
+segment at all (there is no single report to key on; both routes resolve the
+digest from the viewer's own session + querystring, see "My Week / My Day
+export (WP6)" below) -- and were likewise confirmed collision-free in
+`next build`'s route table.
 
 `/tasks` (List/Kanban) and `/calendar` (Week/Month) landed in Phase 3 (see
 "Task and Calendar views (Phase 3)" below). `/daily/*` landed in Phase 4
@@ -127,17 +150,19 @@ Route-level orchestration (filter/sort/pagination state, dialog hosting,
 and `components/wizard/WizardPage.tsx`; `app/(shell)/**/page.tsx` files are
 thin wrappers around those. `DashboardScreen`/`DailyListScreen`/
 `WizardScreen` stay presentational (prop-driven), matching the pre-Phase-1
-convention. `app/(shell)/page.tsx` (Home), `app/(shell)/reports/page.tsx`
+convention. `app/(shell)/page.tsx` (Home), `app/(shell)/my-week/page.tsx`
+(WP6), `app/(shell)/reports/page.tsx`
 (weekly list), `app/(shell)/reports/[id]/page.tsx`, `app/(shell)/daily/
 [id]/page.tsx`, `app/(shell)/tasks/page.tsx`, `app/(shell)/calendar/
 page.tsx`, `app/(shell)/consolidate/page.tsx`, `app/(shell)/settings/page.tsx`,
 `app/(shell)/projects/page.tsx`, and `app/(shell)/projects/[id]/page.tsx`
 break from that split on purpose (see "Report screen & presentation deck",
-"Task and Calendar views", "Consolidation (Phase 6b)", "Settings", and
-"Project (client) management (Phase 8c)" below) -- each is small enough (one
+"Task and Calendar views", "Consolidation (Phase 6b)", "Settings",
+"Project (client) management (Phase 8c)", and "My Week / My Day export
+(WP6)" below) -- each is small enough (one
 or a few hooks, no filter/pagination state, no dialog hosting beyond what
 the screen itself owns) that a dedicated orchestrator would be pure
-ceremony; `HomeScreen`/`DashboardScreen`/`TaskViewScreen`/`CalendarScreen`/
+ceremony; `HomeScreen`/`MyWeekScreen`/`DashboardScreen`/`TaskViewScreen`/`CalendarScreen`/
 `ConsolidateScreen`/`SettingsScreen`/`ProjectsScreen`/`ProjectDetailScreen`
 own their own small toggle/picker/dialog state directly, the same way
 `ReportScreen` owns its Share-dialog state.
@@ -1703,10 +1728,150 @@ Next dev server running against the same local stack, which this script
 does not start — it asserts on the underlying raw Postgres/PostgREST
 response those functions curate instead.
 
-## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group)
+## My Week / My Day export (WP6)
+
+The final package in the RBAC/personal-work rollout: a personal digest over
+the SAME merged task set every other task-centric surface already shares
+(`mergeTaskSources`, `lib/task-merge.ts` — WP4/WP5), filterable to a single
+week or, via drill-down, a single day, and exportable as a branded PDF deck
+from either.
+
+**`/my-week`** (`components/my-week/MyWeekScreen.tsx`, no-orchestrator
+pattern like `TaskViewScreen`/`CalendarScreen`) owns a Monday-anchored week
+anchor (`lib/calendar.ts`'s `startOfWeekISO`/`addWeeksISO`/`endOfWeekISO` —
+never `Date` math), an optional `?date=` (the day drill-down, synced via
+`history.replaceState`, the exact `?tab=`/`?view=` idiom `SettingsScreen`/
+`TaskViewScreen` already established — not `pushState`, since a day
+drill-down is a client-side filter change, not a browser-history-worthy
+"place"; "Whole Week" is an explicit control instead of relying on Back), and
+a Mine/Everyone scope (`MyWeekScope`, `lib/my-week.ts`). Week and day are ONE
+view, not two: `[rangeStart, rangeEnd]` narrows to a single day or widens to
+the whole week, and every stat/table/list reads off that one range — there is
+no separate branch to keep in sync.
+
+**Scope** (`lib/my-week.ts`'s `filterReportsByScope`): the toggle renders only
+for `hasRoleAtLeast(user, 'pm')` (`lib/roles.ts`) — `false` unconditionally in
+demo mode (no session, no roles) and for a plain member, so it's absent
+rather than disabled for either audience, and `scope` stays `'mine'` forever
+for them, a harmless no-op given what "Everyone" already degrades to (every
+report their own session's `useReports()`/`useDailyReports()` calls already
+resolve to is already their own, per `reports_select`). For a pm+, "Mine"
+reuses `canEditReport` (`lib/report-access.ts`) as the "is this my report"
+predicate rather than inventing a second one — WP3 already made report
+ownership and report-edit authority the identical owner-only rule; "Everyone"
+is a pure pass-through of whatever the session already loaded (org-wide, per
+`reports_select`'s pm+ branch). `useAssignedTasks()` (the WP3 bridge) is
+never itself narrowed by scope — it already only ever returns the CALLER's
+own assigned tasks, so it's "mine" by construction regardless of which scope
+is selected; a teammate's own assignment a pm+ can see under "Everyone" comes
+through the org-wide report list instead, with its own `canEditAssigned` flag
+from `mergeTaskSources`.
+
+**Compose, never modify.** The export is a synthetic, NEVER-PERSISTED
+`AnyReport` built by `lib/my-week.ts`'s `buildSyntheticReport`: seed
+`blankDraft()`/`blankDailyDraft()` (`lib/report-utils.ts`), run
+`aggregateReportsIntoDraft` (`lib/aggregate.ts`, UNMODIFIED — the exact
+function `/consolidate` already uses to build a brand-new real report from
+many sources) against the scoped, range-filtered `sources`, append
+bridge-only tasks (every `MergedTaskEntry` from the caller's own
+`mergeTaskSources(sources, ...)` whose `source.canOpen` is false — i.e.
+already converted to a plain `Task` and already deduped against `sources` by
+the ONE dedupe rule this codebase has for "is this task visible some other
+way," not a second independently-written one), then `draftToReport` (also
+unmodified). `summaryNarrative` is the one field this function actually
+authors — a short, factual, non-editorial sentence ("Consolidated from N
+reports covering this week.") describing the composition itself, since
+`aggregateReportsIntoDraft` never touches that field and it would otherwise
+render silently blank. Pure: never mutates `sources`, mints no repository id,
+and its output is never handed to `getReportsRepository()` — the synthetic
+report exists only in the memory of whichever tab renders it.
+
+**`/my-week/present`** (`components/my-week/MyWeekPresentScreen.tsx`,
+`app/my-week/present/page.tsx`, outside `(shell)`, mirroring
+`app/reports/[id]/present/page.tsx`'s pattern) REBUILDS the synthetic report
+from scratch on every mount, from the exact same hooks + pure functions
+`/my-week` itself uses (`useReports`/`useDailyReports`/`useAssignedTasks`/
+`useSession`, `lib/my-week.ts`) — never from localStorage or a global. Only
+`weekStart`/`scope`/(optional)`date` travel through the querystring, mirroring
+`MyWeekScreen`'s Export button; reloading this exact URL always reconstructs
+the identical digest from whatever the viewer's OWN session can currently
+see — a pm+'s "Everyone" export genuinely re-reads every report their
+session resolves to, not a frozen snapshot from the moment Export was
+clicked. Unlike `/reports/[id]/present`, this route carries no share token
+and is **not** in `middleware.ts`'s public-path allowlist — an
+unauthenticated visit redirects to `/login`, the same as any `(shell)` route,
+because this digest is built from the viewer's own session, not a public
+per-report token; there is no "anonymous recipient" audience for it the way
+there is for a shared report.
+
+**`ReportDeck`/`PresentScreen`/`lib/deck-slides.ts`/`styles/print.css` are
+BYTE-UNCHANGED** (confirmed via `git diff --stat`) — this package was
+explicitly forbidden from modifying any of them. `MyWeekPresentScreen`
+composes the UNMODIFIED, un-paged `ReportDeck` (every slide stacked, the same
+rendering mode it has always had when no `activeSlide` is passed) with the
+shared `styles/print.css` (imported verbatim) and the exact `?print=1`
+auto-print effect `PresentScreen.tsx` established — DUPLICATED (not shared),
+specifically because reshaping `PresentScreen` to also accept an
+already-built synthetic report (instead of resolving one by `id` against the
+real repository/share-token path) was exactly the kind of change this
+package was told to stop and report on, not make. `MyWeekPresentScreen`'s own
+`.previewWrap` (a screen-only convenience wrapper — centers the deck, scrolls
+horizontally on a narrow viewport) is the one new screen-only ancestor
+property introduced; it is neutralized by THIS component's OWN
+`@media print` rule (`MyWeekPresentScreen.module.css`), not a change to the
+shared `print.css` — safe specifically because that rule and its print
+counter-rule live in the same file/chunk (deterministic load order, no
+cross-stylesheet `!important` fight), unlike the shared print.css's own
+reason for existing as a separate global file.
+
+**Sidebar**: a new "My Week" entry (`IconMyWeek`, `components/ui/icons.tsx` —
+`IconCalendar`'s frame with a checkmark instead of day-dots) sits right after
+Home in `components/app/Sidebar.tsx`'s nav list — both are personal overview
+screens, as opposed to the Reports group's per-record browsing.
+
+**Verification**: all three gates (`npm run build && npm run lint && npm run
+typecheck`) pass; `npm run verify:print` stays 8/8, unchanged (confirms this
+package didn't disturb the existing print contract); `git diff --stat`
+against `components/report/ReportDeck.tsx`, `PresentScreen.tsx`,
+`lib/deck-slides.ts`, and `styles/print.css` shows zero changes. A throwaway
+CDP script (modeled on `scripts/verify-deck-print.ts`, run from the
+scratchpad, deleted after) drove real headless Chrome against
+`/my-week/present` for BOTH a week export and a day-drill-down export, over a
+demo-mode fixture set spanning multiple weekly + daily sources (plus one
+report in a different week, to prove the range narrowing that happens
+inside the route itself actually excludes it) — every PDF matched
+`buildDeckSlides(expectedSyntheticReport).length` (6 pages both times),
+`MediaBox [0 0 960 540]`, zero clipped slides, zero blank slides, and
+`ff.reports.v2` was read back afterward and found byte-identical to what was
+seeded (nothing synthetic persisted, no `'synthetic-my-week'` id ever
+appears in it). A second, pure-function throwaway script (no browser)
+exercised `reportOverlapsRange`/`reportsInRange`/`assignedTaskOverlapsRange`/
+`filterReportsByScope`/`buildSyntheticReport` directly, including the
+Mine-vs-Everyone claim specifically: given a two-report fixture owned by two
+different users and a Supabase-mode-shaped `ReportAccessContext`, `scope:
+'mine'` returned only the caller's own report while `scope: 'everyone'`
+genuinely included the other owner's report too — substantiating "a pm's
+Everyone export genuinely includes other people's work" at the level this
+package's own new logic operates at (the underlying org-wide READ itself —
+`reports_select` returning every owner's rows to a pm+ — was already
+verified live in WP3's own `scripts/verify-access-matrix.ts`, not re-proven
+here). `/my-week` was screenshotted in both light and dark mode (demo mode,
+a populated current-week fixture) and confirmed correct dark-mode contrast
+throughout (stat cards, the day-picker row's active state, task-status
+badges) with zero mode-specific branching in the new code, matching every
+other screen in this app. **Not verified live**: an actual multi-account
+Supabase session driving the "Everyone" toggle end-to-end through a real
+signed-in browser (no local Supabase stack was started for this package,
+matching WP3's own documented "must be run by hand against a local stack"
+scope boundary) — the pure-function check above is the level of rigor this
+package's own new logic warrants, given the underlying multi-user read
+behavior it depends on was already verified live one package prior.
+
+## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group; WP6 adds My Week)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
-  (`IconHome` (new, Navigation IA restructure), `IconDashboard` (reused for Weekly), `IconChevron` (new, disclosure
+  (`IconHome` (new, Navigation IA restructure), `IconMyWeek` (new, WP6 — `IconCalendar`'s frame with a checkmark
+  instead of day-dots), `IconDashboard` (reused for Weekly), `IconChevron` (new, disclosure
   toggle for Reports group), `IconDaily`, `IconTasks`, `IconCalendar`, `IconConsolidate`
   (Phase 6b), `IconSettings`, `IconSignOut` (Phase 7a), `IconMenu` (mobile P2)),
   deliberately NOT `lucide-react` (which is stroke-based with round caps/joins, fighting this
@@ -1714,8 +1879,9 @@ response those functions curate instead.
   `currentColor` (so the active-nav chip's `--text-heading`/`--surface-page` inversion works
   with zero extra CSS), and is marked `aria-hidden`. The sidebar's `.navIcon` slot is now
   18×18 (was 8×8). `IconProjects` was removed (no longer in sidebar nav).
-- **Navigation structure** (Navigation IA restructure): Reorganized from a flat list to a hierarchical tree with
-  a collapsible "Reports" group: Home (`/`), **Reports** [Weekly (`/reports`), Daily (`/daily`),
+- **Navigation structure** (Navigation IA restructure; WP6 adds My Week): Reorganized from a flat list to a hierarchical tree with
+  Home (`/`), **My Week** (`/my-week`, WP6 — a personal digest + PDF export, see "My Week / My Day export
+  (WP6)" above), a collapsible **Reports** group [Weekly (`/reports`), Daily (`/daily`),
   Tasks (`/tasks`)], Calendar (`/calendar`), Consolidate (`/consolidate`), Settings (`/settings`).
   Projects is no longer in the sidebar; it's now managed via Settings → Projects tab.
 - **Disclosure toggle** (Navigation IA restructure): The Reports group is a button with `aria-expanded` +
@@ -1868,6 +2034,11 @@ entity — see "Scoped access (WP3 — the access flip)" below for why that's
 sound without a matching migration entry of its own beyond the RPCs
 themselves, which this entry already covers).
 
+**WP6 (My Week / My Day export)**: No schema change, no migration, no RLS
+change, no `/api` change. The synthetic report `lib/my-week.ts` composes is
+never persisted anywhere — there is no table row or Zod domain shape to add a
+migration for. See "My Week / My Day export (WP6)" above.
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -1891,11 +2062,17 @@ themselves, which this entry already covers).
   `report-sections` (Phase 8d: per-kind section headings + grouping),
   `deck-slides` (Phase 8d: paginated deck builder + deterministic height estimation),
   `report-access` (Phase 8d: delete access predicate; WP3 adds `canEditReport`, owner-only, and
-  widens `canDeleteReport` to `hasRoleAtLeast(user, 'pm')`), `data/` (repository interface + localStorage impl + HTTP impl
+  widens `canDeleteReport` to `hasRoleAtLeast(user, 'pm')`), `task-merge` (WP4: `mergeTaskSources`/
+  `groupMergedTasksByStatus`, the ONE shared merge of fully-loaded reports + the assignee bridge,
+  reused by Home, `/tasks`, the Calendar's task lens, and `/my-week`), `task-calendar` (WP5: the
+  Calendar task-lens date-bucketing selectors), `needs-attention` (Home's "Needs Attention"
+  derivation over the shared merged set), `my-week` (WP6: `reportOverlapsRange`/`reportsInRange`/
+  `assignedTaskOverlapsRange`/`filterReportsByScope`/`buildSyntheticReport` — see "My Week / My Day
+  export (WP6)" above), `data/` (repository interface + localStorage impl + HTTP impl
   (Phase 7b) + factory; WP3 adds `getAssignedTasks`/`updateTask`), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
   (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `hooks/useTeamMembers` (WP1: clones
-  `useProjects` exactly), `hooks/useAssignedTasks` (WP3: the caller's own assigned tasks; not yet
-  wired into a screen), `schema/` (Zod 4, Phase 6a; WP1 adds `team.ts`; WP3 adds `AssignedTaskPatchSchema`
+  `useProjects` exactly), `hooks/useAssignedTasks` (WP3: the caller's own assigned tasks; wired into
+  Home/`/tasks`/Calendar's merged set by WP4/WP5 and into `/my-week` by WP6), `schema/` (Zod 4, Phase 6a; WP1 adds `team.ts`; WP3 adds `AssignedTaskPatchSchema`
   to `api.ts`),
   `server/` (Phase 7b: `reports-service`, `db-mapping`, `route-helpers`, `request-guards`;
   Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`, `ai-keys`, `ai-polish`; Phase 8c adds
@@ -1915,6 +2092,8 @@ themselves, which this entry already covers).
   per-screen brand headers), `MobileNav` (mobile P2, off-canvas drawer).
 - `components/home/` — `HomePage` (orchestrator, Navigation IA restructure), `HomeScreen` (presentational,
   Navigation IA restructure; stat cards + recent reports table).
+- `components/my-week/` — `MyWeekScreen` (WP6; `/my-week`, no-orchestrator pattern), `MyWeekPresentScreen`
+  (WP6; `/my-week/present`, outside `(shell)`) — see "My Week / My Day export (WP6)" above.
 - `components/dashboard|daily|wizard|dialogs/` — screens + route-level
   orchestration (`DashboardPage`, `DailyPage` (Phase 4), `WizardPage`, now
   `kind`-aware and, WP2, `useTeamMembers()`-aware) + `ShareDialog` (the only

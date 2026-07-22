@@ -164,6 +164,19 @@ export function IconChevron(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** WP6 (My Week / My Day export): a square calendar frame identical to IconCalendar's, but with a single checkmark instead of two day-dots -- a personal digest laid OVER the calendar, distinct from both IconCalendar (dots) and IconTasks (a checkbox square, no header bar/notches at all). */
+export function IconMyWeek(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <rect x="1.5" y="2.5" width="13" height="12" />
+      <path d="M1.5 6H14.5" />
+      <path d="M4.5 1V4" />
+      <path d="M11.5 1V4" />
+      <path d="M4.8 9.8L6.8 11.8L11.2 7.4" />
+    </IconBase>
+  );
+}
+
 /**
  * Restrained-colour pass: a square-cornered trash can (lid + body + two
  * ribs) -- pairs with `Button`'s `danger` variant on every destructive

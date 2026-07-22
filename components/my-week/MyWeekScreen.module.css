@@ -1,0 +1,99 @@
+.content {
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom);
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.rangeLabel {
+  font-family: var(--font-heading);
+  font-weight: 300;
+  font-size: 22px;
+  color: var(--text-heading);
+}
+
+.nav {
+  display: flex;
+  gap: 10px;
+}
+
+.scopeRow {
+  display: flex;
+  gap: 10px;
+}
+
+.dayRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 36px;
+}
+
+@media screen and (max-width: 1023px) {
+  .statsGrid {
+    grid-template-columns: repeat(1, 1fr);
+  }
+}
+
+.section {
+  margin-bottom: 40px;
+}
+
+.sectionKicker {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 14px;
+}
+
+.emptyState {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.rowAction {
+  display: inline-block;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--text-heading);
+  padding: 7px 16px;
+  cursor: pointer;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.rowAction:hover {
+  background: var(--text-heading);
+  color: var(--surface-page);
+}
+
+/* Mobile P7 parity: bigger touch target for this non-Button action element. */
+@media screen and (max-width: 767px) {
+  .rowAction {
+    padding: var(--row-action-pad-mobile);
+  }
+}

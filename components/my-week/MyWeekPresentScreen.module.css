@@ -1,0 +1,81 @@
+/*
+ * Screen-only chrome for `/my-week/present`. Unlike PresentScreen.module.css,
+ * nothing here sets a fixed height / flex-column ancestor over the deck --
+ * this route renders the un-paged, every-slide-stacked deck (see
+ * MyWeekPresentScreen.tsx's own doc comment), so it needs none of that
+ * component's two-axis scaling machinery and none of the print-risk that
+ * machinery requires styles/print.css counter-rules for.
+ *
+ * The one screen-only layout property this file DOES set on an ancestor of
+ * `.deck` (`.previewWrap`'s `overflow-x: auto`) is neutralized by THIS
+ * file's own `@media print` rule below, not a change to the shared
+ * styles/print.css -- safe here because the screen rule and its print
+ * counter-rule live in the same file/chunk (deterministic load order, no
+ * cross-stylesheet `!important` fight), which is exactly the risk the shared
+ * print.css's own header comment documents at length for ITS rules.
+ */
+
+.page {
+  min-height: 100vh;
+  background: var(--surface-page);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 40px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.backLink {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--link);
+}
+
+.previewWrap {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  padding: 40px 24px;
+}
+
+.loadError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 15px;
+}
+
+@media print {
+  /* This route's own toolbar has no `presentToolbar` global classname (see
+     this file's own header comment) -- hidden directly, self-contained. */
+  .toolbar {
+    display: none;
+  }
+
+  /* Un-does the screen-only scroll/centering wrapper so print sees the deck
+     laid out in plain block flow -- exactly what styles/print.css's
+     `.deck { display: block !important }` rule already expects as its
+     ancestor context (see this file's header comment for why this is safe
+     to do locally instead of touching the shared stylesheet). */
+  .previewWrap {
+    display: block;
+    overflow: visible;
+    padding: 0;
+  }
+}
