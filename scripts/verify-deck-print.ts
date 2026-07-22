@@ -73,7 +73,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildDeckSlides } from '../lib/deck-slides';
@@ -84,11 +84,67 @@ const CDP_PORT = Number(process.env.VERIFY_CDP_PORT ?? 9333);
 const BASE_URL = `http://127.0.0.1:${DEV_PORT}`;
 const KEEP_PDFS = process.argv.includes('--keep-pdfs');
 
-const CHROME_CANDIDATES = [
-  process.env.CHROME_PATH,
-  `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/mac_arm-146.0.7680.153/chrome-headless-shell-mac-arm64/chrome-headless-shell`,
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-].filter((p): p is string => Boolean(p));
+/**
+ * Chrome discovery, deliberately version-AGNOSTIC.
+ *
+ * This used to hardcode one exact Puppeteer cache path including its version
+ * directory (`.../chrome-headless-shell/mac_arm-146.0.7680.153/...`). That
+ * was tolerable while this script was only ever run by hand, but it is not
+ * once a git hook depends on it: the next Chrome revision in that cache
+ * silently moves the binary, the hook can no longer find it, and a check
+ * meant to protect the print contract quietly stops protecting anything.
+ *
+ * So: scan the cache for whatever revisions actually exist (newest first by
+ * plain descending name sort, which is right for Chrome's zero-padded
+ * `<platform>-<major>.<minor>.<build>.<patch>` directory names), then fall
+ * back to a normally-installed browser. `CHROME_PATH` still wins outright.
+ */
+function discoverChrome(): string[] {
+  const out: string[] = [];
+  if (process.env.CHROME_PATH) out.push(process.env.CHROME_PATH);
+
+  const cache = join(process.env.HOME ?? '', '.cache', 'puppeteer');
+  // `chrome-headless-shell` first: it is smaller and starts faster than full
+  // Chrome, and this harness never needs a visible window.
+  for (const flavour of ['chrome-headless-shell', 'chrome']) {
+    const root = join(cache, flavour);
+    let revisions: string[];
+    try {
+      revisions = readdirSync(root).sort().reverse();
+    } catch {
+      continue;
+    }
+    for (const rev of revisions) {
+      // One more directory level, whose name embeds the platform
+      // (`chrome-headless-shell-mac-arm64`, `chrome-linux64`, ...).
+      let inner: string[];
+      try {
+        inner = readdirSync(join(root, rev));
+      } catch {
+        continue;
+      }
+      for (const dir of inner) {
+        for (const leaf of [
+          flavour === 'chrome-headless-shell' ? 'chrome-headless-shell' : 'chrome',
+          // macOS builds bury the executable inside an .app bundle.
+          'Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
+        ]) {
+          out.push(join(root, rev, dir, leaf));
+        }
+      }
+    }
+  }
+
+  out.push(
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser'
+  );
+  return out;
+}
+
+const CHROME_CANDIDATES = discoverChrome();
 
 /** 1280x720 CSS px at 96dpi, expressed in PostScript points (72/inch). */
 const EXPECTED_MEDIABOX = [0, 0, 960, 540] as const;

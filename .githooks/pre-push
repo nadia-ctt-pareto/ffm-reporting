@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+#
+# Guards the deck's PRINT-PAGE-COUNT CONTRACT (styles/print.css's header) by
+# running scripts/verify-deck-print.ts before a push can land.
+#
+# WHY A HOOK AT ALL
+# -----------------
+# The print output has broken silently three separate times in this project's
+# history: a stylesheet source-order flip turned 6 slides into 7-8 PDF pages; a
+# fixed-height flex ancestor collapsed the whole deck onto ONE clipped page;
+# and `.slide { overflow: hidden }` quietly dropped 2000+px of tasks out of
+# every export. NONE of those are visible on screen, and none of them fail
+# `next build`, `eslint`, or `tsc` -- the three gates this repo already runs.
+# Only generating a real PDF catches them. A committed harness nobody
+# remembers to run is barely better than no harness, so this wires it to the
+# one moment it matters: just before code leaves the machine.
+#
+# WHY IT IS PATH-SCOPED (the important design decision)
+# -----------------------------------------------------
+# The harness boots a dev server and a headless Chrome and renders 8 fixtures;
+# it takes minutes, not seconds. A multi-minute check on EVERY push is a check
+# that gets `--no-verify`'d within a week, at which point it protects nothing.
+# So it runs only when the push actually contains a change to a file that can
+# affect print output. Everything else pushes at full speed.
+#
+# ESCAPE HATCHES (deliberate -- a gate with no exit gets disabled entirely)
+#   git push --no-verify        skip every hook, the standard git escape
+#   SKIP_PRINT_VERIFY=1 git push  skip just this check, keeping other hooks
+#
+# Chrome is optional infrastructure: if no usable binary is found, this WARNS
+# and allows the push rather than blocking someone who simply doesn't have the
+# Puppeteer cache. A hook that hard-fails on a missing optional dependency
+# teaches people to bypass it.
+
+set -uo pipefail
+
+if [ "${SKIP_PRINT_VERIFY:-}" = "1" ]; then
+  echo "pre-push: SKIP_PRINT_VERIFY=1 set -- skipping the deck print-contract check."
+  exit 0
+fi
+
+# Files whose change can alter the printed deck. Keep this list in sync with
+# CLAUDE.md's "Report screen & presentation deck" section.
+#   lib/deck-slides.ts     the slide model + all chunking (page COUNT itself)
+#   lib/report-sections.ts per-kind section spec that feeds it
+#   components/report/*    the deck, the present route, their CSS modules
+#   styles/print.css       the print rules and @page size
+#   components/ui/Table*   the deck renders <Table>; its DOM is load-bearing
+#   scripts/verify-deck-print.ts  the harness itself
+WATCHED_RE='^(lib/deck-slides\.ts|lib/report-sections\.ts|components/report/|styles/print\.css|components/ui/Table|scripts/verify-deck-print\.ts)'
+
+# stdin gives us "<local ref> <local sha> <remote ref> <remote sha>" per ref
+# being pushed. Collect the changed paths across every such range.
+changed=""
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  # All-zero local sha = a branch DELETION; nothing to verify.
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+
+  case "$remote_sha" in
+    *[!0]*)
+      # Normal update: diff exactly what this push adds.
+      range="$remote_sha..$local_sha"
+      ;;
+    *)
+      # New branch on the remote: git has no upstream to diff against, so fall
+      # back to comparing with the default branch if we have it, and to the
+      # last commit otherwise. Over-scoping here is safe (worst case the check
+      # runs when it didn't need to); under-scoping would miss a regression.
+      if git rev-parse --verify --quiet origin/main >/dev/null; then
+        range="origin/main..$local_sha"
+      else
+        range="${local_sha}~1..$local_sha"
+      fi
+      ;;
+  esac
+  changed="$changed$(git diff --name-only "$range" 2>/dev/null)
+"
+done
+
+if [ -z "$(printf '%s' "$changed" | tr -d '[:space:]')" ]; then
+  exit 0
+fi
+
+if ! printf '%s\n' "$changed" | grep -Eq "$WATCHED_RE"; then
+  exit 0
+fi
+
+echo "pre-push: this push touches print-critical files -- verifying the deck's page-count contract."
+printf '%s\n' "$changed" | grep -E "$WATCHED_RE" | sort -u | sed 's/^/          /'
+echo "          (skip with SKIP_PRINT_VERIFY=1, or git push --no-verify)"
+
+# Capture the status on its OWN line, never as `if ! cmd; then status=$?`.
+# That form was the first version of this hook and it silently defeated the
+# entire gate: after `! cmd`, `$?` holds the status of the NEGATION (0 when
+# the command failed), so a genuine contract failure was misread as
+# "infrastructure problem, exit 0" and the push was allowed. Caught by
+# deliberately breaking the contract and watching the hook pass it -- which is
+# the only reason to ever test a gate by making it fail.
+npx --no-install tsx scripts/verify-deck-print.ts
+status=$?
+
+if [ "$status" -ne 0 ]; then
+  # Distinguish "the contract is broken" from "this machine can't run the
+  # check". The harness exits 1 for a real assertion failure; anything else
+  # (missing tsx, no Chrome, a port already bound) is infrastructure.
+  if [ "$status" -eq 1 ]; then
+    echo ""
+    echo "pre-push: BLOCKED -- the deck print-contract check failed above."
+    echo "          The exported PDF's page count or content no longer matches"
+    echo "          what buildDeckSlides() computes. Fix it rather than skipping:"
+    echo "          a clipped slide loses real user content silently."
+    exit 1
+  fi
+  echo ""
+  echo "pre-push: WARNING -- could not RUN the print check (exit $status), so it was not verified."
+  echo "          Usually a missing Chrome binary or a busy port. Set CHROME_PATH,"
+  echo "          or run 'npx tsx scripts/verify-deck-print.ts' manually."
+  echo "          Allowing the push."
+  exit 0
+fi
+
+echo "pre-push: deck print contract OK."
+exit 0

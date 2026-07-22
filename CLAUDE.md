@@ -1236,7 +1236,30 @@ Slide keys are stable for non-overflowing sections (identical to prior phases, p
 
 **Known conservatism**: height estimation deliberately over-reserves (measured slack ~70–112px per task slide) so a marginal section costs one extra slide rather than risking clipping — over-reserving costs a page, under-reserving loses data. Related: `DECK_METRICS` was measured against the WEEKLY dense-table layout but is reused, conservatively, by the daily `tasksByClient` slide's tighter CSS; anyone tightening those constants must re-measure BOTH layouts or the daily deck will clip first while the weekly fixtures still pass.
 
-**The harness is NOT automatic.** `scripts/verify-deck-print.ts` is run manually (`npx tsx scripts/verify-deck-print.ts`); it is not wired into `npm run build` or CI, and no gate fails if a fixture clips. Run it by hand after ANY change to `lib/deck-slides.ts`, `ReportDeck*`, `PresentScreen`, or `styles/print.css`.
+**The harness runs as a PRE-PUSH GATE** (`.githooks/pre-push`, installed by
+`npm run hooks:install`, and automatically via `prepare` on `npm install`).
+It is deliberately PATH-SCOPED: it only runs when the commits being pushed
+touch a file that can change print output -- `lib/deck-slides.ts`,
+`lib/report-sections.ts`, `components/report/*`, `styles/print.css`,
+`components/ui/Table*`, or the harness itself. Everything else pushes at full
+speed. That scoping is the point: the harness boots a dev server and a
+headless Chrome over 8 fixtures and takes minutes, and a multi-minute check on
+every push is one that gets `--no-verify`'d within a week.
+
+Run it by hand any time with `npm run verify:print`.
+
+Escape hatches, deliberately provided (a gate with no exit gets disabled
+outright): `git push --no-verify` skips all hooks; `SKIP_PRINT_VERIFY=1 git
+push` skips just this one. A missing Chrome binary WARNS and allows the push
+rather than blocking someone who lacks the optional Puppeteer cache -- the
+hook distinguishes "the contract is broken" (exit 1, blocks) from "the check
+could not run" (any other exit, warns).
+
+The hook was verified by deliberately breaking the contract and confirming it
+blocks -- which caught a real bug in its first version: `if ! cmd; then
+status=$?` reads the status of the NEGATION, not the command, so a genuine
+failure was misclassified as an infrastructure problem and the push was
+allowed. A gate is not a gate until you have watched it fail.
 
 **Migrations**: `supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` — **applied to production 2026-07-22** via `bash scripts/apply-remote-migrations.sh` (hygiene-only, no functional change). Post-apply verification below.
 
