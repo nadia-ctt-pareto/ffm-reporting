@@ -45,8 +45,8 @@ function mk(
     weekStart: ws,
     weekEnd: we,
     status,
-    preparedFor: 'Christene, Founder',
-    preparedBy: 'Jordan Reyes, Project Manager',
+    preparedFor: 'Casey Okafor',
+    preparedBy: 'Jordan Reyes',
     createdAt: we,
     updatedAt: we,
     summaryNarrative,
@@ -74,8 +74,8 @@ function mkDaily(
     kind: 'daily',
     date,
     status,
-    preparedFor: 'Christene, Founder',
-    preparedBy: 'Jordan Reyes, Project Manager',
+    preparedFor: 'Casey Okafor',
+    preparedBy: 'Jordan Reyes',
     createdAt: date,
     updatedAt: date,
     summaryNarrative,
@@ -560,12 +560,15 @@ export function seedProjects(): Project[] {
  * verified-email self-link design (see supabase/migrations/
  * 20260726000016_team_members.sql's header comment) -- an admin sets a
  * real email later, out of band, once there's a real person to link.
- * "Jordan Reyes" intentionally matches `seedReports()`'s `preparedBy`
- * string above (the PM who authors these seed reports) so the directory
- * and the report content agree on who that person is; the other two are
- * new, fictional Foundation First staff (not any client-side contact --
- * `preparedFor`'s "Christene, Founder" is the CLIENT's recipient, never a
- * Foundation First team member, and is deliberately not reused here).
+ * Every name here matches the `preparedBy`/`preparedFor` strings
+ * `seedReports()` uses, so seeded reports resolve cleanly against the
+ * directory rather than rendering as "(not in the team directory)" in the
+ * wizard's dropdowns. That alignment became load-bearing when those two
+ * fields stopped being free text: "Jordan Reyes" is the PM who authors the
+ * seed reports, and "Casey Okafor" is who they are prepared for. The
+ * earlier seed used a client-side contact ("Christene, Founder") for
+ * `preparedFor`, which no longer fits now that the field selects a team
+ * member.
  */
 export function seedTeamMembers(): TeamMember[] {
   return [

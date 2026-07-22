@@ -169,8 +169,8 @@ export function buildWeeklyImportTemplateCsv(): string {
       { weekStart: '2026-08-03', weekEnd: '2026-08-07' },
       {
         status: 'Final',
-        preparedFor: 'Christene, Founder',
-        preparedBy: 'Jordan Reyes, Project Manager',
+        preparedFor: 'Casey Okafor',
+        preparedBy: 'Jordan Reyes',
         summary: 'Steady progress across all four clients; one open blocker with DryRoot pending a permit.',
         winStat: '3x',
         winLabel: 'faster turnaround on Helitech change orders',
@@ -205,8 +205,8 @@ export function buildDailyImportTemplateCsv(): string {
       { date: '2026-08-04' },
       {
         status: 'Sent',
-        preparedFor: 'Christene, Founder',
-        preparedBy: 'Jordan Reyes, Project Manager',
+        preparedFor: 'Casey Okafor',
+        preparedBy: 'Jordan Reyes',
         summary: 'Site visit at Summit Basement; two client calls; no new blockers today.',
         winStat: '1',
         winLabel: 'new referral from TerraFirm',

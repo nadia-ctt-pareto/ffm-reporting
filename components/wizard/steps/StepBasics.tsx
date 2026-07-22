@@ -160,7 +160,7 @@ export function StepBasics({
         ) : (
           <Input
             label="Prepared For"
-            placeholder="Christene, Founder"
+            placeholder="Team member name"
             value={draft.preparedFor}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setDraftField('preparedFor', e.target.value)}
           />
@@ -181,7 +181,7 @@ export function StepBasics({
         ) : (
           <Input
             label="Prepared By"
-            placeholder="Jordan Reyes, Project Manager"
+            placeholder="Team member name"
             value={draft.preparedBy}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setDraftField('preparedBy', e.target.value)}
           />

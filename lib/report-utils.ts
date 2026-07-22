@@ -52,8 +52,18 @@ export function blankDraft(): Draft {
     weekStart: '',
     weekEnd: '',
     date: '',
-    preparedFor: 'Christene, Founder',
-    preparedBy: 'Jordan Reyes, Project Manager',
+    // Deliberately EMPTY. These were the prototype's placeholder names, and
+    // they were harmless while both fields were free text -- but once they
+    // became team-directory dropdowns, a default that isn't in the directory
+    // renders on every brand-new report as a bogus "(not in the team
+    // directory)" option the author has to notice and clear. An empty
+    // `preparedFor` simply fails step 1's existing "Enter who this report is
+    // prepared for." check until a real member is picked, which is the
+    // correct prompt; `preparedBy` is optional and stays blank until chosen
+    // (or auto-filled for a plain member, see useWizard's
+    // `preparedByAutoFillName`).
+    preparedFor: '',
+    preparedBy: '',
     summaryNarrative: '',
     status: 'Draft',
     tasks: [],

@@ -151,10 +151,10 @@ export function resolveAssigneeId(selectValue: string): string | undefined {
 // the surrounding form writes the draft/patch back out, it writes whatever
 // the (apparently-unselected) Select currently holds, silently discarding
 // whatever free-text value was there before. Reports already exist with
-// values that are NOT in the directory and never will be: the seed data's
-// `preparedFor: 'Christene, Founder'` (a CLIENT contact -- prepared FOR a
-// client is never a Foundation First team member, see seedTeamMembers'
-// own doc comment), CSV-imported rows, and MCP tool writes (`create_report`/
+// values that are NOT in the directory and never will be: reports authored
+// before these fields became directory-backed (their `preparedFor` was free
+// text, often a client-side contact rather than a team member),
+// CSV-imported rows, and MCP tool writes (`create_report`/
 // `update_report` accept any string for either field, no directory
 // validation). Every option-builder below appends the CURRENT value verbatim
 // as a selectable, visually-marked-as-not-a-directory-entry option whenever

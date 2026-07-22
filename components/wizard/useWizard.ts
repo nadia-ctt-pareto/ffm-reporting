@@ -449,9 +449,10 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * Deliberately unconditional whenever a lock name is present (not "only if
    * `draft.preparedBy` is currently blank") -- per the plan this shipped
    * against: a plain member's Prepared By IS their own identity, full stop,
-   * even overwriting `blankDraft()`'s placeholder default ("Jordan Reyes,
-   * Project Manager") or a stale value left by a prior CSV/MCP write on a
-   * resumed draft. This does NOT conflict with `lib/team.ts`'s "never
+   * even overwriting a stale value left by a prior CSV/MCP write on a
+   * resumed draft. (`blankDraft()` itself no longer seeds a placeholder name
+   * -- it starts both fields empty precisely so nothing off-directory ever
+   * shows up on a new report.) This does NOT conflict with `lib/team.ts`'s "never
    * silently wipe a legacy value" rule -- that rule protects a `<Select>`'s
    * own option list from ever failing to include the CURRENT value; a locked
    * plain member never sees that dropdown at all (see StepBasics), so the

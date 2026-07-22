@@ -123,7 +123,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r1', 'weekly', '2026-06-01', '2026-06-05', null, 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Strong opening week across all four accounts. Summit’s onboarding is underway, and TerraFirm’s audit is already surfacing quick wins.',
+  'Casey Okafor', 'Jordan Reyes', 'Strong opening week across all four accounts. Summit’s onboarding is underway, and TerraFirm’s audit is already surfacing quick wins.',
   '22%', 'Lift in DryRoot''s ad click-through rate', 'New ad copy testing drove a 22% CTR improvement in DryRoot Waterproofing’s search campaigns in the first week live.',
   3, 6, 0, 'All four accounts had a kickoff or check-in call this week; Summit''s onboarding is now fully underway.',
   '2026-06-05'::timestamptz, '2026-06-05'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -148,7 +148,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r2', 'weekly', '2026-06-08', '2026-06-12', null, 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Momentum continues. TerraFirm''s audit is already paying off, and we caught a data gap at Summit early enough to manage around it.',
+  'Casey Okafor', 'Jordan Reyes', 'Momentum continues. TerraFirm''s audit is already paying off, and we caught a data gap at Summit early enough to manage around it.',
   '3', 'Quick-win fixes shipped from the TerraFirm audit', 'TerraFirm''s conversion audit uncovered three fast fixes to their contact form — all three shipped this week, ahead of the full redesign.',
   4, 7, 0, 'Regular check-ins with all accounts; Summit''s data gap was flagged early rather than surfacing later in the automation build.',
   '2026-06-12'::timestamptz, '2026-06-12'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -176,7 +176,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r3', 'weekly', '2026-06-15', '2026-06-19', null, 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'A quieter week operationally but a big strategic win: Helitech approved an expanded Q3 plan.',
+  'Casey Okafor', 'Jordan Reyes', 'A quieter week operationally but a big strategic win: Helitech approved an expanded Q3 plan.',
   'Approved', 'Helitech''s Q3 plan, with an expanded ad budget', 'Helitech signed off on the Q3 plan this week, including a 15% budget increase for paid social — the strongest vote of confidence yet.',
   4, 8, 0, 'No escalations this week. Helitech''s planning call ran long in the best way — lots of good questions.',
   '2026-06-19'::timestamptz, '2026-06-19'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -204,7 +204,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r4', 'weekly', '2026-06-22', '2026-06-26', null, 'Final',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Clean week — no open risks, one clear win on DryRoot''s cost-per-click, and TerraFirm''s design phase wrapped.',
+  'Casey Okafor', 'Jordan Reyes', 'Clean week — no open risks, one clear win on DryRoot''s cost-per-click, and TerraFirm''s design phase wrapped.',
   '15%', 'Reduction in DryRoot''s cost-per-click', 'The winning ad variant from this month''s copy testing cut DryRoot''s cost-per-click by 15% — now rolling out account-wide.',
   3, 6, 0, 'TerraFirm''s wireframes were approved without revision — a fast, clean sign-off.',
   '2026-06-26'::timestamptz, '2026-06-26'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -229,7 +229,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r5', 'weekly', '2026-06-29', '2026-07-03', null, 'Draft',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Short week ahead of the holiday — this report is still in draft and needs the full round-up before sending.',
+  'Casey Okafor', 'Jordan Reyes', 'Short week ahead of the holiday — this report is still in draft and needs the full round-up before sending.',
   '', '', '',
   2, 4, 0, 'Short week ahead of the holiday.',
   '2026-07-03'::timestamptz, '2026-07-03'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -253,7 +253,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r6', 'weekly', '2026-07-06', '2026-07-10', null, 'Final',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Helitech''s ad refresh is already showing results. TerraFirm remains blocked on client assets — escalating this week.',
+  'Casey Okafor', 'Jordan Reyes', 'Helitech''s ad refresh is already showing results. TerraFirm remains blocked on client assets — escalating this week.',
   '9%', 'Early dip in Helitech''s cost-per-lead', 'Helitech''s refreshed ad creative went live Monday and cost-per-lead is already down 9% in the first week.',
   4, 8, 1, 'One escalation this week: TerraFirm''s asset delay was raised directly on our call.',
   '2026-07-10'::timestamptz, '2026-07-10'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -283,7 +283,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'r7', 'weekly', '2026-07-13', '2026-07-17', null, 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'All four active accounts stayed on schedule this week. Paid social and search work moved forward on pace, GoHighLevel automation build-out for Summit is midstream, and TerraFirm’s landing page is paused pending client assets.',
+  'Casey Okafor', 'Jordan Reyes', 'All four active accounts stayed on schedule this week. Paid social and search work moved forward on pace, GoHighLevel automation build-out for Summit is midstream, and TerraFirm’s landing page is paused pending client assets.',
   '18%', 'Drop in Helitech''s cost-per-lead', 'Following Monday''s paid social creative refresh, Helitech Foundation & Waterproofing''s cost-per-lead fell 18% week over week — the strongest result of any account this quarter.',
   4, 9, 1, 'Every active account had a live touchpoint this week. TerraFirm''s asset delay was raised directly on Wednesday''s call and followed up by email Thursday — no response yet.',
   '2026-07-17'::timestamptz, '2026-07-17'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -314,7 +314,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'd1', 'daily', null, null, '2026-07-13', 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Monday kickoff across all four accounts. TerraFirm''s landing page work remains blocked on client assets.',
+  'Casey Okafor', 'Jordan Reyes', 'Monday kickoff across all four accounts. TerraFirm''s landing page work remains blocked on client assets.',
   '4', 'Client touchpoints logged today', 'Kicked the week off with a check-in call on every active account.',
   2, 3, 0, 'Monday kickoff calls with Helitech and DryRoot; async check-ins with Summit and TerraFirm.',
   '2026-07-13'::timestamptz, '2026-07-13'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -342,7 +342,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'd2', 'daily', null, null, '2026-07-14', 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Helitech''s creative refresh launched and is already showing results. TerraFirm remains blocked.',
+  'Casey Okafor', 'Jordan Reyes', 'Helitech''s creative refresh launched and is already showing results. TerraFirm remains blocked.',
   '18%', 'Drop in Helitech''s cost-per-lead', 'The refreshed creative went live this morning and cost-per-lead is already down 18% week over week.',
   1, 2, 0, 'Quick sync with Helitech on the creative launch.',
   '2026-07-14'::timestamptz, '2026-07-14'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -370,7 +370,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'd3', 'daily', null, null, '2026-07-15', 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Summit''s automation build wrapped early. Helitech''s new dashboard shipped. TerraFirm remains the one open blocker.',
+  'Casey Okafor', 'Jordan Reyes', 'Summit''s automation build wrapped early. Helitech''s new dashboard shipped. TerraFirm remains the one open blocker.',
   '3', 'GoHighLevel automations shipped for Summit', 'Summit''s pipeline automation build wrapped a day ahead of schedule.',
   2, 2, 0, 'Summit automation review call; Helitech dashboard delivered by email.',
   '2026-07-15'::timestamptz, '2026-07-15'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -396,7 +396,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'd4', 'daily', null, null, '2026-07-16', 'Sent',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'DryRoot''s copy test wrapped with a clear winner. One escalation today on TerraFirm''s asset delay.',
+  'Casey Okafor', 'Jordan Reyes', 'DryRoot''s copy test wrapped with a clear winner. One escalation today on TerraFirm''s asset delay.',
   '9%', 'Lift in DryRoot''s search click-through rate', 'The new ad copy variant tested this week is already outperforming the control by 9%.',
   1, 1, 1, 'One escalation: flagged TerraFirm''s asset delay directly with the client on today''s call.',
   '2026-07-16'::timestamptz, '2026-07-16'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
@@ -422,7 +422,7 @@ insert into reports (
   created_at, updated_at, project_id, owner_id
 ) values (
   'd5', 'daily', null, null, '2026-07-17', 'Draft',
-  'Christene, Founder', 'Jordan Reyes, Project Manager', 'Short Friday -- wrapping up the week''s open items before end of day.',
+  'Casey Okafor', 'Jordan Reyes', 'Short Friday -- wrapping up the week''s open items before end of day.',
   '', '', '',
   0, 1, 0, 'Friday wrap-up email sent to Helitech.',
   '2026-07-17'::timestamptz, '2026-07-17'::timestamptz, null, '00000000-0000-0000-0000-000000000001'
