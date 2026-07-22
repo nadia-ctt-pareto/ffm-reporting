@@ -14,15 +14,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ReportPatch } from '../schema/api';
 import { AnyReportSchema } from '../schema/report';
-import type { AnyReport, Project, ReportKind } from '../types';
+import type { AnyReport, Project, ReportKind, TeamMember } from '../types';
 import {
   reportToRow,
   rowToReport,
+  rowToTeamMember,
   sharedJsonToReport,
+  teamMemberToRow,
   toDomainTimestamp,
   type AnyReportInput,
   type ReportRow,
   type SharedReportJson,
+  type TeamMemberRow,
 } from './db-mapping';
 
 export type ServiceErrorCode = 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'invalid' | 'internal';
@@ -87,6 +90,32 @@ export function curatedMessage(code: ServiceErrorCode, rawMessage: string): stri
       // fired; this regex matches all three without hardcoding table names.
       if (/_project_id_fkey/.test(rawMessage)) {
         return 'This project is still referenced by existing reports.';
+      }
+      // WP1: `renameTeamMember`'s `.update({name})` -> mapPgError already
+      // routes a 23505 (unique-violation on `team_members_name_key`) here.
+      if (/team_members_name_key/.test(rawMessage)) {
+        return 'A member with this name already exists.';
+      }
+      // WP1: same constraint-name match, for `team_members_email_key` (a
+      // 23505 from `ensureTeamMember`'s insert -- two directory rows can
+      // never share an email, since that email is the sole basis
+      // `public.link_my_team_member()` uses to find a row to self-link).
+      if (/team_members_email_key/.test(rawMessage)) {
+        return 'A member with this email already exists.';
+      }
+      // WP1: `deleteTeamMember` intercepts sqlstate 23503 itself, BEFORE
+      // this function is even reached, for the SAME reason `deleteProject`
+      // does (see the `_project_id_fkey` branch above and that function's
+      // own doc comment) -- this branch exists only so `curatedMessage`
+      // stays a complete, self-checkable map of every 'conflict' this
+      // codebase can construct, matching the "constructed directly, not
+      // through mapPgError" cases documented on this function's own header
+      // comment. No FK references `team_members` yet in this package (a
+      // LATER package's task-assignee field will add one); this branch is
+      // forward-declared now so that package doesn't also need to touch
+      // `curatedMessage`.
+      if (/_assignee_id_fkey|_team_member_id_fkey/.test(rawMessage)) {
+        return 'This member is still assigned to existing tasks.';
       }
       return 'This was changed by someone else since you loaded it. Reload and try again.';
     case 'not_found':
@@ -596,5 +625,92 @@ export async function deleteProject(db: SupabaseClient, id: string): Promise<voi
   }
   if (!data || data.length === 0) {
     throw new ServiceError('not_found', `Project ${id} not found (or not permitted).`);
+  }
+}
+
+// =============================================================================
+// WP1: the team directory (`team_members`). Pattern-copied from the project
+// trio immediately above (`listProjects`/`ensureProject`/`renameProject`/
+// `deleteProject`), INCLUDING the 23503-interception shape on delete -- see
+// each function's own doc comment for the one place it diverges from its
+// Project counterpart. `select('id, name, role, email, user_id,
+// created_at')` (never `select('*')`) matches this table's full column set
+// today -- there is no share-token-style excluded column here (yet), but an
+// explicit list costs nothing and avoids a `select('*')` silently changing
+// shape the moment a future migration adds a column this app doesn't expect.
+// =============================================================================
+
+const TEAM_MEMBER_COLUMNS = 'id, name, role, email, user_id, created_at';
+
+/** `team_members_select` RLS is `using (true)` -- every authenticated user reads every row (it's a directory, see the migration's header comment), same posture as `listProjects`. */
+export async function listTeamMembers(db: SupabaseClient): Promise<TeamMember[]> {
+  const { data, error } = await db.from('team_members').select(TEAM_MEMBER_COLUMNS).order('name', { ascending: true });
+  if (error) throw mapPgError(error);
+  return ((data ?? []) as TeamMemberRow[]).map(rowToTeamMember);
+}
+
+/**
+ * Insert-or-return-existing -- deliberately NEVER an UPDATE, identical
+ * semantics/rationale to `ensureProject` above. `team_members_insert` RLS
+ * is admin-only (UNLIKE `projects_insert`, open to any authenticated user)
+ * -- see the migration's header comment for why creating a directory row is
+ * a privileged act here even though creating a project isn't. `teamMemberToRow`
+ * never emits `user_id` (see that function's own doc comment), so this can
+ * never accidentally link an account on create.
+ */
+export async function ensureTeamMember(db: SupabaseClient, member: TeamMember): Promise<TeamMember> {
+  const row = teamMemberToRow(member);
+  const { error: upsertError } = await db.from('team_members').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
+  if (upsertError) throw mapPgError(upsertError);
+  const { data, error } = await db.from('team_members').select(TEAM_MEMBER_COLUMNS).eq('id', member.id).maybeSingle();
+  if (error) throw mapPgError(error);
+  // Diagnostic-only (see `updateReport`'s identical note above) -- curated to a generic message by `handleServiceError` before it reaches the wire.
+  if (!data) throw new ServiceError('invalid', `Failed to ensure team member ${member.id} -- upsert reported no error but the follow-up read found nothing.`);
+  return rowToTeamMember(data as TeamMemberRow);
+}
+
+/**
+ * Renames EXACTLY the `name` column -- mirrors `renameProject` down to the
+ * `.update({ name })` call shape (never `.update(member)` or anything else
+ * that could carry `role`/`email`/`userId`). Editing an EXISTING member's
+ * role/email after creation is deliberately out of scope for this package
+ * (see `lib/team.ts`'s header comment and `components/team/TeamManager.tsx`
+ * -- Role/Email are only set at creation time; this function's name states
+ * its contract precisely, the same way `renameProject`'s does). Row-level
+ * access is `team_members_update` RLS (admin-only); there is no column-level
+ * grant restricting WHICH column `authenticated` may touch the way Phase 8c
+ * added for `projects` (`supabase/migrations/20260724000011_project_management.sql`)
+ * -- unnecessary here because `team_members_insert`/`_update`/`_delete` are
+ * ALL admin-only already (unlike `projects_insert`, open to all
+ * authenticated), so there is no "any authenticated user, but only touching
+ * one column" gap to additionally close at the grant layer.
+ */
+export async function renameTeamMember(db: SupabaseClient, id: string, name: string): Promise<TeamMember> {
+  const { data, error } = await db.from('team_members').update({ name }).eq('id', id).select(TEAM_MEMBER_COLUMNS).maybeSingle();
+  if (error) throw mapPgError(error);
+  if (!data) throw new ServiceError('not_found', `Team member ${id} not found (or not permitted).`);
+  return rowToTeamMember(data as TeamMemberRow);
+}
+
+/**
+ * Deletes a directory row. No FK references `team_members` yet in this
+ * package (a LATER package's task-assignee field will add one) -- the
+ * sqlstate-23503 interception below is forward-declared now, mirroring
+ * `deleteProject`'s identical shape exactly, so that later package needs no
+ * changes here at all, only a migration adding the FK itself. `.select('id')`
+ * after `.delete()` disambiguates "doesn't exist" from "RLS filtered it out"
+ * the same (non-distinguishing) way `deleteProject` does.
+ */
+export async function deleteTeamMember(db: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await db.from('team_members').delete().eq('id', id).select('id');
+  if (error) {
+    const sqlstate = (error as { code?: string }).code ?? '';
+    if (sqlstate === '23503') {
+      throw new ServiceError('conflict', error.message || `Team member ${id} is still referenced by existing tasks.`);
+    }
+    throw mapPgError(error);
+  }
+  if (!data || data.length === 0) {
+    throw new ServiceError('not_found', `Team member ${id} not found (or not permitted).`);
   }
 }

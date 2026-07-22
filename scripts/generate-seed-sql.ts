@@ -9,7 +9,9 @@
 // projects and 12 seed reports (7 weekly + 5 daily) translated from
 // lib/seed.ts, all owned by the dev admin. `position` is derived from array
 // order, matching every other reads-back-ordered-by-position table in this
-// schema (see docs/database-schema.md).
+// schema (see docs/database-schema.md). WP1 adds the 3-row team directory
+// seed (`seedTeamMembers()`), with no `email`/`user_id` on any row -- there
+// is nothing to self-link to on a fresh local stack.
 //
 // CAVEAT (documented, not just here): raw `auth.users`/`auth.identities`
 // inserts are the community-standard local-dev pattern for seeding a signed-
@@ -22,7 +24,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { seedDailyReports, seedProjects, seedReports } from '../lib/seed';
+import { seedDailyReports, seedProjects, seedReports, seedTeamMembers } from '../lib/seed';
 import type { AnyReport, Priority, Risk, Task } from '../lib/types';
 
 const DEV_ADMIN_ID = '00000000-0000-0000-0000-000000000001';
@@ -157,6 +159,20 @@ function projectInsert(): string {
   return `insert into projects (id, name) values\n${rows}\non conflict (id) do nothing;`;
 }
 
+/**
+ * WP1: the team directory seed -- mirrors `projectInsert()` immediately
+ * above exactly. `seedTeamMembers()` (lib/seed.ts) never sets `email`/
+ * `userId` (see that function's own doc comment on why), so both columns
+ * are always `null` here -- this insert exists mainly so a fresh `supabase
+ * db reset` has a non-empty Team tab to look at, not to demonstrate account
+ * linking (there is nothing to link to yet in a fresh local stack).
+ */
+function teamMemberInsert(): string {
+  const members = seedTeamMembers();
+  const rows = members.map((m) => `  (${str(m.id)}, ${str(m.name)}, ${str(m.role)}, ${str(m.email ?? null)}, ${str(m.userId ?? null)})`).join(',\n');
+  return `insert into team_members (id, name, role, email, user_id) values\n${rows}\non conflict (id) do nothing;`;
+}
+
 function build(): string {
   const weeklies = seedReports();
   const dailies = seedDailyReports();
@@ -203,6 +219,14 @@ ${identityInsert(MEMBER_ID, MEMBER_EMAIL)}
 -- ---------------------------------------------------------------------------
 
 ${projectInsert()}
+
+-- ---------------------------------------------------------------------------
+-- Team directory (lib/seed.ts seedTeamMembers()) -- WP1. No email/user_id on
+-- any seeded row (see that function's own doc comment); account linking has
+-- nothing to link to on a fresh local stack.
+-- ---------------------------------------------------------------------------
+
+${teamMemberInsert()}
 
 -- ---------------------------------------------------------------------------
 -- Reports (7 weekly + 5 daily, lib/seed.ts seedReports()/seedDailyReports()),

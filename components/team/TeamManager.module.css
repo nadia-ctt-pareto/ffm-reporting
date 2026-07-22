@@ -1,0 +1,82 @@
+.managerBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.adminHint {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.mutedNote {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0 0 20px;
+}
+
+.mutedCell {
+  color: var(--text-muted);
+}
+
+.rowActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.emptyState {
+  padding: 64px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.error {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--negative);
+  margin: 0 0 16px;
+}
+
+.fieldSpacer {
+  margin-top: 16px;
+}
+
+.dialogNote {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 14px 0 0;
+}
+
+.fieldError {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--negative);
+  margin: 10px 0 0;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* Mobile: row actions wrap rather than overflow once the Table stacks each
+   row into a card (Table.tsx's `stacked` prop) -- mirrors ProjectsManager's
+   `.rowAction` mobile touch-target treatment in spirit, but this column
+   holds two Buttons (already >=44px tall via Button.module.css's own
+   mobile rule) rather than a single link, so wrapping is the fix here
+   instead of extra padding. */
+@media screen and (max-width: 767px) {
+  .rowActions {
+    flex-wrap: wrap;
+  }
+}

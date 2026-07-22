@@ -27,9 +27,15 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
 
 ## Roadmap
 
-- **Now (Phase 8d complete):** Full stack with optional Supabase backend + Claude connectivity. **Demo mode**
-  (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`),
-  seeded with 7 weekly + 5 daily reports; MCP server and AI polish 404 in demo mode. **Supabase mode** (env set)
+- **Now (WP0 + WP1 complete):** Full stack with optional Supabase backend + Claude connectivity, plus the
+  first two packages of a role/team-directory rollout. **WP0/WP1: role ladder + team directory** — a
+  three-tier `member`/`pm`/`admin` role ladder (`public.role_rank()`/`has_role_at_least()`, infrastructure
+  only — no existing policy changed) and a standalone `team_members` directory (list/create/rename/delete,
+  admin-gated, Settings → Team tab) with a verified-email self-link RPC for account linking; see "Role ladder
+  and team directory (WP0 + WP1)" below. Both migrations are written but NOT applied. **Demo mode**
+  (no `NEXT_PUBLIC_SUPABASE_URL` env) runs on `localStorage` (`ff.reports.v2`, projects in `ff.projects.v1`,
+  team directory in `ff.team.v1`), seeded with 7 weekly + 5 daily reports + 3 team members; MCP server and
+  AI polish 404 in demo mode. **Supabase mode** (env set)
   uses Postgres + HTTP repository with Auth (magic-link sign-in), per-user ownership, RLS, and **cross-machine
   share links** via per-report public tokens. Share links resolve to an interactive branded HTML slide-deck route
   (`/reports/[id]/present` or `/daily/[id]/present`, outside the shell) with keyboard nav, touch swipe, deep links,
@@ -50,7 +56,10 @@ dashboard. Ported from a Claude Design prototype (`design-source/original-dashbo
   Zod (6a), added Project entity (6a), CSV import (6b), consolidation (6b); Phase 7a added Supabase schema +
   Auth; Phase 7b connected UI → Postgres with cross-machine sharing + two adversarial hardening passes.
 - **Later:** surface daily-report tasks in Task view and Calendar (documented Phase 4 follow-up); project
-  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now).
+  archive (deferred in Phase 8c — delete-when-unreferenced covers the one real need for now); the remaining
+  RBAC/team packages after WP0/WP1 — task assignee fields, the RLS access flip (graduating specific policies
+  from `is_admin()` to `has_role_at_least()`), task surfaces + Calendar showing assignees, and a "My Week"
+  export.
 - **Deployment (Phase 9):** Vercel deploy, production-hardening checklist (access-log token scrubbing, etc.).
 - Post-MVP backlog lives in `design-source/NEXT_STEPS.md` — **out of scope now.**
 
@@ -857,13 +866,13 @@ installing it against React 19 / Next 15.
 - **`Popover`** (Phase 3): a `{trigger, children, align?}` wrapper, used by
   the Calendar month grid's "+N more" day-overflow disclosure.
 
-## Settings (Phase 5; CSV import Phase 6b; MCP Phase 8a; AI polish Phase 7c; Projects tab Navigation IA restructure)
+## Settings (Phase 5; CSV import Phase 6b; MCP Phase 8a; AI polish Phase 7c; Projects tab Navigation IA restructure; Team tab WP1)
 
-`/settings` (`components/settings/SettingsScreen.tsx`) is now a tab-navigable panel with four tabs
+`/settings` (`components/settings/SettingsScreen.tsx`) is now a tab-navigable panel with five tabs
 (value/label pairs via `components/ui/Tabs`), supporting `?tab=<value>` deep-linking via
 `useSearchParams()` and `history.replaceState`. The route wraps `SettingsScreen` in `<Suspense>`.
 Inactive tab panels unmount (Radix `Tabs` default), so per-tab mount-time fetches (Projects data,
-MCP tokens, AI-key status) defer to first open.
+Team members, MCP tokens, AI-key status) defer to first open.
 
 - **Appearance**: a theme picker with three mutually-exclusive buttons (Light /
   Dark / System), wired to `useTheme().setPreference` (replaces the Dark Mode
@@ -872,6 +881,9 @@ MCP tokens, AI-key status) defer to first open.
   projects (create, rename, delete). Extracted from the old sidebar nav item and full
   `/projects` route into a Settings tab for project-scoped (vs. report-scoped) workflow.
   The full `/projects` route is retained (no longer in sidebar) for admin deeper inspection.
+- **Team** (WP1): `TeamManager` — self-contained UI to manage the Foundation First team
+  directory (create/rename/delete, admin-gated including create — see "Role ladder and
+  team directory (WP0 + WP1)" above for why Team's RLS diverges from Project's here).
 - **Import**: Supabase-only `LocalDataImportSection` (Phase 7b) ensures local reports migrate
   to Postgres on the first run, plus two Phase 6b subsections: **CSV Import Templates**
   (downloadable example CSVs for both weekly and daily imports, exercising all four `row_type`s
@@ -1276,6 +1288,127 @@ allowed. A gate is not a gate until you have watched it fail.
 
 **Migrations**: `supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql` — **applied to production 2026-07-22** via `bash scripts/apply-remote-migrations.sh` (hygiene-only, no functional change). Post-apply verification below.
 
+## Role ladder and team directory (WP0 + WP1)
+
+**WP0 — the role ladder is infrastructure, not a new access rule.** `supabase/
+migrations/20260726000015_role_ladder.sql` adds `public.role_rank(text)`
+(`IMMUTABLE`; `member`=1, `pm`=2, `admin`=3; any unrecognized value —
+typo, NULL, a future/removed tier — degrades to `member`'s rank, 1, never
+errors, never escalates) and `public.has_role_at_least(required text)`
+(`STABLE`; reads `auth.jwt() -> 'app_metadata' ->> 'role'`, coalesced to
+`'member'` when absent). **`is_admin()` (Phase 7a) is UNCHANGED and stays
+the enforcement function for every current admin-only policy** —
+`has_role_at_least()` is the successor a LATER package (the "RLS access
+flip", explicitly out of scope here) will graduate specific policies to, so
+they can require "at least `pm`" instead of "exactly `admin`". Both new
+functions get the same `revoke ... from public, anon; grant execute ... to
+authenticated;` hygiene as `is_admin()`'s own pair.
+
+`lib/roles.ts` is the client mirror: `Role` (`'member' | 'pm' | 'admin'`),
+`roleRank()`, `hasRoleAtLeast(user, required)` — reads
+`user?.app_metadata?.role`, unrecognized/absent → `'member'`. Carries the
+same JWT-staleness caveat `lib/report-access.ts`'s `canDeleteReport` already
+documents for `is_admin()`: a role change lands in the affected user's JWT
+on their next token refresh (≤ 1h), not immediately.
+
+**Role assignment is out-of-band, by design** — this app never holds a
+service-role credential at runtime (`lib/server/reports-service.ts`'s
+header comment forbids it outright), so there is no in-app role editor.
+`scripts/set-user-role.mjs <email> <member|pm|admin>` is the only way to set
+`app_metadata.role`, mirroring `scripts/create-user.mjs`'s `.env.deploy`/
+service-role-key conventions.
+
+**WP1 — the team directory.** `supabase/migrations/20260726000016_team_members.sql`
+adds a standalone `team_members` table (`id`, `name` unique, `role` CHECK'd
+to the same three values as the ladder, `email` unique nullable, `user_id`
+unique nullable FK → `auth.users(id)`, `created_at`). RLS: `select` is open
+to any authenticated user (a directory, same posture as
+`projects_select`/`reports_select`); `insert`/`update`/`delete` are ALL
+admin-only (`is_admin()`, unchanged) — this is where WP1 diverges from the
+`projects` precedent it otherwise clones: `projects_insert` is open to any
+authenticated user, but creating a directory row here is itself a
+privileged act (linking `user_id` is effectively priming an access grant, since
+a later package makes "the assignee of a task can edit it").
+
+**`team_members.role` is a DIRECTORY LABEL, not the same thing as
+`app_metadata.role`, and carries NO permission meaning.** Nothing in this
+codebase reads it for any access decision, and nothing ever should — the
+enforcement authority is exclusively the JWT. The two CAN drift (an admin
+could label someone `'admin'` here while their actual account is still a
+plain member) and this is accepted, not a bug: there is no way to avoid it
+without either handing the app a service-role credential at runtime
+(forbidden) or a SECURITY DEFINER function that lets an admin remotely
+mutate ANOTHER user's JWT claims (a much larger escalation surface than a
+cosmetic label). The persistent muted note in `components/team/TeamManager.tsx`
+states this outright: "Role here is a directory label. Permissions come
+from the account's role, which an admin sets outside the app."
+
+**Account linking — verified-email self-link, never a UUID paste box or a
+self-claim button.** This app has no service-role key at runtime, so it
+cannot list `auth.users` client-side (no admin account picker is
+buildable), and a free-typed `user_id` field would let anyone paste an
+arbitrary uuid; a "this is me" self-claim button would let anyone claim
+ANY unlinked row. Instead: an admin records the person's `email` on the
+directory row (inert metadata, independent of that account's real email
+until matched); `public.link_my_team_member() returns jsonb` (`SECURITY
+DEFINER`, `set search_path = ''`) links the CALLER ONLY — it looks up the
+caller's own, Supabase-VERIFIED `auth.users.email` by `auth.uid()` (never a
+client-supplied string) and sets `team_members.user_id = auth.uid()` for
+the single row whose `email` matches (case-insensitive) AND whose
+`user_id is null` — so it can never link the caller to someone else's row,
+never re-link an already-linked row, and (via `email unique`) can never
+match more than one row. Idempotent by construction: calling it again after
+a successful link, or when nothing matches, is a harmless no-op (`NULL`).
+Called once, quietly, after sign-in (`components/app/AppShell.tsx`'s
+`useEffect`, gated on `isSupabaseConfigured()`) — fire-and-forget, its
+rejection swallowed; nothing in WP0/WP1 depends on the link existing yet
+(a later package's task-assignee feature will).
+
+**Full entity clone of Project** (same pattern as Phase 8c's Project
+management, see that section below): `lib/schema/team.ts` (`TeamMemberSchema`
+→ `lib/types.ts`'s `TeamMember`/`TeamMemberRole`), `lib/schema/api.ts`
+(`TeamMemberInputSchema`, `TeamMemberRenameInputSchema`), `lib/server/
+db-mapping.ts` (`TeamMemberRow`/`rowToTeamMember`/`teamMemberToRow` — the
+write-side mapper deliberately never emits `user_id`), `lib/server/
+reports-service.ts` (`listTeamMembers`/`ensureTeamMember`/`renameTeamMember`/
+`deleteTeamMember`, including a forward-declared sqlstate-23503 interception
+on delete even though no FK references `team_members` yet — a later
+package's assignee FK needs no service-layer changes, only the migration
+adding the FK itself), `app/api/team/route.ts` + `app/api/team/[id]/route.ts`
+(the same 5-step shape as `app/api/projects/*`), `lib/data/
+reports-repository.ts` + both impls (`getTeamMembers`/`upsertTeamMember`/
+`renameTeamMember`/`deleteTeamMember`; localStorage key `ff.team.v1`, seeded
+from `lib/seed.ts`'s `seedTeamMembers()` — no `email`/`userId` on any seeded
+row, since a fake unverifiable email would defeat the linking design
+above), `lib/hooks/useTeamMembers.ts` (clones `useProjects.ts` exactly,
+including its non-optimistic `deleteTeamMember`), `components/team/
+TeamManager.tsx` (+ CSS — clones `ProjectsManager.tsx`'s self-contained-
+manager shape, but INLINES rename/delete into the same table since Team has
+no per-member detail route the way Projects has `/projects/[id]`; the
+admin-gated "disabled with a hint, never hidden" posture Phase 8c
+established now also covers Create, per the RLS divergence above), `lib/
+team.ts` (`resolveNewTeamMemberName` — a deliberate, documented near-copy of
+`lib/projects.ts`'s `resolveNewProjectName` rather than a shared
+generalization, since the two entities' collision rules already diverge —
+a team member's `email` is a second uniqueness axis a project has none of),
+and a new "Team" tab in `components/settings/SettingsScreen.tsx` (`?tab=team`,
+between Projects and Import).
+
+**Role/email are set ONLY at creation** — `renameTeamMember` touches EXACTLY
+the `name` column, mirroring `renameProject`'s identical narrow contract.
+Editing an existing member's role/email after creation is a deliberate,
+locked scope boundary for this package (not an oversight) — a reasonable
+follow-up once a real assignee feature makes it urgent.
+
+**Verification**: all three gates, `npm run verify:print` (8/8), and
+`npx tsx scripts/check-mcp-tool-contract.ts` (unchanged, 8 tools) all pass.
+Both migrations were statically re-read end to end (not applied) confirming
+the grant-hygiene/degrade-to-least-privilege/self-link-only/admin-only-RLS
+invariants above hold. The Settings → Team tab was driven through a real
+browser in demo mode (create → rename → delete, `ff.team.v1` inspected at
+each step, duplicate-name creation rejected) — see `docs/database-schema.md`'s
+matching section for exactly what was run vs. reasoned about.
+
 ## Sidebar & navigation (Phase 5 updates; Phase 6b adds Consolidate; Phase 8a adds MCP; Navigation IA restructure adds Home, collapsible Reports group)
 
 - `components/ui/icons.tsx` exports hand-authored inline SVG icons
@@ -1389,6 +1522,24 @@ too or it would silently never persist through the transactional write path).
 See `docs/database-schema.md`'s "Task completion date" section for the full
 story across every layer (Zod, db-mapping, CSV, MCP, the Schedule view).
 
+**WP0 (role ladder)**: `supabase/migrations/20260726000015_role_ladder.sql` —
+**written but NOT applied**. Two new functions (`public.role_rank`,
+`public.has_role_at_least`), **no existing policy changed** — `is_admin()`
+stays the enforcement function for every current admin-only policy. No
+`lib/types.ts`/domain shape change; `lib/roles.ts` is the client mirror. See
+"Role ladder and team directory (WP0 + WP1)" below.
+
+**WP1 (team directory)**: `supabase/migrations/20260726000016_team_members.sql`
+— **written but NOT applied**. One new table (`team_members`), RLS (select
+open to all authenticated, insert/update/delete admin-only), and one new
+SECURITY DEFINER RPC (`public.link_my_team_member()`, self-link only). New
+domain shape (`lib/schema/team.ts`'s `TeamMemberSchema` → `lib/types.ts`'s
+`TeamMember`/`TeamMemberRole`) landed alongside this migration, per this
+section's own rule. See "Role ladder and team directory (WP0 + WP1)" below
+and `docs/database-schema.md`'s matching section for the full story
+(function grants, RLS, the account-linking design, and the full
+repository/service/route/UI clone of the Project entity).
+
 ## Layout
 
 - `app/` — root layout (fonts, `ThemeProvider`, pre-hydration theme script),
@@ -1399,19 +1550,25 @@ story across every layer (Zod, db-mapping, CSV, MCP, the Schedule view).
 - `lib/` — `types` (z.infer facade, Phase 6a), `constants`, `format`, `report-utils`,
   `csv` (Phase 6b parsing + escaping), `csv-templates` (Phase 5 import contract),
   `prompts` (Phase 5 prompt library, locked MCP tool names, Phase 8a/7c house voice + polish fields),
-  `seed` (7 weekly + 5 daily + 4 project seed records), `aggregate` (Phase 4 daily-into-draft,
+  `seed` (7 weekly + 5 daily + 4 project + 3 team member seed records), `aggregate` (Phase 4 daily-into-draft,
   Phase 6b generalized), `view-utils`/`calendar` (Phase 3 derivation selectors), `project-view`
   (Phase 8c: `projectRollup`/`projectIsReferenced` derivation selectors), `import`
   (Phase 6b CSV importer), `consolidate` (Phase 6b consolidation logic), `projects` (Phase 6a
   project backfill; Phase 8c: `resolveNewProjectName`, shared by the CSV importer and the
-  Settings Projects tab), `report-sections` (Phase 8d: per-kind section headings + grouping),
+  Settings Projects tab), `team` (WP1: `resolveNewTeamMemberName`, a deliberate near-copy of
+  `projects`'s validator — see "Role ladder and team directory (WP0 + WP1)" above for why),
+  `roles` (WP0: client-side role-ladder mirror — `Role`/`roleRank`/`hasRoleAtLeast`),
+  `report-sections` (Phase 8d: per-kind section headings + grouping),
   `deck-slides` (Phase 8d: paginated deck builder + deterministic height estimation),
   `report-access` (Phase 8d: delete access predicate), `data/` (repository interface + localStorage impl + HTTP impl
   (Phase 7b) + factory), `hooks/useReports`, `hooks/useDailyReports` (Phase 4), `hooks/useProjects`
-  (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `schema/` (Zod 4, Phase 6a),
+  (Phase 6a; Phase 8c adds `renameProject`/`deleteProject`), `hooks/useTeamMembers` (WP1: clones
+  `useProjects` exactly), `schema/` (Zod 4, Phase 6a; WP1 adds `team.ts`),
   `server/` (Phase 7b: `reports-service`, `db-mapping`, `route-helpers`, `request-guards`;
   Phase 8a: `mcp-auth`, `mcp-tools`; Phase 7c: `ai-crypto`, `ai-keys`, `ai-polish`; Phase 8c adds
-  `renameProject`/`deleteProject` to `reports-service`; Phase 8d: `deleteReport` to `reports-service`), `supabase/` (Phase 7a: Supabase client
+  `renameProject`/`deleteProject` to `reports-service`; Phase 8d: `deleteReport` to `reports-service`;
+  WP1 adds `listTeamMembers`/`ensureTeamMember`/`renameTeamMember`/`deleteTeamMember` to
+  `reports-service` and a `TeamMemberRow`/mappers pair to `db-mapping`), `supabase/` (Phase 7a: Supabase client
   factories including `anon.ts` for token-based present routes).
 - `components/ui/` — design-system primitives (Button, StatCard, Table, Select,
   Input, Textarea, Checkbox, Switch, Badge, Dialog, Pagination, Tabs, Popover),
@@ -1439,10 +1596,12 @@ story across every layer (Zod, db-mapping, CSV, MCP, the Schedule view).
 - `components/projects/` — `ProjectsScreen` (list + create, still at `/projects`),
   `ProjectDetailScreen` (rename/delete, admin-gated; rollup, still at `/projects/[id]`),
   `ProjectsManager` (self-contained tab-based manager, Navigation IA restructure; Settings → Projects tab).
-- `components/settings/` — `SettingsScreen` (Phase 5, now 4-tab layout Navigation IA restructure; tab state +
-  `?tab=` deep-linking), `ProjectsManager` (Navigation IA restructure; Projects tab), `CsvImportSection`
-  (Phase 6b; Import tab), `McpAccessSection` (Phase 8a; Claude & AI tab), `AiKeySection`
-  (Phase 7c; Claude & AI tab), `LocalDataImportSection` (Phase 7b; Import tab).
+- `components/settings/` — `SettingsScreen` (Phase 5, now 5-tab layout Navigation IA restructure
+  + WP1's Team tab; tab state + `?tab=` deep-linking), `ProjectsManager` (Navigation IA restructure;
+  Projects tab), `CsvImportSection` (Phase 6b; Import tab), `McpAccessSection` (Phase 8a; Claude & AI
+  tab), `AiKeySection` (Phase 7c; Claude & AI tab), `LocalDataImportSection` (Phase 7b; Import tab).
+- `components/team/` — `TeamManager` (WP1: list/create/rename/delete the team directory,
+  admin-gated; Settings → Team tab — see "Role ladder and team directory (WP0 + WP1)" above).
 - `components/ai/` — `PolishButton` (Phase 7c; prose field rewrite button).
 - `styles/print.css` — global print stylesheet for the presentation deck,
   imported only by `PresentScreen.tsx`.

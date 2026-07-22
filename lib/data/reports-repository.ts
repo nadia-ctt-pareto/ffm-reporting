@@ -1,4 +1,4 @@
-import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '../types';
+import type { AnyReport, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
 
 /**
  * Swappable persistence contract for reports. The MVP implementation is
@@ -95,6 +95,41 @@ export interface ReportsRepository {
    * every `AnyReport` in `LocalStorageReportsRepository`'s).
    */
   deleteProject(id: string): Promise<void>;
+
+  /**
+   * WP1: the TeamMember entity (a directory, see lib/schema/team.ts's
+   * header comment -- `role` here is a LABEL, not an access grant). Returns
+   * all team members.
+   */
+  getTeamMembers(): Promise<TeamMember[]>;
+  /**
+   * Ensures a team member with this id exists; returns it. See each
+   * implementation's own doc comment for the exact insert-vs-replace
+   * semantics on an id collision -- they genuinely differ, mirroring
+   * `upsertProject`'s own documented split exactly (`LocalStorageReportsRepository`
+   * replaces by id, i.e. supports rename; `HttpReportsRepository` returns
+   * the existing row unchanged, i.e. never renames).
+   */
+  upsertTeamMember(member: TeamMember): Promise<TeamMember>;
+  /**
+   * Renames EXACTLY a team member's `name` -- a dedicated method rather than
+   * piggybacking on `upsertTeamMember`, for the same reason `renameProject`
+   * is dedicated rather than piggybacked on `upsertProject` (see that
+   * method's own doc comment). Never touches `role`/`email`/`userId`.
+   * Rejects (see each implementation's own doc comment) on a missing id or
+   * a duplicate name.
+   */
+  renameTeamMember(id: string, name: string): Promise<TeamMember>;
+  /**
+   * Deletes a team member. Unlike `deleteProject`, this does NOT check for
+   * references before deleting -- no FK/relationship points AT a team
+   * member yet in this package (a later package's task-assignee field will
+   * add one; `HttpReportsRepository`'s implementation is already
+   * forward-shaped for that day, see `lib/server/reports-service.ts`'s
+   * `deleteTeamMember`). Rejects on a missing id (or, in Supabase mode, an
+   * id not permitted to this caller).
+   */
+  deleteTeamMember(id: string): Promise<void>;
 
   /**
    * Post-review addition (SHOULD-FIX 13, Phase 7b): resolves once every

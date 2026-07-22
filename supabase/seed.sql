@@ -99,6 +99,18 @@ insert into projects (id, name) values
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
+-- Team directory (lib/seed.ts seedTeamMembers()) -- WP1. No email/user_id on
+-- any seeded row (see that function's own doc comment); account linking has
+-- nothing to link to on a fresh local stack.
+-- ---------------------------------------------------------------------------
+
+insert into team_members (id, name, role, email, user_id) values
+  ('jordan-reyes', 'Jordan Reyes', 'pm', null, null),
+  ('casey-okafor', 'Casey Okafor', 'admin', null, null),
+  ('sam-whitfield', 'Sam Whitfield', 'member', null, null)
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
 -- Reports (7 weekly + 5 daily, lib/seed.ts seedReports()/seedDailyReports()),
 -- all owned by the dev admin (owner_id = 00000000-0000-0000-0000-000000000001).
 -- ---------------------------------------------------------------------------

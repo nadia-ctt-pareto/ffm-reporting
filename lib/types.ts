@@ -31,6 +31,8 @@ import type {
   RiskSeveritySchema,
   TaskSchema,
   TaskStatusSchema,
+  TeamMemberRoleSchema,
+  TeamMemberSchema,
   TouchpointsSchema,
   WeeklyReportSchema,
   WinSchema,
@@ -86,6 +88,12 @@ export type AnyReport = z.infer<typeof AnyReportSchema>;
 
 /** Phase 6a: `Project { id, name }` -- matches the SQL `projects` table exactly (renamed from `clients`, see supabase/migrations/20260718000003_projects.sql). Ids are the slugs seeded in the baseline migration; see lib/seed.ts's seedProjects(). */
 export type Project = z.infer<typeof ProjectSchema>;
+
+/** WP1: the role-ladder tier shown on a directory row -- a LABEL only, see lib/schema/team.ts's header comment (this is NOT the same thing as lib/roles.ts's `Role`, which is the JWT app_metadata.role authority). */
+export type TeamMemberRole = z.infer<typeof TeamMemberRoleSchema>;
+
+/** WP1: `TeamMember { id, name, role, email?, userId? }` -- matches the SQL `team_members` table exactly (supabase/migrations/20260726000016_team_members.sql). See lib/schema/team.ts's header comment for why `role` here carries no permission meaning. */
+export type TeamMember = z.infer<typeof TeamMemberSchema>;
 
 /**
  * Alias retained so every Phase 1-3 call site (dashboard, weekly wizard,

@@ -8,6 +8,8 @@ import { DemoModeBanner } from '@/components/app/DemoModeBanner';
 import { Sidebar } from '@/components/app/Sidebar';
 import { MobileNav } from '@/components/app/MobileNav';
 import { IconMenu } from '@/components/ui/icons';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 import styles from './AppShell.module.css';
 
 const COLLAPSE_KEY = 'ff.sidebar-collapsed';
@@ -75,6 +77,35 @@ export function AppShell({ children }: AppShellProps) {
     };
     query.addEventListener('change', handleChange);
     return () => query.removeEventListener('change', handleChange);
+  }, []);
+
+  // WP1: the session-bootstrap call for the verified-email team-directory
+  // self-link (see supabase/migrations/20260726000016_team_members.sql's
+  // `public.link_my_team_member()` doc comment for the full design). This
+  // layout wraps every route in the `(shell)` group and is mounted once per
+  // full page load (a Next.js layout doesn't remount on navigation within
+  // it), which is exactly "once per sign-in session" for this app's actual
+  // usage pattern -- a better fit than any individual page. Fire-and-forget
+  // on purpose: this is a convenience (nothing in this app currently reads
+  // `team_members.user_id`), not a gate, so a failure is swallowed rather
+  // than surfaced anywhere -- see that RPC's own doc comment for why
+  // repeated/failed calls are always harmless (idempotent by construction).
+  // Demo mode has no session/RPC to call at all. Every request that reaches
+  // this layout has already passed `middleware.ts`'s Supabase-mode
+  // authenticated-route redirect, so a signed-in user is expected to
+  // already be present by the time this effect runs -- this is NOT what
+  // decides whether the caller is signed in; the RPC itself degrades to a
+  // harmless no-op (`auth.uid()` reads NULL, its own guard returns early)
+  // if it somehow ran unauthenticated anyway.
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    // `.rpc()` returns a thenable `PostgrestFilterBuilder`, not a real
+    // `Promise` -- it has no `.catch()` of its own (TS2551) -- so this
+    // wraps it in `Promise.resolve()` first, purely to get a real Promise
+    // to attach `.catch()` to.
+    Promise.resolve(getSupabaseBrowserClient().rpc('link_my_team_member')).catch(() => {
+      // Best-effort only -- see the comment above.
+    });
   }, []);
 
   return (

@@ -1,6 +1,6 @@
 import { ensureProjectIds } from '../projects';
-import { seedDailyReports, seedProjects, seedReports } from '../seed';
-import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '../types';
+import { seedDailyReports, seedProjects, seedReports, seedTeamMembers } from '../seed';
+import type { AnyReport, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
 import type { ReportsRepository } from './reports-repository';
 
 /** Phase 1-3 key: `WeeklyReport[]` only (no `kind` field). Never written to post-Phase-4 -- kept only as a migration source/backup, see migrateV1ToV2 below. */
@@ -20,6 +20,8 @@ const V1_KEY = 'ff.weekly-reports.v1';
 const V2_KEY = 'ff.reports.v2';
 /** Phase 6a: the Project entity's store, seeded from seedProjects() on first read. */
 const PROJECTS_KEY = 'ff.projects.v1';
+/** WP1: the TeamMember entity's store, seeded from seedTeamMembers() on first read -- mirrors PROJECTS_KEY exactly. */
+const TEAM_KEY = 'ff.team.v1';
 
 /**
  * MVP persistence: browser localStorage. One unified v2 store holds both
@@ -116,6 +118,35 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     if (existing !== null) return existing;
     const seeded = seedProjects();
     this.writeProjects(seeded);
+    return seeded;
+  }
+
+  /** WP1: same read/parse/fallback shape as `readProjects()` above -- mirrors it verbatim for the `TEAM_KEY` store. */
+  private readTeamMembers(): TeamMember[] | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(TEAM_KEY);
+      if (raw == null) return null;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error('Stored team members payload is not an array.');
+      return parsed as TeamMember[];
+    } catch {
+      return null;
+    }
+  }
+
+  private writeTeamMembers(members: TeamMember[]): void {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TEAM_KEY, JSON.stringify(members));
+  }
+
+  /** ff.team.v1 present & valid -> use it. Absent/corrupt -> seed from seedTeamMembers() and persist -- mirrors `loadProjects()` exactly. */
+  private async loadTeamMembers(): Promise<TeamMember[]> {
+    if (typeof window === 'undefined') return [];
+    const existing = this.readTeamMembers();
+    if (existing !== null) return existing;
+    const seeded = seedTeamMembers();
+    this.writeTeamMembers(seeded);
     return seeded;
   }
 
@@ -306,6 +337,56 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     );
     if (referenced) throw new Error('This project is still referenced by existing reports.');
     this.writeProjects(projects.filter((p) => p.id !== id));
+  }
+
+  /** Returns all team members, seeding `ff.team.v1` from `seedTeamMembers()` on first read -- mirrors `getProjects()`. */
+  async getTeamMembers(): Promise<TeamMember[]> {
+    return this.loadTeamMembers();
+  }
+
+  /** Insert if `member.id` is new, otherwise REPLACE the existing member by id (a rename is possible this way, mirroring `upsertProject`'s identical local-storage-only convenience -- genuinely different from `HttpReportsRepository.upsertTeamMember`, see that class's doc comment). */
+  async upsertTeamMember(member: TeamMember): Promise<TeamMember> {
+    const all = await this.loadTeamMembers();
+    const exists = all.some((m) => m.id === member.id);
+    const next = exists ? all.map((m) => (m.id === member.id ? member : m)) : [...all, member];
+    this.writeTeamMembers(next);
+    return member;
+  }
+
+  /**
+   * WP1: renames EXACTLY the `name` field of the member with `id` -- `id`,
+   * `role`, `email`, and `userId` are all untouched, mirroring
+   * `renameProject`'s identical name-only contract. Demo mode has no
+   * admin/session concept (see `components/team/TeamManager.tsx`'s own doc
+   * comment on how it decides who sees the controls) -- this method
+   * performs no such gating itself, matching every other localStorage
+   * repository method. Throws if `id` doesn't exist, or if a DIFFERENT
+   * existing member already has this exact `name` (mirrors SQL's
+   * `team_members_name_key` unique constraint).
+   */
+  async renameTeamMember(id: string, name: string): Promise<TeamMember> {
+    const all = await this.loadTeamMembers();
+    const existing = all.find((m) => m.id === id);
+    if (!existing) throw new Error(`Team member ${id} not found.`);
+    const duplicate = all.find((m) => m.id !== id && m.name === name);
+    if (duplicate) throw new Error(`A team member named "${name}" already exists.`);
+    const renamed: TeamMember = { ...existing, name };
+    this.writeTeamMembers(all.map((m) => (m.id === id ? renamed : m)));
+    return renamed;
+  }
+
+  /**
+   * WP1: deletes a team member. No reference scan (unlike `deleteProject`)
+   * -- no locally-stored `AnyReport`/task/risk carries a link TO a team
+   * member in this package (a later package's task-assignee field would
+   * add one, at which point this method should gain the same "referenced"
+   * scan `deleteProject` already does). Throws if `id` doesn't exist,
+   * mirroring `renameProject`'s "throw on a missing id" posture.
+   */
+  async deleteTeamMember(id: string): Promise<void> {
+    const all = await this.loadTeamMembers();
+    if (!all.some((m) => m.id === id)) throw new Error(`Team member ${id} not found.`);
+    this.writeTeamMembers(all.filter((m) => m.id !== id));
   }
 
   /** No write queue in this implementation -- every write above already resolves (or rejects, on a `localStorage` quota/serialization error) before its own promise settles, so there is nothing async left to wait on. Always resolves immediately. */

@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 import { AnyReportInputSchema } from '../schema/report';
-import type { AnyReport, Priority, ReportStatus, Risk, RiskSeverity, Task, TaskStatus } from '../types';
+import type { AnyReport, Priority, ReportStatus, Risk, RiskSeverity, Task, TaskStatus, TeamMember, TeamMemberRole } from '../types';
 
 /** Request-body shape for a report (never the row shape -- see lib/schema/api.ts's header comment). Re-exported from here since lib/server/reports-service.ts's `upsertReports` needs it for its `reports` parameter, and this is the natural "SQL boundary" home for it. */
 export type AnyReportInput = z.infer<typeof AnyReportInputSchema>;
@@ -291,5 +291,53 @@ export function reportToRow(report: AnyReportInput) {
     })),
     risks: report.risks.map((r) => ({ id: r.id, client: r.client, project_id: r.projectId ?? null, severity: r.severity, description: r.description, next_step: r.nextStep })),
     priorities: report.priorities.map((p) => ({ id: p.id, text: p.text })),
+  };
+}
+
+// =============================================================================
+// WP1: TeamMember row <-> domain mapping. Same file, same convention, as
+// everything above -- a new, independent entity, not a report/task/risk
+// variant, but this is still the one place server-side snake_case<->
+// camelCase translation lives (see this file's header comment).
+// =============================================================================
+
+/** Shape of a `team_members` row (supabase/migrations/20260726000016_team_members.sql), as selected by `lib/server/reports-service.ts`'s `listTeamMembers`/`ensureTeamMember`/`renameTeamMember`. */
+export interface TeamMemberRow {
+  id: string;
+  name: string;
+  role: TeamMemberRole;
+  email: string | null;
+  user_id: string | null;
+  created_at: string;
+}
+
+/** SQL row -> TS domain `TeamMember`. `created_at` is intentionally NOT surfaced on the domain `TeamMember` type at all (lib/schema/team.ts has no such field -- unlike `AnyReport`, nothing in this app currently displays when a directory row was created), so it's simply dropped here rather than normalized through `toDomainTimestamp`. */
+export function rowToTeamMember(row: TeamMemberRow): TeamMember {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    email: row.email ?? undefined,
+    userId: row.user_id ?? undefined,
+  };
+}
+
+/**
+ * TS domain `TeamMember` -> the INSERT/UPSERT payload shape `ensureTeamMember`
+ * sends (lib/server/reports-service.ts). Deliberately never emits `user_id`
+ * -- that column is written ONLY by `public.link_my_team_member()` (the
+ * SECURITY DEFINER RPC, supabase/migrations/20260726000016_team_members.sql),
+ * never by any app write path; omitting it here is what makes that
+ * guarantee hold even if a caller's in-memory `TeamMember` object happens to
+ * carry a `userId` (e.g. echoed back from a prior read) -- it is silently
+ * dropped on the way back into a write, exactly like `reportToRow` never
+ * emitting `owner_id` on update.
+ */
+export function teamMemberToRow(member: TeamMember) {
+  return {
+    id: member.id,
+    name: member.name,
+    role: member.role,
+    email: member.email ?? null,
   };
 }

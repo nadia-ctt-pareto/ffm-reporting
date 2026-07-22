@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { POLISH_FIELD_IDS } from '../prompts';
 import { isoDate, AnyReportInputSchema, ReportCoreInputSchema } from './report';
 import { ProjectSchema } from './project';
+import { TeamMemberSchema } from './team';
 
 /** `POST /api/reports` body -- one batch write, mapped 1:1 onto a single `replace_reports` RPC call (see lib/server/reports-service.ts's `upsertReports`). Bounded at 1000 so a pathological body can't hang the RPC/transaction indefinitely. */
 export const UpsertReportsRequestSchema = z.object({
@@ -92,6 +93,22 @@ export type ProjectInput = z.infer<typeof ProjectInputSchema>;
  */
 export const ProjectRenameInputSchema = z.object({ name: ProjectSchema.shape.name });
 export type ProjectRenameInput = z.infer<typeof ProjectRenameInputSchema>;
+
+/** WP1: `POST /api/team` body. Same "no server-only fields to strip" shape as `ProjectInputSchema` above -- `TeamMemberSchema` has none either (`userId` is never client-supplied for a CREATE; the route only ever calls `ensureTeamMember`, which never writes that column -- see `lib/server/reports-service.ts`). */
+export const TeamMemberInputSchema = TeamMemberSchema;
+export type TeamMemberInput = z.infer<typeof TeamMemberInputSchema>;
+
+/**
+ * WP1: `PATCH /api/team/[id]` body -- a rename touches EXACTLY the `name`
+ * field, mirroring `ProjectRenameInputSchema` immediately above (same
+ * rationale: `id` comes from the URL and there is nothing in this schema to
+ * even carry a client-supplied one; `role`/`email`/`userId` edits are out
+ * of scope for this package -- see `lib/team.ts`'s header comment on why
+ * `renameTeamMember` stays name-only, matching `renameProject`'s own
+ * narrow contract).
+ */
+export const TeamMemberRenameInputSchema = z.object({ name: TeamMemberSchema.shape.name });
+export type TeamMemberRenameInput = z.infer<typeof TeamMemberRenameInputSchema>;
 
 /** Shape of every non-2xx JSON body a route handler under `app/api/**` returns. `issues` (present only on a 400 from a failed Zod parse) is `ZodIssue[]`, typed loosely here since it's diagnostic-only -- no caller in this phase branches on its shape. */
 export interface ApiErrorBody {

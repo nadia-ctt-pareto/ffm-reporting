@@ -30,7 +30,7 @@
 // repository's interface in Phase 7b (see the Phase 7b plan's "Alternatives
 // considered and rejected").
 
-import type { AnyReport, DailyReport, Project, ReportCore, WeeklyReport } from '../types';
+import type { AnyReport, DailyReport, Project, ReportCore, TeamMember, WeeklyReport } from '../types';
 import type { ReportsRepository } from './reports-repository';
 
 /** Thrown by every method below on a non-2xx response. `status` is exposed so a future caller (e.g. a share-dialog surfacing a 403 differently from a 500) can branch on it without re-deriving it from `message`. */
@@ -203,6 +203,58 @@ export class HttpReportsRepository implements ReportsRepository {
   async deleteProject(id: string): Promise<void> {
     return this.enqueueWrite(async () => {
       await request<void>(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    });
+  }
+
+  async getTeamMembers(): Promise<TeamMember[]> {
+    const { members } = await request<{ members: TeamMember[] }>('/api/team');
+    return members;
+  }
+
+  /**
+   * WP1: `POST /api/team` -> `ensureTeamMember` (lib/server/reports-service.ts)
+   * -- insert-or-return-existing, never a rename. Semantic difference from
+   * `LocalStorageReportsRepository.upsertTeamMember` (documented, not a bug,
+   * mirroring `upsertProject`'s identical split): calling this with an `id`
+   * that already exists under a DIFFERENT `name`/`role`/`email` silently
+   * returns the EXISTING row unchanged, not the values just passed in.
+   */
+  async upsertTeamMember(member: TeamMember): Promise<TeamMember> {
+    return this.enqueueWrite(async () => {
+      const { member: created } = await request<{ member: TeamMember }>('/api/team', {
+        method: 'POST',
+        body: JSON.stringify(member),
+      });
+      return created;
+    });
+  }
+
+  /**
+   * WP1: `PATCH /api/team/[id]` -> `renameTeamMember` (lib/server/reports-service.ts)
+   * -- a `.update({ name })` gated by `team_members_update` RLS (admin-only).
+   * Rejects (via `toHttpError`, curated server-side) on a duplicate name, a
+   * non-admin caller, or an unknown id.
+   */
+  async renameTeamMember(id: string, name: string): Promise<TeamMember> {
+    return this.enqueueWrite(async () => {
+      const { member } = await request<{ member: TeamMember }>(`/api/team/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+      return member;
+    });
+  }
+
+  /**
+   * WP1: `DELETE /api/team/[id]` -> `deleteTeamMember` (lib/server/reports-service.ts),
+   * admin-gated by `team_members_delete` RLS. No referenced-by-FK check exists
+   * yet (see that function's own doc comment) -- a later package adding a
+   * task-assignee FK will make this reject with a curated "still assigned"
+   * message the same way `deleteProject` already does for projects.
+   */
+  async deleteTeamMember(id: string): Promise<void> {
+    return this.enqueueWrite(async () => {
+      await request<void>(`/api/team/${encodeURIComponent(id)}`, { method: 'DELETE' });
     });
   }
 

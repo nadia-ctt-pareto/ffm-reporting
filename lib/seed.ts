@@ -25,7 +25,7 @@
 
 import { FF_CLIENTS } from './constants';
 import { uid } from './format';
-import type { DailyReport, Priority, Project, Report, Risk, Task, WeeklyReport } from './types';
+import type { DailyReport, Priority, Project, Report, Risk, Task, TeamMember, WeeklyReport } from './types';
 
 function mk(
   id: string,
@@ -546,5 +546,31 @@ export function seedProjects(): Project[] {
     { id: 'dryroot-waterproofing', name: 'DryRoot Waterproofing' },
     { id: 'summit-basement-solutions', name: 'Summit Basement Solutions' },
     { id: 'terrafirm-foundation-repair', name: 'TerraFirm Foundation Repair' },
+  ];
+}
+
+/**
+ * WP1: 2-3 Team members seeded to `ff.team.v1` on first read
+ * (`LocalStorageReportsRepository.getTeamMembers()`). Hardcoded verbatim
+ * (not derived via `slugifyTeamMemberName()`), same "can't drift from the
+ * SQL seed" rationale as `seedProjects()` immediately above --
+ * `scripts/generate-seed-sql.ts` copies these same three rows into
+ * `supabase/seed.sql`. Deliberately no `email`/`userId` on any row: seeding
+ * a fake, unverifiable email would defeat the whole point of the
+ * verified-email self-link design (see supabase/migrations/
+ * 20260726000016_team_members.sql's header comment) -- an admin sets a
+ * real email later, out of band, once there's a real person to link.
+ * "Jordan Reyes" intentionally matches `seedReports()`'s `preparedBy`
+ * string above (the PM who authors these seed reports) so the directory
+ * and the report content agree on who that person is; the other two are
+ * new, fictional Foundation First staff (not any client-side contact --
+ * `preparedFor`'s "Christene, Founder" is the CLIENT's recipient, never a
+ * Foundation First team member, and is deliberately not reused here).
+ */
+export function seedTeamMembers(): TeamMember[] {
+  return [
+    { id: 'jordan-reyes', name: 'Jordan Reyes', role: 'pm' },
+    { id: 'casey-okafor', name: 'Casey Okafor', role: 'admin' },
+    { id: 'sam-whitfield', name: 'Sam Whitfield', role: 'member' },
   ];
 }

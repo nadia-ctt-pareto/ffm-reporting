@@ -1801,6 +1801,283 @@ cannot. Every other seeded Complete task is deliberately left un-stamped,
 so the Schedule view's week-level inference fallback also has real,
 unaffected data to demonstrate side by side with the recorded-date path.
 
+## Role ladder and team directory (WP0 + WP1)
+
+**Status: both migrations below are WRITTEN but NOT APPLIED** (the user
+applies migrations themselves, same posture as `20260725000014_task_completed_at.sql`).
+Everything in this section describes SQL that was authored, statically
+re-read end-to-end for the invariants below, and reasoned about -- not
+verified live against a running database. See CLAUDE.md's "Role ladder and
+team directory (WP0 + WP1)" section for the plan-level summary and what was
+verified by RUNNING (the Settings Team tab, in demo mode, via a headless
+browser) vs. reasoned about (the SQL itself).
+
+### WP0 -- the role ladder (`supabase/migrations/20260726000015_role_ladder.sql`)
+
+Two new functions, **no existing policy changed**:
+
+- `public.role_rank(role text) returns int` -- `IMMUTABLE`. `member` = 1,
+  `pm` = 2, `admin` = 3; anything else (a typo, NULL, a future/removed tier,
+  the empty string) returns 1 via a `CASE ... ELSE 1 END` -- the SAME rank
+  as `member`. This is the single load-bearing invariant of the whole
+  ladder: an unrecognized role must degrade to the LEAST privilege, never
+  error, never resolve to something higher than `member`.
+- `public.has_role_at_least(required text) returns boolean` -- `STABLE`
+  (reads `auth.jwt()`, so it can't be `IMMUTABLE` like `role_rank` above --
+  same volatility category as `is_admin()`):
+  ```sql
+  select public.role_rank(coalesce(auth.jwt() -> 'app_metadata' ->> 'role', 'member'))
+         >= public.role_rank(required)
+  ```
+
+**`is_admin()` (supabase/migrations/20260719000004_auth_ownership.sql) is
+UNCHANGED and remains the enforcement function for every existing
+admin-only policy** (`projects_update`/`_delete`, and the new
+`team_members_insert`/`_update`/`_delete` below) -- `has_role_at_least()`
+is the SUCCESSOR a LATER package (the "RLS access flip", explicitly out of
+scope for WP0/WP1) will graduate specific policies to, so they can require
+"at least `pm`" instead of "exactly `admin`". Nothing in WP0/WP1 calls
+`has_role_at_least()` from inside a policy yet.
+
+Both functions get the same grant-hygiene treatment as every other function
+in this schema (`revoke all ... from public, anon; grant execute ... to
+authenticated;`) -- neither leaks anything sensitive on its own (both are
+either a pure function of their own argument, or reveal only the caller's
+own role), so this is the same defense-in-depth posture `is_admin()`'s own
+identical pair documents, not the closure of a live leak.
+
+**Client mirror**: `lib/roles.ts` -- `Role` (`'member' | 'pm' | 'admin'`),
+`roleRank()`, `hasRoleAtLeast(user, required)` (reads
+`user?.app_metadata?.role`, unknown/absent -> `'member'`, byte-for-byte
+mirroring the SQL). Carries the identical JWT-staleness caveat
+`lib/report-access.ts`'s `canDeleteReport` already documents for
+`is_admin()`: a role change made via `scripts/set-user-role.mjs` only lands
+in the affected user's JWT on their next token refresh (≤ 1h) -- signing
+out and back in clears it immediately.
+
+**Role assignment is out-of-band, by design.** This app never holds a
+service-role credential at runtime (`lib/server/reports-service.ts`'s
+header comment forbids it outright), so there is no in-app role editor.
+`scripts/set-user-role.mjs <email> <member|pm|admin>` is the only way to
+set `app_metadata.role` -- it looks the user up by email (paginating
+`GET /auth/v1/admin/users`, since GoTrue's admin list-users endpoint
+doesn't reliably support an email-filter query param across versions),
+merges `{ role }` into their EXISTING `app_metadata` (never overwrites it
+wholesale -- every account already carries `provider`/`providers` keys
+GoTrue itself set at signup), and `PUT`s the result via
+`/auth/v1/admin/users/:id`. Mirrors `scripts/create-user.mjs`'s
+`.env.deploy`/service-role-key conventions exactly.
+
+### WP1 -- the team directory (`supabase/migrations/20260726000016_team_members.sql`)
+
+A new, standalone table:
+
+```sql
+create table team_members (
+  id text primary key,
+  name text not null unique,
+  role text not null default 'member' check (role in ('member','pm','admin')),
+  email text unique,
+  user_id uuid unique references auth.users (id),
+  created_at timestamptz not null default now()
+);
+create index team_members_user_id_idx on team_members (user_id);
+```
+
+#### Field mapping: `team_members`
+
+| TS field (`TeamMember`) | Column       | Type                | Notes |
+| ------------------------ | ------------ | ------------------- | ----- |
+| `id`                     | `id`         | `text` PK           | slug of the name (e.g. `jordan-reyes`); immutable post-create, same posture as `projects.id` |
+| `name`                   | `name`       | `text`, `unique`    | display string; the ONLY column `authenticated` writes post-create (`renameTeamMember`) |
+| `role`                   | `role`       | `text`, CHECK       | **directory LABEL ONLY -- see below** |
+| `email`                  | `email`      | `text`, `unique`, nullable | admin-recorded; inert until matched by `link_my_team_member()` |
+| `userId`                 | `user_id`    | `uuid`, `unique`, nullable, FK -> `auth.users(id)` | set ONLY by `link_my_team_member()`, never by any app write path |
+| *(none)*                 | `created_at` | `timestamptz`       | not surfaced on the `TeamMember` TS type at all -- nothing in this app currently displays it |
+
+**`team_members.role` is NOT `app_metadata.role`.** This is the single most
+important thing to get right about this table, restated in three places
+(this doc, the migration's own header comment, `lib/schema/team.ts`'s
+header comment, and the persistent muted note in
+`components/team/TeamManager.tsx`) specifically because it's easy to
+conflate two same-named, same-three-values fields that mean completely
+different things:
+
+| | `team_members.role` | JWT `app_metadata.role` |
+|---|---|---|
+| What it is | A directory LABEL, shown next to a name | The account's ACTUAL authority |
+| Who sets it | An admin, via `ensureTeamMember` at create time only -- see below | `scripts/set-user-role.mjs` only |
+| What reads it for access control | **Nothing. Ever.** (grep protection: if this ever changes, it's a bug in whatever new code reads it) | `public.is_admin()` / `public.has_role_at_least()` (SQL), `lib/roles.ts` (client) |
+| Can it be wrong/stale relative to the other? | Yes, by design -- see the migration's header comment for why this is accepted | N/A -- it IS the authority |
+
+#### RLS
+
+```sql
+alter table team_members enable row level security;
+create policy team_members_select on team_members for select to authenticated using (true);
+create policy team_members_insert on team_members for insert to authenticated with check (public.is_admin());
+create policy team_members_update on team_members for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+create policy team_members_delete on team_members for delete to authenticated using (public.is_admin());
+revoke all on public.team_members from anon;
+```
+
+`select` is open to any authenticated user (`using (true)`) -- a directory,
+same posture as `projects_select`/`reports_select`: a later package's
+assignee picker and task-card name rendering need every signed-in user to
+read every row. **All three mutating verbs are admin-only** -- this is the
+one place WP1's table diverges from the `projects` precedent it otherwise
+clones: `projects_insert` is open to ANY authenticated user (creating a
+project isn't privileged), but `team_members_insert` is admin-only, because
+creating a directory row here is: linking `user_id` (via the SECURITY
+DEFINER RPC below, which bypasses RLS for that one write) is effectively
+priming an access grant, since a later package makes "the assignee of a
+task can edit it" -- so who is even ON this directory, under what
+name/email, must never be member-writable. Because insert/update/delete
+are ALL already admin-only at the row level, WP1 does NOT add a
+Phase-8c-style column-level grant restricting WHICH column `authenticated`
+may touch (contrast `supabase/migrations/20260724000011_project_management.sql`'s
+`grant update (name) on projects to authenticated` -- that existed
+specifically because `projects_insert` was open to non-admins while
+`projects_update` wasn't, a gap that doesn't exist here).
+
+`revoke all on public.team_members from anon` is landed at table-CREATION
+time (never even briefly missing), matching the SHOULD-FIX 1 /
+`20260724000013_reports_anon_grant_hygiene.sql` hygiene posture from day
+one rather than as a follow-up cleanup migration.
+
+#### Account linking: why not a UUID paste box
+
+This app has no service-role key at runtime, so it cannot list
+`auth.users` client-side -- an admin picker over real accounts is not
+buildable, and a free-typed `user_id` field would let anyone paste an
+arbitrary uuid and silently grant a directory row (and, later, its
+assigned tasks) to an unrelated account. A "this is me" self-claim button
+has the mirror-image problem: anyone signed in could claim ANY unlinked
+row, including someone else's.
+
+The design that shipped instead:
+
+1. An admin records the person's `email` on the directory row (independent
+   of that person's actual `auth.users.email`, if they even have an
+   account yet -- inert metadata until step 2 actually matches it).
+2. `public.link_my_team_member() returns jsonb` -- `SECURITY DEFINER`,
+   `set search_path = ''`, links the **CALLER ONLY**: it looks up the
+   caller's own, Supabase-VERIFIED `auth.users.email` by `auth.uid()`
+   (never a client-supplied string), then does
+   `update team_members set user_id = auth.uid() where lower(email) =
+   caller_email and user_id is null`. The security argument, restated:
+   - `auth.uid()` is the JWT's own subject claim -- a caller can never
+     influence whose uid this reads.
+   - The email compared against is always the CALLER's own verified
+     account email, never anyone else's.
+   - `user_id is null` means an already-linked row can never be re-linked,
+     which is also what makes repeated calls a safe no-op (idempotent).
+   - `email unique` guarantees at most one row could ever match.
+   - Together: this function can never link a caller to someone else's
+     row, never re-link a row out from under whoever holds it, and never
+     be used to enumerate the directory's emails (it returns a row only on
+     an actual, successful link for the CALLER).
+3. Called once, quietly, after sign-in (`components/app/AppShell.tsx`'s
+   `useEffect`, gated on `isSupabaseConfigured()`) -- a plain
+   `getSupabaseBrowserClient().rpc('link_my_team_member')`, its rejection
+   swallowed. This is a convenience, not a gate: nothing in WP0/WP1 reads
+   `team_members.user_id` for any access decision yet (a later package's
+   assignee feature will).
+
+Grant hygiene on `link_my_team_member()` matches every other `SECURITY
+DEFINER` function in this schema (`revoke all ... from public, anon; grant
+execute ... to authenticated;`).
+
+#### Repository / service / route layer (full entity clone of Project)
+
+- `lib/schema/team.ts` -- `TeamMemberSchema` (id/name/role/email?/userId?),
+  same `.max()`-cap convention as `lib/schema/project.ts`'s `ProjectSchema`.
+  Re-exported through `lib/types.ts`'s facade (`TeamMember`,
+  `TeamMemberRole`) and `lib/schema/index.ts`'s barrel, exactly like
+  `Project`.
+- `lib/schema/api.ts` -- `TeamMemberInputSchema` (= `TeamMemberSchema`,
+  no server-only fields to strip, mirroring `ProjectInputSchema`) and
+  `TeamMemberRenameInputSchema` (`{ name }` only, mirroring
+  `ProjectRenameInputSchema`).
+- `lib/server/db-mapping.ts` -- `TeamMemberRow`, `rowToTeamMember`,
+  `teamMemberToRow` (the write-side mapper deliberately NEVER emits
+  `user_id` -- see its own doc comment).
+- `lib/server/reports-service.ts` -- `listTeamMembers` / `ensureTeamMember`
+  (insert-or-return-existing, never a rename, mirroring `ensureProject`) /
+  `renameTeamMember` (name-only, mirroring `renameProject`) /
+  `deleteTeamMember` (intercepts sqlstate 23503 BEFORE `mapPgError`'s
+  generic mapping, mirroring `deleteProject`'s identical shape -- even
+  though NO FK references `team_members` yet in this package; the
+  interception is forward-declared so a later package's task-assignee FK
+  needs no changes here, only a migration adding the FK itself).
+  `curatedMessage` gained three new branches: `team_members_name_key` ->
+  "A member with this name already exists."; `team_members_email_key` ->
+  "A member with this email already exists."; a forward-declared
+  `_assignee_id_fkey|_team_member_id_fkey` match -> "This member is still
+  assigned to existing tasks." (unreachable today, ready for the FK a
+  later package adds).
+- `app/api/team/route.ts` + `app/api/team/[id]/route.ts` -- the exact
+  5-step shape (demo-mode 404 -> `assertMutationAllowed` -> auth ->
+  validate -> service -> `handleServiceError`) cloned from
+  `app/api/projects/*`.
+- `lib/data/reports-repository.ts` + both impls -- `getTeamMembers` /
+  `upsertTeamMember` / `renameTeamMember` / `deleteTeamMember`.
+  `LocalStorageReportsRepository` stores at `ff.team.v1`, seeded from
+  `lib/seed.ts`'s `seedTeamMembers()` on first read (no `email`/`userId` on
+  any seeded row -- seeding a fake, unverifiable email would defeat the
+  whole point of the design above); `HttpReportsRepository` writes through
+  `enqueueWrite`, same as every other write.
+- `lib/hooks/useTeamMembers.ts` -- clones `useProjects.ts` exactly,
+  including the optimistic + rollback pattern on `upsertTeamMember`/
+  `renameTeamMember` and the deliberately NON-optimistic `deleteTeamMember`
+  (a delete is terminal; a failed one should leave the row visibly present
+  with a visible error, not a flash of "removed" that pops back).
+- `components/team/TeamManager.tsx` (+ CSS) -- clones `ProjectsManager.tsx`'s
+  self-contained-manager shape, but INLINES rename/delete into the same
+  table (Team has no per-member detail route the way Projects has
+  `/projects/[id]`) with the same admin-gated "disabled with a hint, never
+  hidden" posture `ProjectDetailScreen.tsx` established -- extended here to
+  cover Create too (see the RLS section above for why). A persistent muted
+  note states the label/authority split outright: "Role here is a
+  directory label. Permissions come from the account's role, which an
+  admin sets outside the app." Role/email are set ONLY at creation --
+  editing an existing member's role/email is out of scope for this
+  package, matching `renameTeamMember`'s deliberately name-only contract.
+- `lib/team.ts` -- `resolveNewTeamMemberName` (name-collision validation for
+  the "New Team Member" dialog). Deliberately a SEPARATE module from
+  `lib/projects.ts`'s `resolveNewProjectName`, not a shared generalization
+  -- see that file's own header comment for the two reasons (scope
+  creep into a file documented as Project-specific; the two entities'
+  collision rules already diverge, since a team member's `email` is a
+  second uniqueness axis a project has no equivalent of).
+- `components/settings/SettingsScreen.tsx` -- new "Team" tab (`?tab=team`),
+  between "Projects" and "Import", following the existing tab conventions.
+
+### What was verified how
+
+- **Static SQL re-read (not applied)**: both migration files were re-read
+  end to end confirming (1) every new function has the explicit
+  revoke/grant hygiene pair; (2) `role_rank` degrades every unrecognized
+  input to `member`'s rank via its `CASE ... ELSE 1 END`; (3)
+  `link_my_team_member()` can only ever affect the single row matching the
+  CALLER's own verified email, via the three-part argument in its own
+  section above; (4) RLS is enabled on `team_members` and every mutating
+  policy is admin-only; (5) no EXISTING policy in either migration file was
+  touched.
+- **Real browser, demo mode (RUN, not just reasoned about)**: a throwaway
+  CDP script drove Settings -> Team through create -> rename -> delete,
+  confirming `ff.team.v1` in `localStorage` reflects each step and that a
+  duplicate-name create is rejected client-side by `resolveNewTeamMemberName`
+  before ever reaching the repository. See CLAUDE.md's "Role ladder and
+  team directory (WP0 + WP1)" section for the transcript summary and
+  screenshot paths.
+- **NOT verified by running**: the Supabase-mode admin-only RLS round trip
+  (a non-admin's `POST`/`PATCH`/`DELETE` against `/api/team*` actually
+  returning 403/404 as curated), and `link_my_team_member()`'s live
+  behavior against two real accounts. Both would need an applied migration
+  against a real project, which this package deliberately does not do.
+
 ## Cutover checklist
 
 **Before anything else: use `ReportCoreInputSchema`/`AnyReportInputSchema`

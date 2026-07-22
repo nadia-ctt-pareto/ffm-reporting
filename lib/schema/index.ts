@@ -10,3 +10,7 @@
 
 export * from './report';
 export * from './project';
+// WP1: TeamMember follows the exact same barrel rule as Project above --
+// it's a domain shape (persisted, read by lib/types.ts), not a wire-only
+// shape like lib/schema/api.ts's *InputSchema variants.
+export * from './team';

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { PageHeader } from '@/components/app/PageHeader';
 import { ProjectsManager } from '@/components/projects/ProjectsManager';
+import { TeamManager } from '@/components/team/TeamManager';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import type { ThemePreference } from '@/components/theme/ThemeProvider';
 import { Button } from '@/components/ui/Button';
@@ -25,7 +26,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'system', label: 'System' },
 ];
 
-const TABS = ['appearance', 'projects', 'import', 'claude'] as const;
+const TABS = ['appearance', 'projects', 'team', 'import', 'claude'] as const;
 type SettingsTab = (typeof TABS)[number];
 
 function isTab(value: string | null): value is SettingsTab {
@@ -33,22 +34,25 @@ function isTab(value: string | null): value is SettingsTab {
 }
 
 /**
- * `/settings` -- the sections regrouped (nav IA restructure) into four
+ * `/settings` -- the sections regrouped (nav IA restructure) into five
  * tab-navigable panels, deep-linkable via `?tab=<value>`:
  *  - **Appearance**: the theme picker (Light/Dark/System).
  *  - **Projects**: the self-contained `ProjectsManager` (also the `/projects`
  *    route). This is where Projects lives now that it left the sidebar.
+ *  - **Team** (WP1): the self-contained `TeamManager` -- the Foundation First
+ *    team directory (list/create/rename/delete, admin-gated). See
+ *    `components/team/TeamManager.tsx`'s own doc comment.
  *  - **Import**: CSV import templates + the live CSV importer + (Supabase)
  *    Local Data Import.
  *  - **Claude & AI**: the MCP prompt library + (Supabase) MCP Access + AI Polish.
  *
  * Tab grouping is chosen so no tab is empty in demo mode (Appearance, Projects,
- * a template/importer, and the always-on prompt library each carry their tab).
- * `Tabs` unmounts inactive panels, so each section's mount-time fetch (MCP
- * tokens, AI-key status) is deferred until its tab is first opened -- fine.
- * `?tab=` is synced with `window.history.replaceState` (shallow, same idiom as
- * PresentScreen's `?slide=`); reading `useSearchParams()` is why the route wraps
- * this in `<Suspense>`.
+ * Team, a template/importer, and the always-on prompt library each carry their
+ * tab). `Tabs` unmounts inactive panels, so each section's mount-time fetch
+ * (Team members, MCP tokens, AI-key status) is deferred until its tab is first
+ * opened -- fine. `?tab=` is synced with `window.history.replaceState`
+ * (shallow, same idiom as PresentScreen's `?slide=`); reading
+ * `useSearchParams()` is why the route wraps this in `<Suspense>`.
  */
 export function SettingsScreen() {
   const { preference, setPreference } = useTheme();
@@ -122,6 +126,18 @@ export function SettingsScreen() {
               page.
             </p>
             <ProjectsManager />
+          </section>
+        </div>
+      ),
+    },
+    {
+      value: 'team',
+      label: 'Team',
+      content: (
+        <div className={styles.tabPanel}>
+          <section className={styles.section}>
+            <p className={styles.sectionCopy}>The Foundation First team directory -- used by assignee pickers on tasks (a later package).</p>
+            <TeamManager />
           </section>
         </div>
       ),
