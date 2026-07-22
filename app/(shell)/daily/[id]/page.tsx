@@ -5,7 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
+import { useSession } from '@/lib/hooks/useSession';
+import { canDeleteReport, DELETE_REPORT_HINT } from '@/lib/report-access';
 import { invalidDailyDateEdit } from '@/lib/report-utils';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { ReportFieldPatch } from '@/lib/types';
 
 /**
@@ -32,11 +35,18 @@ import type { ReportFieldPatch } from '@/lib/types';
  * so a same-date daily belonging to a different (imported) project no longer
  * blocks this edit; a house daily (`projectId` unset) still collides with
  * another house daily on the same date exactly as before.
+ *
+ * WP4 (delete): `canDelete` mirrors `app/(shell)/reports/[id]/page.tsx`'s
+ * identical gate byte-for-byte (owner-or-admin, matching `reports_delete`
+ * RLS; unconditionally `true` in demo mode) -- see that file's own doc
+ * comment for the full rationale, including why no read-schema change was
+ * needed for `report.ownerId`.
  */
 export default function DailyReportDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { reports, loadError, updateReportFields, mutationError } = useDailyReports();
+  const { reports, loadError, updateReportFields, deleteReport, mutationError } = useDailyReports();
+  const { user, loading: sessionLoading } = useSession();
   const [periodError, setPeriodError] = useState('');
 
   const id = params.id;
@@ -57,6 +67,14 @@ export default function DailyReportDetailPage() {
     updateReportFields(id, patch).catch(() => {});
   };
 
+  // WP4: see this component's own doc comment above for the full
+  // owner-or-admin rationale -- this line is the entire gate.
+  const canDelete = canDeleteReport(report, {
+    user,
+    loading: sessionLoading,
+    supabaseConfigured: isSupabaseConfigured(),
+  });
+
   // Post-review hardening round 2 (SHOULD-FIX H): see DashboardPage.tsx's
   // identical guard for the full rationale.
   if (reports === null && loadError) return <LoadErrorState title="Daily Report" message={loadError} />;
@@ -66,6 +84,15 @@ export default function DailyReportDetailPage() {
   if (reports === null || notFound) return null;
 
   return (
-    <ReportScreen report={report} kind="daily" periodError={periodError} mutationError={mutationError} onUpdateFields={handleUpdateFields} />
+    <ReportScreen
+      report={report}
+      kind="daily"
+      periodError={periodError}
+      mutationError={mutationError}
+      onUpdateFields={handleUpdateFields}
+      onDelete={() => deleteReport(id)}
+      canDelete={canDelete}
+      deleteHint={DELETE_REPORT_HINT}
+    />
   );
 }

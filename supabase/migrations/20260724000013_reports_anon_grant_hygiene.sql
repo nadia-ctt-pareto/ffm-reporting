@@ -1,0 +1,55 @@
+-- Weekly Reports Dashboard -- WP4 delta: report/daily report DELETE.
+--
+-- NO schema change was needed for delete itself -- verified live against
+-- the hosted project before writing this migration:
+--   * `authenticated` already holds table-level DELETE on `reports`, `tasks`,
+--     `risks`, and `priorities` (the Supabase-baseline grant from table
+--     creation -- supabase/migrations/20260717000001_initial_schema.sql
+--     never revoked it, unlike `projects`' UPDATE privilege, which Phase 8c
+--     DID narrow -- see 20260724000011_project_management.sql).
+--   * `reports_delete` RLS (owner-or-admin) already exists, unchanged, from
+--     supabase/migrations/20260719000004_auth_ownership.sql:
+--       create policy reports_delete on reports for delete to authenticated
+--         using (owner_id = (select auth.uid()) or public.is_admin());
+--   * `tasks`/`risks`/`priorities` already FK to `reports (id) on delete
+--     cascade` (same initial-schema migration, lines 82/100/116) -- a
+--     `DELETE FROM reports WHERE id = ...` removes every child row for free;
+--     `lib/server/reports-service.ts`'s new `deleteReport` never issues a
+--     second DELETE against any child table.
+-- See `lib/server/reports-service.ts`'s `deleteReport` for the full
+-- access-control/cascade/share-token story and docs/database-schema.md's
+-- new "Report delete (WP4)" section for the verification narrative.
+--
+-- What THIS migration actually does -- pure grant hygiene, same shape as
+-- Phase 8c's post-review SHOULD-FIX 1 on `projects` (supabase/migrations/
+-- 20260724000011_project_management.sql): `anon` was left holding the
+-- Supabase-baseline full-table grant (INSERT/SELECT/UPDATE/DELETE, every
+-- column) on `reports`/`tasks`/`risks`/`priorities`, even though NONE of
+-- those tables have a single `anon`-targeted RLS policy -- every
+-- `reports_*`/`tasks_*`/`risks_*`/`priorities_*` policy
+-- (supabase/migrations/20260719000004_auth_ownership.sql) is `to
+-- authenticated` only. RLS default-denies any request from a role with no
+-- matching policy, so this was NEVER actually exploitable -- describe it
+-- exactly that way (latent grant hygiene, not a live vulnerability), the
+-- same posture CLAUDE.md's WP4 task brief locks in. Closing it now, while
+-- deletion is fresh in mind, matches this schema's established "don't rely
+-- on RLS as the only gate" posture (see `is_admin()`'s own `revoke ... from
+-- public, anon` in the same migration that added these RLS policies -- THAT
+-- one closed a REAL, previously-exploitable gap; this one does not, but the
+-- hygiene principle is the same).
+revoke all on public.reports, public.tasks, public.risks, public.priorities from anon;
+
+-- Verified this changes NOTHING about the anon-reachable share/present-route
+-- path: `get_shared_report(text)` (SECURITY DEFINER, supabase/migrations/
+-- 20260719000004_auth_ownership.sql) is the ONLY anon-reachable read in this
+-- entire schema, and a SECURITY DEFINER function executes with the
+-- privileges of its OWNING role for every internal query it runs,
+-- regardless of the CALLING role's own table grants -- so revoking `anon`'s
+-- direct table grants on `reports`/`tasks`/`risks`/`priorities` cannot break
+-- a function that never queries those tables AS `anon` in the first place.
+-- (`priorities` was never selected by `get_shared_report` at all -- its jsonb
+-- payload's `priorities` array is embedded via a join done as the DEFINER's
+-- own role -- so it's included here purely for grant-hygiene completeness
+-- with its three sibling tables, not because anything read it as `anon`.)
+
+comment on table reports is 'Weekly and daily reports (lib/types.ts AnyReport), discriminated by `kind`. RLS: reports_select is using(true) (every authenticated user reads every report); reports_insert/update/delete are owner-or-admin (public.is_admin()). WP4: `authenticated` already held table-level DELETE from table creation -- no grant change was needed for report/daily-report delete to work, see lib/server/reports-service.ts''s deleteReport. `anon` holds NO grants on this table (revoked in this migration -- reports has no anon-targeted RLS policy, so this is pure latent-risk removal, mirroring Phase 8c''s identical projects hygiene fix).';

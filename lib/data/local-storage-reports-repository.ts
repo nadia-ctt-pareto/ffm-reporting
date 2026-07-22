@@ -217,6 +217,24 @@ export class LocalStorageReportsRepository implements ReportsRepository {
     return updated;
   }
 
+  /**
+   * WP4: deletes the report with `id`. Demo mode has no owner/admin concept
+   * (same posture as `renameProject`/`deleteProject` above -- there is no
+   * RLS-equivalent layer to enforce it at, so every caller is trusted with
+   * every locally-stored report). Unlike `deleteProject` (which scans for
+   * references before allowing a delete), a report has no analogous
+   * "still referenced" concern -- nothing else in this store points AT a
+   * report by id (a `projectId` link points FROM a report/task/risk TO a
+   * project, never the reverse), so this is a plain filter + single write.
+   * Throws if `id` doesn't exist, mirroring `renameProject`'s "throw on a
+   * missing id" posture.
+   */
+  async deleteReport(id: string): Promise<void> {
+    const all = await this.loadAll();
+    if (!all.some((r) => r.id === id)) throw new Error(`Report ${id} not found.`);
+    this.writeV2(all.filter((r) => r.id !== id));
+  }
+
   /** Returns all projects, seeding `ff.projects.v1` from `seedProjects()` on first read -- see `loadProjects()`. */
   async getProjects(): Promise<Project[]> {
     return this.loadProjects();

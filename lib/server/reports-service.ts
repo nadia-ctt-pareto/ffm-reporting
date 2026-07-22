@@ -365,6 +365,76 @@ export async function updateReport(
   return { ...merged, updatedAt: toDomainTimestamp(writtenUpdatedAt) };
 }
 
+/**
+ * WP4 (report delete): deletes the `reports` row with `id`. Access is
+ * decided ENTIRELY by `reports_delete` RLS (owner-or-admin, supabase/
+ * migrations/20260719000004_auth_ownership.sql's `using (owner_id =
+ * (select auth.uid()) or public.is_admin())`) plus the table-level DELETE
+ * grant `authenticated` already holds on `reports`/`tasks`/`risks`/
+ * `priorities` (verified live against the hosted project -- no grant
+ * migration was needed for this feature, unlike `deleteProject`'s Phase 8c
+ * column-grant addition).
+ *
+ * `tasks`/`risks`/`priorities` are NOT deleted here -- they cascade via the
+ * `report_id ... references reports (id) on delete cascade` FK (supabase/
+ * migrations/20260717000001_initial_schema.sql, lines 82/100/116) the
+ * instant the parent row disappears. Postgres's own referential-action
+ * mechanism performs that cascade as an internal system operation, NOT as a
+ * second DML statement run under the calling role -- it bypasses
+ * `tasks_delete`/`risks_delete`/`priorities_delete` RLS entirely (there is
+ * no "does the caller also have permission to delete every child row"
+ * check to run, and none is needed: the parent row already passed
+ * `reports_delete`, and a child's own RLS policies are scoped through that
+ * SAME parent anyway -- see those policies' `exists (select 1 from reports
+ * r where r.id = report_id and ...)` definitions). This function must never
+ * try to re-delete `tasks`/`risks`/`priorities` itself -- doing so would be
+ * redundant at best and, if it ran BEFORE the parent delete and the parent
+ * delete then failed for any reason, would leave the report intact but its
+ * children gone.
+ *
+ * A `share_token` (if sharing was ever enabled for this report, supabase/
+ * migrations/20260719000004_auth_ownership.sql) simply dies with the row --
+ * there is no separate revoke-before-delete step, and none is needed.
+ * `get_shared_report(token)` (the only anon-reachable read in this schema)
+ * looks the token up by joining against `reports`; once the row is gone,
+ * that lookup returns `NULL` exactly as it does for a revoked or
+ * never-enabled token today. `PresentScreen`'s existing "This share link is
+ * no longer valid..." empty state (app/reports/[id]/present/page.tsx --
+ * see Phase 7b's Share dialog work) already covers a `NULL` result; there
+ * is no new state to add here.
+ *
+ * **Diverges from `deleteProject`'s "not found and not permitted are the
+ * same thing" posture, deliberately.** `deleteProject` never distinguishes
+ * the two because doing so costs nothing either way for that table. Here
+ * it matters: `reports_select` is `using (true)` (every authenticated user
+ * can already read every report -- see `REPORT_COLUMNS`'s own doc comment
+ * above), so telling a signed-in, non-owning, non-admin caller "you don't
+ * have permission" instead of a blanket "not found" leaks nothing they
+ * couldn't already see with a plain `GET` -- and "not found" for a report
+ * the caller is LITERALLY looking at on `/reports/[id]` right now would be
+ * a straightforwardly false statement, not merely an over-cautious one
+ * (contrast `updateReport`'s `not_found`, which really can mean "gone" or
+ * "never existed" -- a PATCH's caller has no equivalent guarantee of
+ * having just seen the row). The follow-up `getReport` call below is what
+ * makes that distinction possible: `.delete()` returning zero rows is
+ * ambiguous on its own (id doesn't exist at all, OR it exists but RLS
+ * filtered it out of the DELETE), so a second, `reports_select`-gated read
+ * disambiguates which case actually happened.
+ */
+export async function deleteReport(db: SupabaseClient, id: string): Promise<void> {
+  const { data, error } = await db.from('reports').delete().eq('id', id).select('id');
+  if (error) throw mapPgError(error);
+  if (data && data.length > 0) return;
+
+  const stillVisible = await getReport(db, id);
+  if (stillVisible) {
+    // Diagnostic-only (see updateReport's identical note) -- curated to
+    // "You don't have permission to do that." before it reaches the wire.
+    throw new ServiceError('forbidden', `Report ${id} exists but is not owned by this caller and this caller is not an admin.`);
+  }
+  throw new ServiceError('not_found', `Report ${id} not found.`);
+}
+
 /** Owner-or-admin-only (enforced INSIDE the SECURITY DEFINER RPC, not here -- see supabase/migrations/20260719000004_auth_ownership.sql). Returns the freshly-generated token. */
 export async function enableShare(db: SupabaseClient, reportId: string): Promise<string> {
   const { data, error } = await db.rpc('enable_report_share', { p_report_id: reportId });

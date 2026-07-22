@@ -56,6 +56,20 @@ export interface ReportsRepository {
    * verbatim at runtime, so those extra kind-specific fields still land.
    */
   update(id: string, patch: Partial<ReportCore>): Promise<AnyReport | null>;
+  /**
+   * WP4: deletes the report with `id`. In Supabase mode, access is decided
+   * entirely by `reports_delete` RLS (owner-or-admin) -- children (tasks/
+   * risks/priorities) cascade via the FK, and any live share token simply
+   * stops resolving (see `lib/server/reports-service.ts`'s `deleteReport`
+   * doc comment for the full story). In demo mode, `LocalStorageReportsRepository`
+   * has no owner/admin concept at all (same posture as its `renameProject`/
+   * `deleteProject`), so any caller may delete any locally-stored report --
+   * the only failure mode there is a missing id. Rejects if `id` doesn't
+   * exist (or, in Supabase mode, isn't visible/permitted to this caller) --
+   * see each implementation's own doc comment for exactly how that's
+   * enforced/curated.
+   */
+  deleteReport(id: string): Promise<void>;
 
   /**
    * Phase 6a: the Project entity. Returns all projects.

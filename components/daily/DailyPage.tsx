@@ -3,9 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LoadErrorState } from '@/components/app/LoadErrorState';
+import { ConfirmDeleteReportDialog } from '@/components/dialogs/ConfirmDeleteReportDialog';
 import { DailyListScreen } from '@/components/daily/DailyListScreen';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { useDailyReports } from '@/lib/hooks/useDailyReports';
+import { useSession } from '@/lib/hooks/useSession';
+import { canDeleteReport } from '@/lib/report-access';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
+import type { DailyReport } from '@/lib/types';
 
 /**
  * Route-level orchestration for `/daily` -- the daily-report sibling of
@@ -13,14 +18,23 @@ import { useDailyReports } from '@/lib/hooks/useDailyReports';
  * locally (resets on navigation away and back -- acceptable, same rationale
  * as DashboardPage). "View"/"Continue" navigate to real routes
  * (`/daily/[id]`, `/daily/[id]/edit`), not a dialog.
+ *
+ * WP4: also hosts the shared delete-confirmation dialog for the row-level
+ * Delete button -- see `DashboardPage.tsx`'s identical doc comment for the
+ * full rationale (mirrored here, over `useDailyReports()`).
  */
 export function DailyPage() {
   const router = useRouter();
-  const { reports, loadError } = useDailyReports();
+  const { reports, loadError, deleteReport } = useDailyReports();
+  const { user, loading: sessionLoading } = useSession();
 
   const [filterStatus, setFilterStatus] = useState('All');
   const [pageSize, setPageSize] = useState<string>(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(1);
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Reset to page 1 whenever any filter/page-size input changes -- never
   // leaves the user stranded on a now-out-of-range page.
@@ -36,18 +50,55 @@ export function DailyPage() {
     return null;
   }
 
+  // WP4: see DashboardPage.tsx's identical gate for the full rationale.
+  const deletable = (report: DailyReport): boolean =>
+    canDeleteReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
+
+  const pendingDeleteReport = reports.find((r) => r.id === pendingDeleteId) ?? null;
+
+  const closeDeleteDialog = () => {
+    setPendingDeleteId(null);
+    setDeleteError(null);
+  };
+
+  /** WP4: mirrors `DashboardPage.tsx`'s identical `handleConfirmDelete` -- no navigation on success. */
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteId || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteReport(pendingDeleteId);
+      setPendingDeleteId(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete the report.');
+      setIsDeleting(false);
+    }
+  };
+
   return (
-    <DailyListScreen
-      reports={reports}
-      filterStatus={filterStatus}
-      onFilterStatusChange={setFilterStatus}
-      pageSize={pageSize}
-      onPageSizeChange={setPageSize}
-      page={page}
-      onPageChange={setPage}
-      onNewDaily={() => router.push('/daily/new')}
-      onResumeDraft={(id) => router.push(`/daily/${id}/edit`)}
-      onViewReport={(id) => router.push(`/daily/${id}`)}
-    />
+    <>
+      <DailyListScreen
+        reports={reports}
+        filterStatus={filterStatus}
+        onFilterStatusChange={setFilterStatus}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        page={page}
+        onPageChange={setPage}
+        onNewDaily={() => router.push('/daily/new')}
+        onResumeDraft={(id) => router.push(`/daily/${id}/edit`)}
+        onViewReport={(id) => router.push(`/daily/${id}`)}
+        onDeleteReport={setPendingDeleteId}
+        canDeleteReport={deletable}
+      />
+      <ConfirmDeleteReportDialog
+        open={pendingDeleteId !== null}
+        report={pendingDeleteReport}
+        isDeleting={isDeleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={handleConfirmDelete}
+      />
+    </>
   );
 }

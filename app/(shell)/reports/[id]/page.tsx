@@ -5,6 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { ReportScreen } from '@/components/report/ReportScreen';
 import { useReports } from '@/lib/hooks/useReports';
+import { useSession } from '@/lib/hooks/useSession';
+import { canDeleteReport, DELETE_REPORT_HINT } from '@/lib/report-access';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
 import type { ReportFieldPatch } from '@/lib/types';
 
 /**
@@ -26,11 +29,32 @@ import type { ReportFieldPatch } from '@/lib/types';
  * `invalidDailyDateEdit` guard (app/(shell)/daily/[id]/page.tsx) -- the
  * controlled `<input>` simply reverts to the still-current value on the
  * next render since nothing changed; `periodError` surfaces why.
+ *
+ * WP4 (delete): the owner-or-admin gate is NOT computed here -- it lives in
+ * `canDeleteReport` (lib/report-access.ts), shared verbatim with the daily
+ * report screen and both list pages, so four call sites cannot drift apart
+ * on an access rule (the same reason `resolveNewProjectName` was extracted
+ * in Phase 8c). See that function's doc comment for why the obvious inline
+ * expression is wrong: `undefined === undefined` is `true`, so an unowned
+ * seed row compared against a not-yet-resolved session enabled Delete for a
+ * user who cannot delete. `ownerId` is already broadcast on every
+ * `AnyReport` (`ReportCoreSchema.ownerId`, lib/schema/report.ts) to every
+ * authenticated user -- see that field's own doc comment -- so no
+ * read-schema change was needed to compute this client-side.
+ *
+ * That gate is UX only; `reports_delete` RLS is the actual boundary and
+ * rejects a non-owner regardless of what this page renders.
+ *
+ * `deleteReport` itself is NON-optimistic (see useReports.ts) -- `notFound`
+ * below (derived from the same `reports` state it mutates) is what redirects
+ * away after a successful delete; `ReportScreen`'s own confirm dialog never
+ * navigates.
  */
 export default function ReportDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { reports, loadError, updateReportFields, mutationError } = useReports();
+  const { reports, loadError, updateReportFields, deleteReport, mutationError } = useReports();
+  const { user, loading: sessionLoading } = useSession();
   const [periodError, setPeriodError] = useState('');
 
   const id = params.id;
@@ -51,6 +75,14 @@ export default function ReportDetailPage() {
     updateReportFields(id, patch).catch(() => {});
   };
 
+  // WP4: see this component's own doc comment above for the full
+  // owner-or-admin rationale -- this line is the entire gate.
+  const canDelete = canDeleteReport(report, {
+    user,
+    loading: sessionLoading,
+    supabaseConfigured: isSupabaseConfigured(),
+  });
+
   // Post-review hardening round 2 (SHOULD-FIX H): see DashboardPage.tsx's
   // identical guard for the full rationale.
   if (reports === null && loadError) return <LoadErrorState title="Report" message={loadError} />;
@@ -60,6 +92,15 @@ export default function ReportDetailPage() {
   if (reports === null || notFound) return null;
 
   return (
-    <ReportScreen report={report} kind="weekly" periodError={periodError} mutationError={mutationError} onUpdateFields={handleUpdateFields} />
+    <ReportScreen
+      report={report}
+      kind="weekly"
+      periodError={periodError}
+      mutationError={mutationError}
+      onUpdateFields={handleUpdateFields}
+      onDelete={() => deleteReport(id)}
+      canDelete={canDelete}
+      deleteHint={DELETE_REPORT_HINT}
+    />
   );
 }

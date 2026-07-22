@@ -35,6 +35,8 @@ export interface UseDailyReportsResult {
   upsertMany: (reports: DailyReport[]) => Promise<void>;
   /** Shallow-merges `patch` (plus a fresh `updatedAt`) into the report with `id`. */
   updateReportFields: (id: string, patch: Partial<DailyReport>) => Promise<void>;
+  /** WP4: deletes the report with `id` -- see `useReports.ts`'s `deleteReport` doc comment for the full non-optimistic rationale (identical here, mirrored for dailies). */
+  deleteReport: (id: string) => Promise<void>;
 }
 
 export function useDailyReports(options?: UseDailyReportsOptions): UseDailyReportsResult {
@@ -136,5 +138,17 @@ export function useDailyReports(options?: UseDailyReportsOptions): UseDailyRepor
     [rollback]
   );
 
-  return { reports, loadError, mutationError, upsertReport, upsertMany, updateReportFields };
+  /** WP4: NON-optimistic -- see `useReports.ts`'s `deleteReport` doc comment for the full rationale (identical here, mirrored for dailies). */
+  const deleteReport = useCallback(async (id: string) => {
+    try {
+      await getReportsRepository().deleteReport(id);
+      setReports((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+      setMutationError(null);
+    } catch (err) {
+      setMutationError(errorMessage(err, 'Failed to delete the report.'));
+      throw err;
+    }
+  }, []);
+
+  return { reports, loadError, mutationError, upsertReport, upsertMany, updateReportFields, deleteReport };
 }

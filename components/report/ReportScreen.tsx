@@ -3,6 +3,7 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { ConfirmDeleteReportDialog } from '@/components/dialogs/ConfirmDeleteReportDialog';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -37,6 +38,31 @@ export interface ReportScreenProps {
   periodError?: string;
   /** Phase 7b: `useReports()`/`useDailyReports()`'s `mutationError` -- when set, the autosave note below swaps from "Changes save automatically." to a visible failure message, mirroring the `periodError` prop pattern. */
   mutationError?: string | null;
+  /**
+   * WP4: deletes this report -- bound by the route wrapper
+   * (app/(shell)/reports/[id]/page.tsx / daily/[id]/page.tsx) to
+   * `useReports()`/`useDailyReports()`'s non-optimistic `deleteReport(id)`.
+   * Optional so a hypothetical future non-route-backed `<ReportScreen>`
+   * mount isn't forced to fabricate a no-op just to satisfy this prop; both
+   * real call sites today always provide it. Rejects on failure (a curated
+   * message server-side in Supabase mode, a plain `Error` in demo mode) --
+   * see `handleDelete` below.
+   */
+  onDelete?: () => Promise<void>;
+  /**
+   * WP4: mirrors `ProjectDetailScreen`'s `isAdmin` gate -- decides whether
+   * the Delete button is enabled. The route wrapper computes this
+   * (owner-or-admin in Supabase mode via `useSession()`, matching
+   * `reports_delete` RLS exactly; unconditionally `true` in demo mode) so
+   * this component never needs to know about sessions/auth itself -- see
+   * that wrapper's own doc comment. "Disable, don't hide" (the same Phase
+   * 8c precedent `ProjectDetailScreen` set): a non-owner/non-admin still
+   * sees the Delete button, disabled, with `deleteHint` explaining why,
+   * rather than the control silently not existing for them.
+   */
+  canDelete: boolean;
+  /** WP4: shown as the disabled Delete button's `title` (hover) and as a small inline note under the actions row when `!canDelete`. */
+  deleteHint?: string;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -106,11 +132,18 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * Presentation" is promoted to the primary (`dark`) action, ahead of Copy
  * Share Link and Download PDF (both stay `outline`).
  *
- * Owns its own (small) Share-dialog UI state directly -- this route is
- * simple enough (one param, one hook) that it doesn't need a separate
- * route-level orchestrator like DashboardPage/WizardPage.
+ * WP4: a fourth action, Delete (`outline`, disabled-with-a-hint when
+ * `!canDelete` -- see `ReportScreenProps.canDelete`'s doc comment), opens
+ * the shared `ConfirmDeleteReportDialog`. This is the one place beyond a
+ * row-level list action that this screen's scope grew past "read + inline
+ * edit" -- deleting is destructive and irreversible, unlike every other
+ * control here.
+ *
+ * Owns its own (small) Share-dialog AND delete-dialog UI state directly --
+ * this route is simple enough (one param, one hook) that it doesn't need a
+ * separate route-level orchestrator like DashboardPage/WizardPage.
  */
-export function ReportScreen({ report, kind, onUpdateFields, periodError, mutationError }: ReportScreenProps) {
+export function ReportScreen({ report, kind, onUpdateFields, periodError, mutationError, onDelete, canDelete, deleteHint }: ReportScreenProps) {
   const dSafe = report ?? emptyReportFallback(kind);
   const { onSched, total } = onSchedule(dSafe);
   const backHref = kind === 'daily' ? '/daily' : '/reports';
@@ -127,6 +160,10 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const shareCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(
     () => () => {
@@ -149,6 +186,35 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
     if (!dSafe.id) return;
     const url = `${presentBase}/${dSafe.id}/present${print ? '?print=1' : ''}`;
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  /**
+   * WP4: mirrors `ProjectDetailScreen.handleDelete` exactly, including its
+   * "no navigation on success" posture -- `onDelete` (`useReports()`'s /
+   * `useDailyReports()`'s non-optimistic `deleteReport`) only removes this
+   * report from the hook's own `reports` state AFTER the repository call
+   * resolves; the route wrapper's `notFound` effect, derived from that SAME
+   * state, is the single place that redirects away, exactly once, once that
+   * state change lands. Calling a router here too would double-navigate on
+   * success, and doing so BEFORE the write resolves risks unmounting this
+   * component mid-request on a failure, silently swallowing `deleteError` --
+   * the exact Phase 8c SHOULD-FIX 2 bug class `useProjects.ts`'s
+   * `deleteProject` doc comment documents. `setIsDeleting(false)` only runs
+   * in the failure branch, not after success, for the same reason: on
+   * success this component is about to unmount via that redirect, so
+   * resetting it there would be a wasted render at best.
+   */
+  const handleDelete = async () => {
+    if (!onDelete || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete();
+      setDeleteOpen(false);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete the report.');
+      setIsDeleting(false);
+    }
   };
 
   const taskRows = dSafe.tasks.map((t) => ({
@@ -239,15 +305,27 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
         </div>
 
         <div className={styles.actionsRow}>
-          <Button variant="dark" size="sm" onClick={() => openPresentation(false)}>
-            Open Presentation
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-            Copy Share Link
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => openPresentation(true)}>
-            Download PDF
-          </Button>
+          <div className={styles.actionsButtons}>
+            <Button variant="dark" size="sm" onClick={() => openPresentation(false)}>
+              Open Presentation
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+              Copy Share Link
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openPresentation(true)}>
+              Download PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteOpen(true)}
+              disabled={!canDelete}
+              title={!canDelete ? deleteHint : undefined}
+            >
+              Delete
+            </Button>
+          </div>
+          {!canDelete && deleteHint ? <div className={styles.deleteHint}>{deleteHint}</div> : null}
         </div>
 
         <div className={styles.sectionKicker}>{headings.summary}</div>
@@ -351,6 +429,15 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
         copied={shareCopied}
         onCopy={copyShareLink}
         onClose={() => setShareOpen(false)}
+      />
+
+      <ConfirmDeleteReportDialog
+        open={deleteOpen}
+        report={report}
+        isDeleting={isDeleting}
+        error={deleteError}
+        onCancel={() => setDeleteOpen(false)}
+        onConfirm={handleDelete}
       />
     </div>
   );

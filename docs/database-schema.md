@@ -1543,6 +1543,150 @@ one real, documented consequence (the dashboard's client filter, which
 matched `task.client` strings against project NAMES) was fixed with an
 id-or-exact-name predicate instead.
 
+## Report delete (WP4)
+
+Weekly and daily reports can now be deleted (report screen + row-level
+Dashboard/Daily-list actions). Unlike Phase 8c's project management, this
+required **no `lib/types.ts`/domain shape change and no new grant for the
+delete itself** — verified live against the hosted project before writing
+`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql`:
+
+- `authenticated` already holds table-level DELETE on `reports`/`tasks`/
+  `risks`/`priorities` — the Supabase-baseline grant from table creation
+  (`supabase/migrations/20260717000001_initial_schema.sql`) was never
+  revoked for these four tables, unlike `projects`' UPDATE privilege, which
+  Phase 8c DID narrow (`20260724000011_project_management.sql`).
+- `reports_delete` RLS already exists, unchanged, from
+  `supabase/migrations/20260719000004_auth_ownership.sql`:
+  ```sql
+  create policy reports_delete on reports for delete to authenticated
+    using (owner_id = (select auth.uid()) or public.is_admin());
+  ```
+  Owner-or-admin — the same shape as `reports_update`, not `projects_delete`
+  (which is admin-only with no owner branch at all). This is what actually
+  decides who can delete which report; every layer above it (the route
+  handler, the service function) is a thin pass-through.
+- `tasks`/`risks`/`priorities` already `references reports (id) on delete
+  cascade` (same initial-schema migration, lines 82/100/116) — deleting the
+  parent `reports` row removes every child row automatically. Postgres's
+  referential-action cascade runs as an internal system operation, NOT as a
+  second DML statement evaluated under the calling role's own privileges —
+  it does not re-check `tasks_delete`/`risks_delete`/`priorities_delete` RLS
+  at all (and doesn't need to: those policies are themselves scoped through
+  the SAME parent `reports` row via an `exists (select 1 from reports r
+  where r.id = report_id and ...)` subquery, so there is no independent
+  child-level permission to re-evaluate). `lib/server/reports-service.ts`'s
+  `deleteReport` therefore issues exactly ONE `DELETE FROM reports WHERE id
+  = ...` and nothing else — it must never try to delete
+  `tasks`/`risks`/`priorities` itself.
+
+**Server layer** (`lib/server/reports-service.ts`): `deleteReport(db, id)` —
+a `.delete().eq('id', id).select('id')`. Diverges from `deleteProject`'s
+"not found and not permitted are indistinguishable" posture on purpose: a
+zero-row delete triggers a follow-up `getReport(db, id)` to tell the two
+apart. This is safe specifically BECAUSE `reports_select` is `using (true)`
+— every authenticated user can already read every report — so returning
+`'forbidden'` (curated to "You don't have permission to do that.") instead
+of a blanket `'not_found'` for a report that DOES still exist leaks nothing
+a plain `GET` couldn't already tell the caller, and a literal "not found"
+for a report the caller is looking at on `/reports/[id]` right now would be
+a straightforwardly false statement. Contrast `deleteProject`, where
+`projects_select` is also `using (true))` but the distinction was never
+worth making since there's no route that lands a non-admin user staring at
+a project they can't delete with the same urgency a report screen's Delete
+button implies.
+
+**Share tokens**: a report's `share_token` (Phase 7b, per-report public
+link) dies with the row — there is no separate revoke-before-delete step.
+`get_shared_report(token)` joins against `reports`; once the row is gone,
+the join returns nothing and the RPC's existing "not found" result plays
+out exactly as it does for a revoked or never-enabled token. `PresentScreen`
+already renders "This share link is no longer valid…" for that case — no UI
+change was needed here.
+
+**Route** (`app/api/reports/[id]/route.ts`): `DELETE`, template-copied from
+`app/api/projects/[id]/route.ts`'s `DELETE` — demo-mode 404 guard,
+`assertMutationAllowed` (no `requireJsonBody`, this verb takes no body),
+auth check, `deleteReport`, `204` on success, `handleServiceError` on
+failure (curates `deleteReport`'s `ServiceError` exactly once, same as
+every other route in this file).
+
+**Repository + hooks** (`lib/data/reports-repository.ts` +
+`local-storage-reports-repository.ts` + `http-reports-repository.ts` +
+`lib/hooks/useReports.ts`/`useDailyReports.ts`): `deleteReport(id)` is a new
+explicit interface method on both implementations.
+`LocalStorageReportsRepository`'s version has no owner/admin concept to
+enforce (same posture as its `renameProject`/`deleteProject`) and no
+"still referenced" concern either (nothing in this store points AT a
+report by id, unlike a project) — it's a plain filter + single write,
+throwing only on a missing id. Both hooks' `deleteReport` is **deliberately
+NON-optimistic**, mirroring `useProjects.ts`'s `deleteProject` (Phase 8c
+SHOULD-FIX 2) verbatim: the report screen's and the list rows' `notFound`/
+redirect logic is derived from the SAME `reports`/`dailyReports` state this
+mutates, so removing the id from state only AFTER the DELETE actually
+succeeds is what keeps a failed delete from silently unmounting the screen
+before its own error can render.
+
+**UI**: `ReportScreen`'s actions row gained a fourth button, Delete
+(`outline`), gated by a new `canDelete` prop computed by the route wrapper
+(`app/(shell)/reports/[id]/page.tsx` / `daily/[id]/page.tsx`) —
+owner-or-admin in Supabase mode (`report.ownerId === user?.id ||
+user?.app_metadata?.role === 'admin'`, read via `useSession()`, matching
+`reports_delete` RLS exactly), unconditionally `true` in demo mode (no
+session/auth concept there — same Phase 8c precedent
+`ProjectDetailScreen` established for project rename/delete). `ownerId` is
+already broadcast on every `AnyReport` (`ReportCoreSchema.ownerId`) to every
+authenticated user, so no read-schema change was needed to compute this
+client-side. `DashboardScreen`/`DailyListScreen` gained a matching row-level
+Delete button (needed because a **Draft** row's only other action is
+"Continue" — without a row-level Delete, a draft was only deletable by
+hand-typing its `/reports/[id]` URL). A disabled Delete button is never
+hidden — it renders with a `title` hint ("Only the report's owner or an
+admin can delete this report.", `lib/report-utils.ts`'s
+`DELETE_REPORT_HINT`, one shared string so the detail view and both list
+rows can't drift on wording). One shared, purely presentational
+`components/dialogs/ConfirmDeleteReportDialog.tsx` renders the actual
+confirm/cancel dialog for all three call sites (`ReportScreen` owns its own
+open/isDeleting/error state directly, matching its existing Share-dialog
+pattern; `DashboardPage`/`DailyPage` own that state at the route-
+orchestrator level, since a row-level button has no per-row component to
+hold it) — none of the three callers ever navigates from inside the
+dialog's own confirm handler; each route's existing `notFound`-driven
+redirect effect is the single place that does, after the underlying hook
+state actually changes.
+
+**Migration** (`supabase/migrations/20260724000013_reports_anon_grant_hygiene.sql`):
+the ONLY schema/grant change this feature needed, and it's not required for
+delete to function at all — pure grant hygiene, the same shape as Phase
+8c's post-review SHOULD-FIX 1 on `projects`:
+```sql
+revoke all on public.reports, public.tasks, public.risks, public.priorities from anon;
+```
+`anon` was left holding the Supabase-baseline full-table grant (INSERT/
+SELECT/UPDATE/DELETE, every column) on all four tables even though none of
+them has a single `anon`-targeted RLS policy — every `reports_*`/`tasks_*`/
+`risks_*`/`priorities_*` policy is `to authenticated` only, so RLS
+default-denies any `anon` request regardless of these grants. **Not
+exploitable today; latent risk hygiene**, described that way deliberately
+(contrast `is_admin()`'s `revoke ... from public, anon` in
+`20260719000004_auth_ownership.sql`, which closed a REAL, previously-
+callable-over-PostgREST gap — a materially different risk class). Verified
+this does not affect `get_shared_report(text)` (the only anon-reachable
+read in this schema): it's SECURITY DEFINER, so it executes every internal
+query with the privileges of its OWNING role regardless of the calling
+role's own table grants — a table it queries losing `anon`'s DIRECT grant
+cannot break a function that never queried it AS `anon` to begin with.
+
+**Not built / explicitly out of scope**: no MCP `delete_report` tool (the
+locked 8-tool contract, `lib/prompts.ts`, is deliberately unchanged — see
+CLAUDE.md's "Remote MCP server (Phase 8a)" for why a bearer-token-
+authenticated surface, where every token is a plain member and never
+admin, doesn't get new admin-adjacent write tools without a dedicated
+review of its own); no bulk/multi-select delete; no soft-delete/undo (a
+report's data model has no `deleted_at` column and none was added — this
+mirrors `deleteProject`'s "delete is delete" posture, not Phase 8c's
+deferred project-archive idea).
+
 ## Cutover checklist
 
 **Before anything else: use `ReportCoreInputSchema`/`AnyReportInputSchema`

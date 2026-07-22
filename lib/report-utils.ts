@@ -85,6 +85,11 @@ export function reportPeriodLabel(report: AnyReport): string {
   return report.kind === 'weekly' ? fmtWeekLabel(report.weekStart, report.weekEnd) : fmtDateShort(report.date);
 }
 
+// WP4 (report delete): `DELETE_REPORT_HINT` moved to lib/report-access.ts, so
+// the hint text sits directly beside `canDeleteReport` -- the rule and the
+// sentence explaining it to the user must not live in separate modules where
+// one can be changed without the other.
+
 /** Phase 4: same as reportPeriodLabel, but for an in-progress Draft (which always carries both weekStart/weekEnd and date, using whichever the draft's `kind` calls for). */
 export function draftPeriodLabel(draft: Draft): string {
   return draft.kind === 'weekly' ? fmtWeekLabel(draft.weekStart, draft.weekEnd) : fmtDateShort(draft.date);

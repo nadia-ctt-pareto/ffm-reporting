@@ -3,24 +3,40 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LoadErrorState } from '@/components/app/LoadErrorState';
+import { ConfirmDeleteReportDialog } from '@/components/dialogs/ConfirmDeleteReportDialog';
 import { DashboardScreen } from '@/components/dashboard/DashboardScreen';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { useProjects } from '@/lib/hooks/useProjects';
 import { useReports } from '@/lib/hooks/useReports';
-import type { SortKey } from '@/lib/types';
+import { useSession } from '@/lib/hooks/useSession';
+import { canDeleteReport } from '@/lib/report-access';
+import { isSupabaseConfigured } from '@/lib/supabase/config';
+import type { Report, SortKey } from '@/lib/types';
 
 /**
  * Route-level orchestration for `/` (the dashboard). Owns filter/sort/search
  * /pagination state (resets on navigation away and back -- acceptable, see
  * plan). "View" navigates to the real `/reports/[id]` report screen (Phase
- * 2) instead of opening a Detail dialog -- there's no dialog hosting left
- * here; Share now lives on the report screen itself (see ReportScreen),
- * and PDF export is the real browser print flow at `/reports/[id]/present`.
+ * 2) instead of opening a Detail dialog; Share lives on the report screen
+ * itself (see ReportScreen), and PDF export is the real browser print flow
+ * at `/reports/[id]/present`.
+ *
+ * WP4: this IS where a dialog gets hosted again -- the row-level Delete
+ * button (`DashboardScreen`'s new `onDeleteReport`/`canDeleteReport` props)
+ * has no per-row component of its own to own confirm/isDeleting/error
+ * state, so it lands here, at the route-orchestrator level, the same place
+ * every other list-level dialog in this codebase has always lived (this
+ * screen just hadn't needed one since Phase 5 deleted the old Detail/Pdf
+ * dialogs). `canDeleteReport` mirrors `app/(shell)/reports/[id]/page.tsx`'s
+ * `canDelete` gate exactly (owner-or-admin via the same `useSession()`
+ * read, unconditionally `true` in demo mode) -- see that file's own doc
+ * comment for the full rationale.
  */
 export function DashboardPage() {
   const router = useRouter();
-  const { reports, loadError } = useReports();
+  const { reports, loadError, deleteReport } = useReports();
   const { projects } = useProjects();
+  const { user, loading: sessionLoading } = useSession();
 
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterClient, setFilterClient] = useState('All');
@@ -28,6 +44,10 @@ export function DashboardPage() {
   const [sortBy, setSortBy] = useState<SortKey>('week_desc');
   const [pageSize, setPageSize] = useState<string>(DEFAULT_PAGE_SIZE);
   const [page, setPage] = useState(1);
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Reset to page 1 whenever any filter/sort/page-size input changes --
   // never leaves the user stranded on a now-out-of-range page.
@@ -57,26 +77,71 @@ export function DashboardPage() {
   // can never silently off-by-one that stat.
   const clientOptions = ['All', ...(projects ?? []).map((p) => p.name)];
 
+  // WP4: the entire owner-or-admin gate, evaluated per row. Bound once here
+  // (rather than inline per row) so every row shares one session snapshot --
+  // and named `deletable` to avoid shadowing the imported predicate.
+  const deletable = (report: Report): boolean =>
+    canDeleteReport(report, { user, loading: sessionLoading, supabaseConfigured: isSupabaseConfigured() });
+
+  const pendingDeleteReport = reports.find((r) => r.id === pendingDeleteId) ?? null;
+
+  const closeDeleteDialog = () => {
+    setPendingDeleteId(null);
+    setDeleteError(null);
+  };
+
+  /**
+   * WP4: mirrors `ReportScreen.handleDelete`/`ProjectDetailScreen.handleDelete`
+   * -- no navigation on success (there is nothing to navigate away FROM
+   * here; the row itself just disappears once `deleteReport`'s non-optimistic
+   * `setReports` filter lands and this component re-renders). `isDeleting`
+   * is only reset in the failure branch, matching that same precedent.
+   */
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteId || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteReport(pendingDeleteId);
+      setPendingDeleteId(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete the report.');
+      setIsDeleting(false);
+    }
+  };
+
   return (
-    <DashboardScreen
-      reports={reports}
-      clientOptions={clientOptions}
-      projects={projects}
-      filterStatus={filterStatus}
-      onFilterStatusChange={setFilterStatus}
-      filterClient={filterClient}
-      onFilterClientChange={setFilterClient}
-      search={search}
-      onSearchChange={setSearch}
-      sortBy={sortBy}
-      onSortByChange={setSortBy}
-      pageSize={pageSize}
-      onPageSizeChange={setPageSize}
-      page={page}
-      onPageChange={setPage}
-      onNewReport={() => router.push('/reports/new')}
-      onResumeDraft={(id) => router.push(`/reports/${id}/edit`)}
-      onViewReport={(id) => router.push(`/reports/${id}`)}
-    />
+    <>
+      <DashboardScreen
+        reports={reports}
+        clientOptions={clientOptions}
+        projects={projects}
+        filterStatus={filterStatus}
+        onFilterStatusChange={setFilterStatus}
+        filterClient={filterClient}
+        onFilterClientChange={setFilterClient}
+        search={search}
+        onSearchChange={setSearch}
+        sortBy={sortBy}
+        onSortByChange={setSortBy}
+        pageSize={pageSize}
+        onPageSizeChange={setPageSize}
+        page={page}
+        onPageChange={setPage}
+        onNewReport={() => router.push('/reports/new')}
+        onResumeDraft={(id) => router.push(`/reports/${id}/edit`)}
+        onViewReport={(id) => router.push(`/reports/${id}`)}
+        onDeleteReport={setPendingDeleteId}
+        canDeleteReport={deletable}
+      />
+      <ConfirmDeleteReportDialog
+        open={pendingDeleteId !== null}
+        report={pendingDeleteReport}
+        isDeleting={isDeleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={handleConfirmDelete}
+      />
+    </>
   );
 }

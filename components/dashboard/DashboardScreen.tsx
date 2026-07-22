@@ -15,6 +15,7 @@ import { PAGE_SIZE_OPTIONS, SORT_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/co
 import { buildAllTasksCsv, downloadCsv } from '@/lib/csv';
 import { fmtDateShort, fmtWeekLabel } from '@/lib/format';
 import { projectIdForClientName } from '@/lib/projects';
+import { DELETE_REPORT_HINT } from '@/lib/report-access';
 import { onSchedule, openBlockers, statusTone } from '@/lib/report-utils';
 import type { Project, Report, SortKey } from '@/lib/types';
 import styles from './DashboardScreen.module.css';
@@ -41,6 +42,23 @@ export interface DashboardScreenProps {
   onNewReport: () => void;
   onResumeDraft: (id: string) => void;
   onViewReport: (id: string) => void;
+  /**
+   * WP4: opens the shared delete-confirmation dialog (owned/hosted by
+   * `DashboardPage`, not this screen -- see that file's own doc comment for
+   * why dialog hosting lives at the Page-orchestrator level here rather
+   * than in a per-row component) for the report with this id.
+   */
+  onDeleteReport: (id: string) => void;
+  /**
+   * WP4: per-row gate for the row's Delete button -- mirrors
+   * `app/(shell)/reports/[id]/page.tsx`'s `canDelete` computation exactly
+   * (owner-or-admin in Supabase mode, unconditionally `true` in demo mode),
+   * just evaluated once per row instead of once for a single report. A
+   * function (not a precomputed field on each row) so `DashboardPage` can
+   * compute it once, off `useSession()`, and apply it to every row without
+   * threading a session object through this screen's own row-mapping code.
+   */
+  canDeleteReport: (report: Report) => boolean;
 }
 
 const TABLE_COLUMNS: TableColumn[] = [
@@ -72,6 +90,8 @@ export function DashboardScreen({
   onNewReport,
   onResumeDraft,
   onViewReport,
+  onDeleteReport,
+  canDeleteReport,
 }: DashboardScreenProps) {
   // Lines 650-660: filter + sort.
   //
@@ -119,6 +139,7 @@ export function DashboardScreen({
     const { onSched, total } = onSchedule(r);
     const blockers = openBlockers(r);
     const isDraft = r.status === 'Draft';
+    const deletable = canDeleteReport(r);
     return {
       week: fmtWeekLabel(r.weekStart, r.weekEnd),
       preparedFor: r.preparedFor,
@@ -127,13 +148,29 @@ export function DashboardScreen({
       blockers: String(blockers),
       updated: fmtDateShort(r.updatedAt),
       actions: (
-        <button
-          type="button"
-          className={styles.rowAction}
-          onClick={() => (isDraft ? onResumeDraft(r.id) : onViewReport(r.id))}
-        >
-          {isDraft ? 'Continue' : 'View'}
-        </button>
+        <div className={styles.rowActions}>
+          <button
+            type="button"
+            className={styles.rowAction}
+            onClick={() => (isDraft ? onResumeDraft(r.id) : onViewReport(r.id))}
+          >
+            {isDraft ? 'Continue' : 'View'}
+          </button>
+          {/* WP4: row-level delete -- a Draft's ONLY other action is
+              "Continue", so without this a draft was only deletable by
+              hand-typing its /reports/[id] URL. Disabled-with-a-hint
+              (never hidden) when `!deletable`, matching Phase 8c's
+              ProjectDetailScreen precedent. */}
+          <button
+            type="button"
+            className={styles.rowAction}
+            onClick={() => onDeleteReport(r.id)}
+            disabled={!deletable}
+            title={!deletable ? DELETE_REPORT_HINT : undefined}
+          >
+            Delete
+          </button>
+        </div>
       ),
     };
   });

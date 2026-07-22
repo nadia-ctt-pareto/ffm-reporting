@@ -131,6 +131,22 @@ export class HttpReportsRepository implements ReportsRepository {
     });
   }
 
+  /**
+   * WP4: `DELETE /api/reports/[id]` -> `deleteReport`
+   * (lib/server/reports-service.ts), owner-or-admin-gated by `reports_delete`
+   * RLS -- children (tasks/risks/priorities) cascade server-side via the FK,
+   * so no follow-up requests are needed here. Routed through `enqueueWrite`
+   * like every other write in this class, for the same same-client
+   * race-avoidance reason documented in this file's header comment (a
+   * concurrent PATCH racing this DELETE would otherwise read a pre-delete
+   * snapshot and write it right back).
+   */
+  async deleteReport(id: string): Promise<void> {
+    return this.enqueueWrite(async () => {
+      await request<void>(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    });
+  }
+
   async getProjects(): Promise<Project[]> {
     const { projects } = await request<{ projects: Project[] }>('/api/projects');
     return projects;

@@ -66,13 +66,32 @@
   margin-top: 6px;
 }
 
+/*
+ * WP4: this wrapper switched from a plain flex row to a column so it can
+ * host an optional `.deleteHint` line below the buttons without disturbing
+ * their own row layout -- `.actionsButtons` below carries the ORIGINAL flex
+ * row behavior this rule used to have directly.
+ */
 .actionsRow {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 32px;
   padding-bottom: 28px;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.actionsButtons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* WP4: shown under the actions row when `!canDelete` -- see ReportScreenProps.deleteHint. */
+.deleteHint {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .sectionKicker {

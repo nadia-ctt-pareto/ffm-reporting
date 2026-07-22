@@ -12,6 +12,7 @@ import type { TableColumn } from '@/components/ui/Table';
 import { PAGE_SIZE_OPTIONS, STATUS_FILTER_OPTIONS } from '@/lib/constants';
 import { buildAllTasksCsv, downloadCsv } from '@/lib/csv';
 import { fmtDateShort } from '@/lib/format';
+import { DELETE_REPORT_HINT } from '@/lib/report-access';
 import { onSchedule, openBlockers, statusTone } from '@/lib/report-utils';
 import type { DailyReport } from '@/lib/types';
 import styles from './DailyListScreen.module.css';
@@ -28,6 +29,10 @@ export interface DailyListScreenProps {
   onNewDaily: () => void;
   onResumeDraft: (id: string) => void;
   onViewReport: (id: string) => void;
+  /** WP4: opens the shared delete-confirmation dialog (owned/hosted by `DailyPage`) for the report with this id -- see `DashboardScreen.tsx`'s identical prop doc comment. */
+  onDeleteReport: (id: string) => void;
+  /** WP4: per-row gate for the row's Delete button -- see `DashboardScreen.tsx`'s identical prop doc comment. */
+  canDeleteReport: (report: DailyReport) => boolean;
 }
 
 const TABLE_COLUMNS: TableColumn[] = [
@@ -57,6 +62,8 @@ export function DailyListScreen({
   onNewDaily,
   onResumeDraft,
   onViewReport,
+  onDeleteReport,
+  canDeleteReport,
 }: DailyListScreenProps) {
   const filtered = useMemo(() => {
     const list = reports.filter((r) => filterStatus === 'All' || r.status === filterStatus);
@@ -72,6 +79,7 @@ export function DailyListScreen({
     const { onSched, total } = onSchedule(r);
     const blockers = openBlockers(r);
     const isDraft = r.status === 'Draft';
+    const deletable = canDeleteReport(r);
     return {
       date: fmtDateShort(r.date),
       status: <Badge tone={statusTone(r.status)}>{r.status}</Badge>,
@@ -79,13 +87,25 @@ export function DailyListScreen({
       blockers: String(blockers),
       updated: fmtDateShort(r.updatedAt),
       actions: (
-        <button
-          type="button"
-          className={styles.rowAction}
-          onClick={() => (isDraft ? onResumeDraft(r.id) : onViewReport(r.id))}
-        >
-          {isDraft ? 'Continue' : 'View'}
-        </button>
+        <div className={styles.rowActions}>
+          <button
+            type="button"
+            className={styles.rowAction}
+            onClick={() => (isDraft ? onResumeDraft(r.id) : onViewReport(r.id))}
+          >
+            {isDraft ? 'Continue' : 'View'}
+          </button>
+          {/* WP4: see DashboardScreen.tsx's identical row-Delete comment. */}
+          <button
+            type="button"
+            className={styles.rowAction}
+            onClick={() => onDeleteReport(r.id)}
+            disabled={!deletable}
+            title={!deletable ? DELETE_REPORT_HINT : undefined}
+          >
+            Delete
+          </button>
+        </div>
       ),
     };
   });

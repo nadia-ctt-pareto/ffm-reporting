@@ -50,6 +50,13 @@ export interface UseReportsResult {
   upsertMany: (reports: Report[]) => Promise<void>;
   /** Shallow-merges `patch` (plus a fresh `updatedAt`) into the report with `id`. Same Phase 7b resolve/reject contract as `upsertReport`. */
   updateReportFields: (id: string, patch: Partial<Report>) => Promise<void>;
+  /**
+   * WP4: deletes the report with `id`. Deliberately NOT optimistic (unlike
+   * every mutation above) -- see this hook's own `deleteReport`
+   * implementation for the full rationale (mirrors `useProjects.ts`'s
+   * `deleteProject`, including its Phase 8c SHOULD-FIX 2 precedent).
+   */
+  deleteReport: (id: string) => Promise<void>;
 }
 
 export function useReports(options?: UseReportsOptions): UseReportsResult {
@@ -184,5 +191,35 @@ export function useReports(options?: UseReportsOptions): UseReportsResult {
     [rollback]
   );
 
-  return { reports, loadError, mutationError, upsertReport, upsertMany, updateReportFields };
+  /**
+   * WP4: deliberately NOT optimistic, unlike `upsertReport`/`upsertMany`/
+   * `updateReportFields` above -- mirrors `useProjects.ts`'s `deleteProject`,
+   * including its own rationale verbatim: `app/(shell)/reports/[id]/page.tsx`
+   * derives `notFound` from `reports` and `router.replace`s away to
+   * `/reports` the instant an id disappears from that list. An optimistic
+   * removal (the pattern every OTHER mutation in this hook uses) would fire
+   * that redirect WHILE the DELETE request is still in flight, unmounting
+   * `ReportScreen` -- and the confirm dialog's own error surface along with
+   * it -- before a later rejection could ever render there. That is the
+   * exact Phase 8c SHOULD-FIX 2 bug class (see `useProjects.ts`'s
+   * `deleteProject` for the live-verified failure mode this avoids: a
+   * forced delete failure silently bounced the screen to the list with zero
+   * visible error, even though nothing was actually deleted). `reports`
+   * only loses `id` AFTER the repository call actually succeeds; on
+   * failure, `reports` was never touched, so there is nothing to roll back
+   * and no `rollback()` call here at all -- same reasoning as
+   * `useProjects.ts`'s `deleteProject`.
+   */
+  const deleteReport = useCallback(async (id: string) => {
+    try {
+      await getReportsRepository().deleteReport(id);
+      setReports((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+      setMutationError(null);
+    } catch (err) {
+      setMutationError(errorMessage(err, 'Failed to delete the report.'));
+      throw err;
+    }
+  }, []);
+
+  return { reports, loadError, mutationError, upsertReport, upsertMany, updateReportFields, deleteReport };
 }

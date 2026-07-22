@@ -3,10 +3,16 @@
 // layer, see that file) and PATCH for `/api/reports/[id]`. See
 // app/api/reports/route.ts's header comment for the demo-mode-404 and
 // defense-in-depth-auth-check rationale -- identical here.
+//
+// WP4: DELETE, added alongside the two above, template-copied from
+// app/api/projects/[id]/route.ts's DELETE -- see `deleteReport`
+// (lib/server/reports-service.ts) for the actual access-control story
+// (owner-or-admin via `reports_delete` RLS; no admin check of this route's
+// own, same defense-in-depth posture as PATCH/GET above).
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { ReportPatchSchema } from '@/lib/schema/api';
-import { getReport, updateReport } from '@/lib/server/reports-service';
+import { deleteReport, getReport, updateReport } from '@/lib/server/reports-service';
 import { assertBodySize, assertMutationAllowed, MAX_BODY_BYTES, readJsonBody } from '@/lib/server/request-guards';
 import { handleServiceError } from '@/lib/server/route-helpers';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
@@ -72,5 +78,29 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ report });
   } catch (err) {
     return handleServiceError(err, { route: 'api/reports/[id] PATCH', userId: user.id, reportId: id });
+  }
+}
+
+// WP4: DELETE takes no request body -- only the Sec-Fetch-Site half of
+// assertMutationAllowed applies (requireJsonBody defaults false), same as
+// app/api/projects/[id]/route.ts's DELETE.
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  if (!isSupabaseConfigured()) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+  const guardError = assertMutationAllowed(request);
+  if (guardError) return guardError;
+
+  const supabase = await createServerSupabase();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const { id } = await params;
+  try {
+    await deleteReport(supabase, id);
+    return new NextResponse(null, { status: 204 });
+  } catch (err) {
+    return handleServiceError(err, { route: 'api/reports/[id] DELETE', userId: user.id, reportId: id });
   }
 }
