@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { StatCard } from '@/components/ui/StatCard';
 import { Table } from '@/components/ui/Table';
@@ -79,17 +79,29 @@ function slideSectionClass(type: DeckSlideBody['type']): string {
 /**
  * Renders one slide's body (the JSX that used to live inline inside each of
  * the six hardcoded `<section>` blocks pre-WP1, moved verbatim). `report` is
- * still threaded through alongside `body` -- the `cover`/`summary`/`win`
- * branches read report fields directly (title/prepared-for/-by, touchpoints,
- * the win stat/label/narrative), exactly like before. The `tasks` branch
- * also reads full-report on-schedule/blocker counts via `onSchedule`/
- * `openBlockers` for its footnote -- deliberately from `report.tasks`, NOT
- * from `body.rows` -- because a future chunked Task Status deck must keep
- * showing the same whole-report counts on every chunk (only the LAST chunk
- * shows the footnote at all, per `body.showFootnote`), not a per-chunk
- * subset that would silently under-count.
+ * still threaded through alongside `slide` -- the `cover`/`summary`/`glance`/
+ * `win` branches read report fields directly (title/prepared-for/-by,
+ * touchpoints, the win stat/label/narrative), exactly like before. The
+ * `tasks`/`tasksByClient` branches also read full-report on-schedule/blocker
+ * counts via `onSchedule`/`openBlockers` for their footnote -- deliberately
+ * from `report.tasks`, NOT from `body.rows`/`body.groups` -- because a
+ * future chunked Task Status deck must keep showing the same whole-report
+ * counts on every chunk (only the LAST chunk shows the footnote at all, per
+ * `body.showFootnote`), not a per-chunk subset that would silently
+ * under-count.
+ *
+ * WP2: takes the whole `slide` (not just `body`) so every section's kicker
+ * can render `slide.title` verbatim instead of re-deciding per-kind wording
+ * here -- `SECTION_HEADINGS` (lib/report-sections.ts), via `buildDeckSlides`,
+ * is the ONE place that decision gets made; this function must never
+ * re-introduce a `report.kind === 'daily' ? ... : ...` wording ternary for a
+ * section heading. The one deliberate EXCEPTION is the risks section's
+ * EMPTY-STATE copy ("No blockers today." vs. "No open risks this week.") --
+ * that's body copy for an absent-data state, not a section heading, so it
+ * isn't part of `SECTION_HEADINGS`'s contract and is decided inline below.
  */
-function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
+function renderSlideBody(slide: DeckSlide, report: AnyReport): ReactNode {
+  const { body, title } = slide;
   switch (body.type) {
     case 'cover': {
       const periodLabel = reportPeriodLabel(report);
@@ -127,7 +139,7 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
     case 'summary':
       return (
         <>
-          <div className={styles.kicker}>{report.kind === 'daily' ? 'Today' : 'This Week'}</div>
+          <div className={styles.kicker}>{title}</div>
           <p className={styles.narrative}>{report.summaryNarrative}</p>
           <div className={styles.statsGrid}>
             <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
@@ -137,6 +149,32 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
           {report.touchpoints.narrative ? <p className={styles.caption}>{report.touchpoints.narrative}</p> : null}
         </>
       );
+
+    // WP2: the daily-only "Day at a Glance" slide. Unlike the weekly
+    // `summary` slide (whose stats are the touchpoint counts alone), a
+    // day's "glance" leads with the same on-schedule/blocker stats the
+    // report screen already surfaces up top -- a single day's headline
+    // isn't "how many calls did we make," it's "are today's tasks on
+    // track" -- with Client Calls kept as the third card so touchpoint
+    // volume is still visible at a glance. Reuses `.narrative`/
+    // `.statsGrid`/`.caption` verbatim (no new CSS): the "glance" slide
+    // is structurally the same shape as `summary`, just a different stat
+    // mix and kicker.
+    case 'glance': {
+      const { onSched, total } = onSchedule(report);
+      return (
+        <>
+          <div className={styles.kicker}>{title}</div>
+          <p className={styles.narrative}>{report.summaryNarrative}</p>
+          <div className={styles.statsGrid}>
+            <StatCard label="Tasks On Schedule" value={`${onSched} / ${total}`} />
+            <StatCard label="Open Blockers" value={String(openBlockers(report))} />
+            <StatCard label="Client Calls" value={String(report.touchpoints.calls || 0)} />
+          </div>
+          {report.touchpoints.narrative ? <p className={styles.caption}>{report.touchpoints.narrative}</p> : null}
+        </>
+      );
+    }
 
     case 'tasks': {
       const { onSched, total } = onSchedule(report);
@@ -149,7 +187,7 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
       }));
       return (
         <>
-          <div className={styles.kicker}>Task Status</div>
+          <div className={styles.kicker}>{title}</div>
           <div className={styles.tableWrap}>
             <Table columns={TASK_COLUMNS} rows={taskRows} dense />
           </div>
@@ -162,10 +200,99 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
       );
     }
 
+    // WP2: the daily-only "Tasks by Client" slide -- a daily report's
+    // defining nature is breadth across every client in one day, so its
+    // task section is organized BY CLIENT (a compact divider row ahead of
+    // each client's own task rows, no Client column since the divider
+    // already carries that) rather than one flat list with a repeating
+    // Client column (the weekly `tasks` slide, above, keeps that flat
+    // shape -- a weekly's methodology is a single roll-up, not a
+    // per-client breakdown). The footnote reads the exact same
+    // whole-report `onSchedule`/`openBlockers` counts as the `tasks`
+    // branch, for the identical "future chunk" reason documented on this
+    // function's own doc comment.
+    //
+    // Deliberately hand-rolled (ONE `<table>`, ONE `<thead>`) instead of
+    // rendering the shared `components/ui/Table` primitive once per client
+    // group. A daily commonly spans 4-6+ distinct clients (this repo's
+    // seed data alone does), and this slide has a FIXED 720px height
+    // (`.slide { overflow: hidden }`) -- N independent tables would mean N
+    // repeated header rows, which is real, measured height that a
+    // realistic multi-client daily cannot afford without spilling content
+    // silently past the slide's clipped edge. `ReportScreen.tsx`'s
+    // equivalent section is an ordinary scrollable document with no such
+    // budget, so it correctly DOES render one full `<Table>` per client
+    // (see that file) -- this is a print-geometry-driven divergence
+    // between the two renderers, not a stylistic inconsistency. Verified
+    // against scripts/verify-deck-print.ts's `baseline-daily` (4 clients)
+    // and `daily-no-win` (6 clients) fixtures, both of which pass the
+    // print-media clipping assertion with this layout; `daily-many-clients`
+    // (6 clients x 4 tasks each = 24 rows) still legitimately overflows --
+    // that remaining case is real pagination's job (a later work package),
+    // not something a denser layout alone can solve, exactly like the two
+    // purely-weekly overflow fixtures.
+    case 'tasksByClient': {
+      const { onSched, total } = onSchedule(report);
+      const blockers = openBlockers(report);
+      return (
+        <>
+          {/* `.kickerCompact` (not the shared `.kicker`) -- see its own doc
+              comment in ReportDeck.module.css for why this slide alone
+              needs a tighter kicker margin, and why that's safe to do
+              without touching `.kicker` itself (every other slide,
+              including the weekly `tasks` slide, must stay byte-identical). */}
+          <div className={styles.kickerCompact}>{title}</div>
+          <div className={styles.tableWrap}>
+            <table className={styles.groupedTable}>
+              <thead>
+                <tr>
+                  <th className={styles.groupedTh}>Task</th>
+                  <th className={styles.groupedTh}>Status</th>
+                  <th className={styles.groupedTh}>Deadline</th>
+                </tr>
+              </thead>
+              <tbody>
+                {body.groups.map((group) => (
+                  // `Fragment` (not a wrapping `<div>`) -- a `<div>` isn't a
+                  // valid direct child of `<tbody>`; the divider row +
+                  // that client's task rows must all be sibling `<tr>`s.
+                  <Fragment key={group.client}>
+                    <tr>
+                      <td className={styles.clientGroupCell} colSpan={3}>
+                        {group.client}
+                      </td>
+                    </tr>
+                    {group.tasks.map((t) => (
+                      <tr key={t.id}>
+                        <td className={styles.groupedTd}>{t.task}</td>
+                        <td className={styles.groupedTd}>
+                          <Badge tone={taskTone(t.status)}>{t.status}</Badge>
+                        </td>
+                        <td className={styles.groupedTd}>{fmtDateShort(t.deadline)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {body.showFootnote ? (
+            // `.slideFootnoteCompact` (not the shared `.slideFootnote`) --
+            // same reasoning as `.kickerCompact` above: this slide alone
+            // needs a tighter top margin, without touching the class the
+            // weekly `tasks` slide's identical footnote reuses.
+            <div className={styles.slideFootnoteCompact}>
+              {onSched} / {total} tasks on schedule &middot; {blockers} open blocker{blockers === 1 ? '' : 's'}
+            </div>
+          ) : null}
+        </>
+      );
+    }
+
     case 'risks':
       return (
         <>
-          <div className={styles.kicker}>{'Risks & Blockers'}</div>
+          <div className={styles.kicker}>{title}</div>
           {body.rows.length > 0 ? (
             <div className={styles.riskGrid}>
               {body.rows.map((rk) => (
@@ -180,7 +307,12 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
               ))}
             </div>
           ) : (
-            <div className={styles.mutedNote}>No open risks this week.</div>
+            // WP2: kind-aware empty-state copy -- "No blockers today." reads
+            // naturally for a single day; the pre-existing weekly copy is
+            // untouched. Deliberately inline here rather than in
+            // SECTION_HEADINGS -- see this function's own doc comment for
+            // why this one ternary survives.
+            <div className={styles.mutedNote}>{report.kind === 'daily' ? 'No blockers today.' : 'No open risks this week.'}</div>
           )}
         </>
       );
@@ -188,7 +320,7 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
     case 'priorities':
       return (
         <>
-          <div className={styles.kicker}>{report.kind === 'daily' ? 'Priorities' : "Next Week's Priorities"}</div>
+          <div className={styles.kicker}>{title}</div>
           <ol className={styles.priorityList}>
             {body.rows.map((p, i) => (
               <li key={p.id} className={styles.priorityItem}>
@@ -211,7 +343,7 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
     case 'win':
       return (
         <>
-          <div className={styles.kicker}>The Win</div>
+          <div className={styles.kicker}>{title}</div>
           <div className={styles.winStat}>{report.win.stat || '—'}</div>
           <div className={styles.winLabel}>{report.win.label}</div>
           <p className={styles.winNarrative}>{report.win.narrative}</p>
@@ -220,10 +352,9 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
 
     default: {
       // Exhaustiveness guard: if a future work package adds a new
-      // `DeckSlideBody` variant (e.g. `glance`/`tasksByClient`) without a
-      // matching render branch here, this line fails to compile (`body` can
-      // no longer be assigned to `never`) instead of silently rendering
-      // nothing for that slide type.
+      // `DeckSlideBody` variant without a matching render branch here, this
+      // line fails to compile (`body` can no longer be assigned to `never`)
+      // instead of silently rendering nothing for that slide type.
       const exhaustive: never = body;
       return exhaustive;
     }
@@ -261,11 +392,18 @@ function renderSlideBody(body: DeckSlideBody, report: AnyReport): ReactNode {
  * untouched and every page still prints regardless of which slide was
  * active when `window.print()` fired.
  *
- * WP1 (dynamic slide model): slide count/content is now driven entirely by
- * the `slides` prop (see `buildDeckSlides`, lib/deck-slides.ts) -- this
- * component itself no longer hardcodes "six slides." WP1's `buildDeckSlides`
- * always returns exactly today's six, so rendered output (on screen and
- * printed) is byte-identical to before this refactor.
+ * WP1 (dynamic slide model): slide count/content is driven entirely by the
+ * `slides` prop (see `buildDeckSlides`, lib/deck-slides.ts) -- this
+ * component itself never hardcodes a slide count or a section's wording.
+ * WP2: `buildDeckSlides` now returns a genuinely different slide list per
+ * `report.kind` (a weekly's fixed six vs. a daily's five-or-six, see that
+ * function's own doc comment) -- this component didn't have to change AT
+ * ALL to support that, beyond `renderSlideBody` gaining two new body-type
+ * branches (`glance`, `tasksByClient`) and reading `slide.title` instead of
+ * a hardcoded/ternary kicker string. That's the entire point of the
+ * slides-as-data model: slide count/order/wording all live in
+ * `buildDeckSlides`, and this component just renders whatever list it's
+ * handed, in order.
  */
 export function ReportDeck({ report, slides, activeSlide }: ReportDeckProps) {
   const paged = activeSlide !== undefined;
@@ -283,7 +421,7 @@ export function ReportDeck({ report, slides, activeSlide }: ReportDeckProps) {
           className={`${styles.slide} slide ${slideSectionClass(slide.body.type)}`}
           data-active={isActive(i)}
         >
-          {renderSlideBody(slide.body, report)}
+          {renderSlideBody(slide, report)}
         </section>
       ))}
     </div>

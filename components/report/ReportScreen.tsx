@@ -13,6 +13,7 @@ import { Table } from '@/components/ui/Table';
 import type { TableColumn } from '@/components/ui/Table';
 import { STATUS_EDIT_OPTIONS } from '@/lib/constants';
 import { fmtDateShort } from '@/lib/format';
+import { groupTasksByClient, hasWin, SECTION_HEADINGS } from '@/lib/report-sections';
 import { onSchedule, openBlockers, reportPeriodLabel, riskTone, taskTone } from '@/lib/report-utils';
 import type { AnyReport, ReportFieldPatch, ReportKind, ReportStatus } from '@/lib/types';
 import styles from './ReportScreen.module.css';
@@ -40,6 +41,21 @@ export interface ReportScreenProps {
 
 const TASK_COLUMNS: TableColumn[] = [
   { key: 'client', label: 'Client' },
+  { key: 'task', label: 'Task' },
+  { key: 'status', label: 'Status' },
+  { key: 'deadline', label: 'Deadline' },
+];
+
+/**
+ * WP2: columns for a daily report's per-client task tables -- deliberately
+ * NO Client column, mirroring `ReportDeck.tsx`'s identical
+ * `TASKS_BY_CLIENT_COLUMNS` (each file keeps its own copy of its column
+ * list, same pre-existing convention as `TASK_COLUMNS` above, which was
+ * already duplicated between this file and ReportDeck.tsx before this
+ * change). The group's own client-name heading already carries what this
+ * column would have repeated on every row.
+ */
+const TASKS_BY_CLIENT_COLUMNS: TableColumn[] = [
   { key: 'task', label: 'Task' },
   { key: 'status', label: 'Status' },
   { key: 'deadline', label: 'Deadline' },
@@ -100,6 +116,14 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
   const backHref = kind === 'daily' ? '/daily' : '/reports';
   const presentBase = kind === 'daily' ? '/daily' : '/reports';
 
+  // WP2: the single source of this kind's section wording (see
+  // lib/report-sections.ts's own doc comment) -- every section kicker
+  // below reads `headings.*` instead of a hardcoded string or a
+  // `kind === 'daily' ? ... : ...` ternary, so this screen and the deck
+  // (ReportDeck.tsx) can never independently drift on what a section is
+  // called.
+  const headings = SECTION_HEADINGS[kind];
+
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const shareCopyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,6 +157,17 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
     status: <Badge tone={taskTone(t.status)}>{t.status}</Badge>,
     deadline: fmtDateShort(t.deadline),
   }));
+  // WP2: only computed for daily reports (a weekly keeps the flat
+  // `taskRows` table above, unchanged) -- see groupTasksByClient's own doc
+  // comment for why grouping is keyed on the `client` string, not
+  // `projectId`.
+  const clientTaskGroups = kind === 'daily' ? groupTasksByClient(dSafe.tasks) : [];
+  // WP2: a weekly report always gets a Win section (its stat/label/
+  // narrative render with the deck's same '—' fallback when blank -- "no
+  // win this week" is itself meaningful status); a daily report only gets
+  // one when it actually recorded a win -- see hasWin's own doc comment,
+  // and buildDeckSlides's matching decision for the deck's Win slide.
+  const showWin = kind === 'weekly' || hasWin(dSafe);
 
   return (
     <div>
@@ -215,7 +250,7 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
           </Button>
         </div>
 
-        <div className={styles.sectionKicker}>Summary</div>
+        <div className={styles.sectionKicker}>{headings.summary}</div>
         <p className={styles.narrative}>{dSafe.summaryNarrative}</p>
 
         <div className={styles.statsGrid}>
@@ -224,11 +259,33 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
           <StatCard label="Open Blockers" value={String(openBlockers(dSafe))} />
         </div>
 
-        <div className={styles.sectionKicker}>Task Status</div>
-        <Table columns={TASK_COLUMNS} rows={taskRows} dense />
+        <div className={styles.sectionKicker}>{headings.tasks}</div>
+        {kind === 'daily' ? (
+          // WP2: a daily's defining shape is breadth across every client in
+          // one day, so its tasks render as one heading + one table per
+          // client (same `groupTasksByClient` derivation the deck's
+          // "Tasks by Client" slide uses) instead of one flat table with a
+          // repeating Client column.
+          clientTaskGroups.map((group) => (
+            <div key={group.client} className={styles.clientGroup}>
+              <div className={styles.clientGroupHeading}>{group.client}</div>
+              <Table
+                columns={TASKS_BY_CLIENT_COLUMNS}
+                rows={group.tasks.map((t) => ({
+                  task: t.task,
+                  status: <Badge tone={taskTone(t.status)}>{t.status}</Badge>,
+                  deadline: fmtDateShort(t.deadline),
+                }))}
+                dense
+              />
+            </div>
+          ))
+        ) : (
+          <Table columns={TASK_COLUMNS} rows={taskRows} dense />
+        )}
 
         <div className={styles.sectionKicker} style={{ marginTop: 26 }}>
-          {'Risks & Blockers'}
+          {headings.risks}
         </div>
         {dSafe.risks.length > 0 ? (
           <div className={styles.riskList}>
@@ -244,17 +301,47 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
             ))}
           </div>
         ) : (
-          <div className={styles.mutedNote}>No open risks that week.</div>
+          // WP2: kind-aware empty-state copy, mirroring ReportDeck.tsx's
+          // identical branch -- "No blockers today." for a single day.
+          // The pre-existing weekly copy ("that week", not "this week") is
+          // a faithful-port quirk left untouched; not this task's scope to
+          // fix.
+          <div className={styles.mutedNote}>{kind === 'daily' ? 'No blockers today.' : 'No open risks that week.'}</div>
         )}
 
         <div className={styles.sectionKicker} style={{ marginTop: 26 }}>
-          {dSafe.kind === 'daily' ? 'Priorities' : "Next Week's Priorities"}
+          {headings.priorities}
         </div>
         {dSafe.priorities.map((p) => (
           <div key={p.id} className={styles.priorityRow}>
             {p.text}
           </div>
         ))}
+
+        {showWin ? (
+          <>
+            {/*
+             * WP2: a read-only Win section -- the report screen previously
+             * had none at all (it was the deck's exclusive slide). "Screen
+             * and deck agree on methodology" is unachievable without one,
+             * so this is the one place WP2 extends beyond pure re-wording:
+             * see lib/report-sections.ts's SECTION_HEADINGS doc comment and
+             * this component's `showWin` derivation above for exactly when
+             * it renders. Stat/label/narrative render unconditionally
+             * (matching ReportDeck.tsx's `win` slide byte-for-byte, only
+             * the stat falls back to '—' when blank) rather than each
+             * being individually hidden when empty.
+             */}
+            <div className={styles.sectionKicker} style={{ marginTop: 26 }}>
+              {headings.win}
+            </div>
+            <div className={styles.winSection}>
+              <div className={styles.winStat}>{dSafe.win.stat || '—'}</div>
+              <div className={styles.winLabel}>{dSafe.win.label}</div>
+              <p className={styles.winNarrative}>{dSafe.win.narrative}</p>
+            </div>
+          </>
+        ) : null}
       </div>
 
       <ShareDialog

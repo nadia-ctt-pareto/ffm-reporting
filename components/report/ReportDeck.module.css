@@ -209,8 +209,116 @@
   border: 1px solid var(--border-subtle);
 }
 
+/*
+ * WP2: the daily-only "Tasks by Client" slide's hand-rolled table (see
+ * ReportDeck.tsx's `tasksByClient` case for why this is ONE `<table>`/
+ * `<thead>` rather than the shared `components/ui/Table` primitive called
+ * once per client). `.groupedTh`/`.groupedTd` intentionally mirror
+ * Table.module.css's `.dense` header/cell typography (same font sizes,
+ * same `--text-heading-accent`/`--border-subtle` tokens) so this table
+ * looks like a natural extension of the `.dense` tables used everywhere
+ * else in this deck -- only the vertical padding is tighter (`.groupedTd`:
+ * 4px vs. Table.module.css's dense 10px), which is what actually buys back
+ * the room N repeated per-client headers would otherwise cost. This is a
+ * deliberate, print-geometry-specific density choice for THIS slide only
+ * -- it does not touch, and is not read by, the shared Table component or
+ * any other table in the app. Every padding value on this slide (here,
+ * `.clientGroupCell`, `.kickerCompact`, `.slideFootnoteCompact` below) was
+ * tuned against scripts/verify-deck-print.ts's real fixtures, not guessed
+ * -- `baseline-daily` (4 clients) and `daily-no-win` (6 clients) both pass
+ * the print-media clipping assertion with a genuine safety margin (not a
+ * razor-thin pixel), verified via a scratch diagnostic that measured every
+ * row's real `getBoundingClientRect()` under `Emulation.setEmulatedMedia`
+ * print media (the same technique the harness itself uses).
+ */
+.groupedTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-body);
+}
+
+.groupedTh {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.groupedTd {
+  padding: 4px 14px;
+  font-size: 13px;
+  color: var(--text-body);
+  vertical-align: middle;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/*
+ * The per-client divider row -- a single `<td colSpan={3}>` (not a
+ * separate `<thead>`) ahead of that client's task rows. Deliberately
+ * compact (3px/2px vertical padding, 11px caps type -- the same scale as
+ * `.groupedTh`) so it reads as a clear sub-heading without costing
+ * anywhere near a full header row's height. `--surface-panel-muted` gives
+ * it a faint background band so it's scannable at a glance even without
+ * extra vertical whitespace around it; `.deck` already re-declares this
+ * token to its light-mode value.
+ */
+.clientGroupCell {
+  padding: 3px 14px 2px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  background: var(--surface-panel-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/*
+ * WP2: `.kicker` with a tighter `margin-bottom` (10px vs. 28px) -- its own
+ * class, not an ancestor-scoped override of `.kicker`, so every other
+ * slide's kicker (including the weekly `tasks` slide, which must stay
+ * byte-identical) is completely unaffected. Used ONLY by the "Tasks by
+ * Client" slide, where every pixel of vertical room matters (see the
+ * hand-rolled table above) -- freeing this room is what keeps a realistic
+ * multi-client daily fitting on one printed slide without needing real
+ * pagination.
+ */
+.kickerCompact {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 10px;
+}
+
 .slideFootnote {
   margin-top: 24px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/*
+ * WP2: `.slideFootnote` with a tighter `margin-top` (10px vs. 24px) -- its
+ * own class, not an override, for the identical reason `.kickerCompact`
+ * exists: the weekly `tasks` slide's footnote (which reuses `.slideFootnote`
+ * unmodified) must stay byte-identical. Used ONLY by the "Tasks by Client"
+ * slide.
+ */
+.slideFootnoteCompact {
+  margin-top: 10px;
   font-family: var(--font-heading);
   font-weight: 600;
   font-size: 12px;
