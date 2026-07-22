@@ -39,6 +39,37 @@ narrative}`).
 - **Priority**: `{text}` -- a next-week priority (weekly) or a next-day one
   (daily).
 
+**Weekly and daily reports are PRESENTED differently, so write them
+differently.** They share the field shape above, but the app renders each
+kind with its own section structure, and content written for the wrong one
+reads off:
+
+| Field | Weekly reads as | Daily reads as |
+| --- | --- | --- |
+| `summaryNarrative` | "This Week" -- the week's arc | "Day at a Glance" -- what happened today |
+| `tasks` | "Task Status", one flat list | "Tasks by Client", GROUPED by the `client` string |
+| `risks` | "Risks & Blockers" | "Blockers Needing Attention" -- today's obstacles |
+| `priorities` | "Next Week's Priorities" | "Tomorrow & Follow-Ups" |
+| `win` | always shown | shown ONLY if a win was actually recorded |
+
+Two things follow from this:
+
+- On a **daily**, the `client` string is doing structural work, not just
+  labelling -- tasks are grouped by it. Keep it consistent across a day's
+  tasks (`"NC Water"` on every one of that client's tasks, never
+  `"NC Water"` on one and `"NC water"` on the next), or one client will
+  render as two groups.
+- **Never invent a win for a daily report.** Leave `win` empty (`{stat: "",
+  label: "", narrative: ""}`) when the day genuinely had no standout
+  result; the app omits the slide entirely. A manufactured win is worse
+  than no win, and the omission is a designed behaviour, not a gap.
+
+**Report length is no longer constrained by the export.** A long task list
+used to be silently clipped out of the exported PDF; the deck now paginates,
+so a report with forty tasks exports every one of them across as many pages
+as it needs. Do not trim, summarise, or drop tasks/risks/priorities to "fit"
+the deck -- record what actually happened.
+
 **Dates are always plain `yyyy-mm-dd` strings** -- never construct or
 compare them with JavaScript `Date` math; treat them as opaque, sortable
 strings (they compare correctly lexicographically).
@@ -75,12 +106,20 @@ different date or project.
   rows. If the user needs to edit someone else's report, tell them to do it
   in the web app while signed in as that report's owner, or ask that person
   to grant access another way -- do not suggest routing around this Skill.
-- **There is no delete tool, and this Skill never promises deletion.** If a
-  user asks you to delete or remove a report, say clearly that this
-  connector cannot do that, and direct them to the web app instead. Do not
-  attempt to "delete" a report by clearing its fields via `update_report`
-  -- that produces a confusing, hollowed-out report instead of an honest
-  "I can't do that."
+- **There is no delete tool, and this Skill never promises deletion.** Do
+  not attempt to "delete" a report by clearing its fields via
+  `update_report` -- that produces a confusing, hollowed-out report instead
+  of an honest "I can't do that."
+
+  The web app itself CAN delete a report (this is new): the report's own
+  screen and each row of the Weekly/Daily lists have a Delete control,
+  gated to the report's owner or an admin, and it removes the report's
+  tasks, risks and priorities with it and stops any share link to it from
+  resolving. So when a user asks you to delete something, give them that
+  concrete route -- "open the report in the app and use Delete, or delete it
+  from the row in the Weekly list" -- rather than a bare refusal. The
+  capability is deliberately absent from THIS connector, not from the
+  product.
 - **Tokens can be revoked instantly** from `/settings` in the web app. If a
   call ever returns a 401/"invalid token" style error, tell the user their
   token may have been revoked or expired and to create a new one there.
@@ -137,6 +176,16 @@ replaces that field wholesale -- a `tasks` array you pass replaces the
 WHOLE task list, it does not merge with the existing one, so when editing
 just one task, build the full array (existing tasks plus your change) from
 what `get_report` returned, not just the one task you're changing.
+
+**Never demote a report's `status` as a side effect.** The lifecycle runs
+`"Draft"` -> `"Final"` -> `"Sent"`, and it only ever moves forward unless
+the user explicitly asks otherwise. If you are correcting the content of a
+report that is already `"Final"` or `"Sent"`, either omit `status` from the
+patch entirely (leaving it untouched is the safe default) or pass back the
+exact value `get_report` returned. Silently writing `"Draft"` onto a report
+someone already sent to a client is a real, visible mistake -- the web
+wizard had exactly that bug and it was fixed deliberately; do not
+reintroduce it from this side.
 
 **Casing note**: every OTHER tool in this connector takes snake_case input
 (`week_start`, `prepared_for`, `allow_duplicate`, ...) -- `update_report`
