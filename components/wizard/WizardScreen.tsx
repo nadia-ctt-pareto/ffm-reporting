@@ -60,9 +60,14 @@ export function WizardScreen({
   onPdfForPublished,
 }: WizardScreenProps) {
   const wizard = useWizard(reports, initialReport, { kind, onSaveDraft, onPublish, dailies, projects });
-  const { draft, step, error, published, isSubmitting } = wizard;
+  const { draft, step, error, published, wasPublished, isSubmitting } = wizard;
   const kindLabel = kind === 'daily' ? 'Daily' : 'Weekly';
   const clientSuggestions = (projects ?? []).map((p) => p.name);
+  // WP5: resume-aware copy for a report that was already published
+  // (`'Final'`/`'Sent'`) when this wizard mount opened -- see `wasPublished`'s
+  // own doc comment (components/wizard/useWizard.ts) for why this is derived
+  // once at mount rather than from the live, editable `draft.status`.
+  const publishLabel = wasPublished ? 'Update Report' : 'Publish Report';
 
   const stepPanel = (() => {
     switch (step) {
@@ -129,21 +134,37 @@ export function WizardScreen({
         );
       case 6:
       default:
-        return <StepReview draft={draft} onPublish={wizard.publish} isSubmitting={isSubmitting} />;
+        return (
+          <StepReview draft={draft} onPublish={wizard.publish} isSubmitting={isSubmitting} publishLabel={publishLabel} />
+        );
     }
   })();
 
   return (
     <div>
-      {/* Line 73-82: header is unconditional (Save Draft/Exit stay live even
-          on the published-confirmation screen -- saveDraft always forces
-          Draft status, a faithful-port quirk; see CLAUDE.md). */}
+      {/*
+       * Line 73-82: header is unconditional (Save Draft/Save Changes and
+       * Exit stay live even on the published-confirmation screen).
+       *
+       * WP5: this header's wordmark/save-button copy is resume-aware --
+       * `wasPublished` (captured once at mount, see useWizard.ts's doc
+       * comment) distinguishes "still drafting" from "correcting an
+       * already-published report" for a resumed report; a brand-new draft
+       * always shows the original "New {kind} Report" wordmark and "Save
+       * Draft" button regardless. This SUPERSEDES the old "saveDraft always
+       * forces Draft status" faithful-port quirk noted here previously (see
+       * CLAUDE.md's "Known faithful-port quirks" bullet and this package's
+       * `useWizard.ts` changes) -- the same way the two dark-mode quirks
+       * were superseded in Phase 1, not silently "fixed" without a trace.
+       */}
       <div className={styles.header}>
-        <span className={styles.wordmark}>{draft.id ? 'Editing Draft' : `New ${kindLabel} Report`}</span>
+        <span className={styles.wordmark}>
+          {draft.id ? (wasPublished ? 'Editing Report' : 'Editing Draft') : `New ${kindLabel} Report`}
+        </span>
         <div className={styles.headerActions}>
           <div className={styles.headerButtons}>
             <Button variant="ghost" size="sm" onClick={wizard.saveDraft} disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Save Draft'}
+              {isSubmitting ? 'Saving…' : wasPublished ? 'Save Changes' : 'Save Draft'}
             </Button>
             <Button variant="ghost" size="sm" onClick={onExit}>
               Exit
@@ -159,10 +180,14 @@ export function WizardScreen({
         <div className={styles.panel}>
           {published ? (
             <div className={styles.publishedWrap}>
-              <div className={styles.publishedTitle}>Report Published</div>
+              {/* WP5: resume-aware confirmation copy -- correcting an
+                  already-published report reads as "Report Updated", not a
+                  re-announcement of a first-time "Report Published". */}
+              <div className={styles.publishedTitle}>{wasPublished ? 'Report Updated' : 'Report Published'}</div>
               <p className={styles.publishedCopy}>
-                {draftPeriodLabel(draft)} is now in the historical record. Export it below, or head back to your
-                reports.
+                {wasPublished
+                  ? `${draftPeriodLabel(draft)} has been updated in the historical record. Export it below, or head back to your reports.`
+                  : `${draftPeriodLabel(draft)} is now in the historical record. Export it below, or head back to your reports.`}
               </p>
               <div className={styles.publishedButtons}>
                 <Button variant="outline" size="md" onClick={() => draft.id && onShareForPublished(draft.id)}>

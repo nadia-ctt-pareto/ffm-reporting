@@ -15,6 +15,16 @@ export interface StepReviewProps {
   onPublish: () => void;
   /** Phase 7b (SHOULD-FIX 16): true while a publish write is in flight -- disables the button so a slow network round-trip doesn't read as a dead one and invite a duplicate click. */
   isSubmitting?: boolean;
+  /**
+   * WP5: the button's idle-state label -- WizardScreen passes
+   * `wasPublished ? 'Update Report' : 'Publish Report'` (see that file and
+   * useWizard.ts's `wasPublished` doc comment) so re-publishing a
+   * correction to an already-published report doesn't read as if it were
+   * going out for the first time. Defaults to `'Publish Report'` so this
+   * stays backward-compatible with any hypothetical caller that doesn't
+   * pass it.
+   */
+  publishLabel?: string;
 }
 
 const TASK_COLUMNS: TableColumn[] = [
@@ -25,7 +35,7 @@ const TASK_COLUMNS: TableColumn[] = [
 ];
 
 /** Ported from design-source lines 266-309 (wizardNotPublished branch). */
-export function StepReview({ draft, onPublish, isSubmitting }: StepReviewProps) {
+export function StepReview({ draft, onPublish, isSubmitting, publishLabel = 'Publish Report' }: StepReviewProps) {
   const { onSched, total } = onSchedule(draft);
   const taskRows = draft.tasks.map((t) => ({
     client: t.client,
@@ -81,7 +91,7 @@ export function StepReview({ draft, onPublish, isSubmitting }: StepReviewProps) 
 
       <div className={styles.publishRow}>
         <Button variant="primary" size="lg" onClick={onPublish} disabled={isSubmitting}>
-          {isSubmitting ? 'Publishing…' : 'Publish Report'}
+          {isSubmitting ? 'Publishing…' : publishLabel}
         </Button>
       </div>
     </div>

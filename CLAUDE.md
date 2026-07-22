@@ -144,7 +144,29 @@ own their own small toggle/picker/dialog state directly, the same way
   dialog); "Copy Share Link" still goes through `ShareDialog` (now
   `kind`-aware too, see `shareLinkFor`). The confirmation screen's copy changed
   from "Back to Dashboard" to "Back to {kindLabel} Reports" (e.g. "Back to
-  Weekly Reports").
+  Weekly Reports"). **WP5 (editing a published report)**: `ReportScreen`'s
+  actions row gained an ungated "Edit Report" button
+  (`${base}/${id}/edit`), so a `Final`/`Sent` report can be resumed through
+  this exact same wizard — the machinery already supported resuming a report
+  of any status via `reportToDraft`, the only gap was an entry point plus
+  correct status handling. `useWizard`'s `saveDraft()`/`publish()` now write
+  `draft.status`/`draft.status === 'Sent' ? 'Sent' : 'Final'` respectively
+  instead of hardcoded `'Draft'`/`'Final'` literals, so no status is ever
+  silently demoted on a resumed report (this supersedes the "`saveDraft`
+  always forces `Draft` status" quirk — see "Conventions" below); a brand-new
+  or resumed-`Draft` report still writes exactly the same statuses as before.
+  `useWizard` exposes `wasPublished` (`initialReport.status !== 'Draft'`,
+  captured once at mount) so `WizardScreen`'s copy is resume-aware: header
+  wordmark ("Editing Report" vs. "Editing Draft"), the header Save button
+  ("Save Changes" vs. "Save Draft"), `StepReview`'s publish button ("Update
+  Report" vs. "Publish Report"), and the confirmation screen ("Report
+  Updated" vs. "Report Published"). No `expectedUpdatedAt`/CAS was added to
+  this write path — the wizard save is a full upsert through
+  `POST /api/reports` -> `replace_reports` with no compare-and-swap, the same
+  last-write-wins exposure a draft resume already had; the write queue covers
+  same-client races and CAS already exists on the PATCH/MCP path for
+  cross-client conflicts, so this is a documented limitation, not a gap this
+  package closes.
 
 ## Report screen & presentation deck (Phase 2; interactive deck Phase 5)
 
@@ -1352,10 +1374,13 @@ earlier draft plan that considered loosening them).
 - Square corners everywhere (0 radius); the wizard stepper circles are the only
   exception (`--radius-pill`).
 - Known faithful-port quirks (do not "fix" silently): "Final" status badge renders
-  neutral (prototype's `statusTone` returns an undefined tone); `saveDraft`
-  always forces `Draft` status. (The two dark-mode quirks previously listed
-  here — "dark mode is partial by design" and "header/panel stays white in
-  dark" — were intentionally superseded in Phase 1; see "Dark mode" above.)
+  neutral (prototype's `statusTone` returns an undefined tone). (The two
+  dark-mode quirks previously listed here — "dark mode is partial by design"
+  and "header/panel stays white in dark" — were intentionally superseded in
+  Phase 1; see "Dark mode" above. "`saveDraft` always forces `Draft` status"
+  was the third quirk listed here and was intentionally superseded in WP5 —
+  see "Editing a published report (WP5)" below — the same way the two
+  dark-mode quirks were superseded rather than silently patched.)
 - **`saveDraft`'s validation scope (Phase 7b)**: The period field(s) — Week
   Start/End for a weekly draft, Date for a daily draft — are the one thing
   `saveDraft()` (`components/wizard/useWizard.ts`) checks before calling

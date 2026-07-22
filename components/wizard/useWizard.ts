@@ -71,6 +71,21 @@ export interface UseWizardResult {
   step: number;
   error: string;
   published: boolean;
+  /**
+   * WP5: true when this wizard mount opened on an already-published report
+   * (`initialReport.status !== 'Draft'`, i.e. `'Final'` or `'Sent'`) --
+   * captured ONCE at mount (see the `useState(() => ...)` initializer below),
+   * never re-derived from the live, editable `draft.status`. This is
+   * deliberate: `draft.status` can itself flip mid-session (e.g. the Status
+   * <Select> on the report screen, or a future in-wizard status control), and
+   * `wasPublished` answers a different question -- "did the user arrive here
+   * to CORRECT something that already went out the door", which is fixed for
+   * the lifetime of this mount -- not "what does the draft's status field say
+   * right now". WizardScreen reads this to pick resume-aware copy ("Editing
+   * Report" vs. "Editing Draft", "Save Changes" vs. "Save Draft", "Update
+   * Report" vs. "Publish Report", "Report Updated" vs. "Report Published").
+   */
+  wasPublished: boolean;
 
   setDraftField: <K extends keyof Draft>(field: K, value: Draft[K]) => void;
   setTouchpointsField: <K extends keyof Draft['touchpoints']>(field: K, value: Draft['touchpoints'][K]) => void;
@@ -158,6 +173,11 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     if (initialReport) return reportToDraft(initialReport);
     return options.kind === 'daily' ? blankDailyDraft() : blankDraft();
   });
+  // WP5: captured once, from `initialReport` (the value this hook was
+  // mounted with), NOT from the mutable `draft` state -- see the
+  // `wasPublished` doc comment on UseWizardResult for why re-deriving it
+  // from `draft.status` on every render would be wrong.
+  const [wasPublished] = useState(() => initialReport !== null && initialReport.status !== 'Draft');
   const [step, setStep] = useState(1);
   const [error, setError] = useState('');
   const [published, setPublished] = useState(false);
@@ -289,6 +309,18 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * can still be empty) stays exactly as loose as before; this is NOT full
    * step-1 validation (`validateStep`), just the one thing the schema/DB
    * genuinely can't accept.
+   *
+   * WP5: `draftToReport` is now called with `draft.status`, not a hardcoded
+   * `'Draft'` literal. This is the fix for the "saveDraft always forces
+   * Draft" faithful-port quirk (see CLAUDE.md, superseded by this package
+   * the same way the two dark-mode quirks were superseded in Phase 1) --
+   * `blankDraft()`/`blankDailyDraft()` seed `status: 'Draft'` and
+   * `reportToDraft()` carries a resumed report's ACTUAL status through
+   * (`{...report}` spread), so this is a no-op for a brand-new draft or a
+   * resumed Draft (both still write `'Draft'`, byte-identical to before) --
+   * it only changes behavior for a resumed Final/Sent report, where a header
+   * "Save Draft"/"Save Changes" click now preserves that status instead of
+   * silently demoting it back to `'Draft'`.
    */
   async function saveDraft() {
     if (draft.kind === 'daily') {
@@ -308,7 +340,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     }
     const id = draft.id || uid(draft.kind === 'daily' ? 'd' : 'r');
     const now = nowDate();
-    const report = draftToReport(draft, id, 'Draft', now);
+    const report = draftToReport(draft, id, draft.status, now);
     setIsSubmitting(true);
     try {
       await options.onSaveDraft(report);
@@ -334,6 +366,19 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
    * "Risks"). `draft.id` is still stamped BEFORE the await either way, so a
    * retry after a failure reuses the same id rather than minting a new one
    * on every attempt.
+   *
+   * WP5: the persisted status is `draft.status === 'Sent' ? 'Sent' : 'Final'`,
+   * not an unconditional `'Final'` literal -- republishing an already-`Sent`
+   * report (e.g. correcting a typo after it was emailed out) must not
+   * silently demote it back to `'Final'`. This is the same bug class the
+   * `saveDraft` fix above closes, one lifecycle stage later: `'Draft'` ->
+   * `'Final'` -> `'Sent'` is a one-way ratchet everywhere else in this app
+   * (there is no in-wizard way to mark a report `'Sent'` at all yet -- that
+   * only happens via the report screen's Status `<Select>` -- so the ONLY
+   * way `draft.status` can already be `'Sent'` when `publish()` runs is a
+   * resumed `Sent` report), and `publish()` must never be the one place that
+   * quietly reverses it. A brand-new or resumed-Draft/Final report still
+   * writes `'Final'` here, exactly as before.
    */
   async function publish() {
     const err1 = validateStep(1, draft, dailySiblings);
@@ -347,8 +392,16 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     }
     const id = draft.id || uid(draft.kind === 'daily' ? 'd' : 'r');
     const now = nowDate();
-    const report = draftToReport(draft, id, 'Final', now);
-    setDraft((d) => ({ ...d, id }));
+    const publishedStatus = draft.status === 'Sent' ? 'Sent' : 'Final';
+    const report = draftToReport(draft, id, publishedStatus, now);
+    // WP5: stamps `status` alongside `id` here too -- without it, the header
+    // "Save Draft"/"Save Changes" button (which stays live on the
+    // publish-confirmation screen, see the header comment in
+    // WizardScreen.tsx) would read the PRE-publish `draft.status` (still
+    // `'Draft'` for a brand-new report) on a post-publish click and demote
+    // the report that was JUST published right back to `'Draft'` via
+    // `saveDraft()`'s `draftToReport(draft, id, draft.status, now)` above.
+    setDraft((d) => ({ ...d, id, status: publishedStatus }));
     setIsSubmitting(true);
     try {
       await options.onPublish(report);
@@ -494,6 +547,7 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     step,
     error,
     published,
+    wasPublished,
     isSubmitting,
 
     setDraftField,

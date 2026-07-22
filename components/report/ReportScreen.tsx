@@ -3,6 +3,7 @@
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ConfirmDeleteReportDialog } from '@/components/dialogs/ConfirmDeleteReportDialog';
 import { ShareDialog, shareLinkFor } from '@/components/dialogs/ShareDialog';
 import { Badge } from '@/components/ui/Badge';
@@ -139,11 +140,36 @@ function emptyReportFallback(kind: ReportKind): AnyReport {
  * edit" -- deleting is destructive and irreversible, unlike every other
  * control here.
  *
+ * WP5: a fifth action, "Edit Report" (`outline`, placed before Delete),
+ * routes to the wizard (`${presentBase}/${dSafe.id}/edit`) -- the wizard
+ * already resumes a report of ANY status (see `useWizard`'s `reportToDraft`),
+ * so a published report's tasks/risks/priorities/narratives can now be
+ * corrected through the same 6-step flow a draft uses, rather than only via
+ * this screen's own handful of inline-editable fields (status/preparedFor/
+ * period). Deliberately UNGATED (no `canEdit`/admin check, unlike Delete):
+ * this screen's own inline fields are already editable by any signed-in
+ * user today and fail server-side with a curated `mutationError` on a
+ * permission violation, so gating only the wizard ENTRY POINT would be
+ * inconsistent -- a non-owner would still reach the wizard, fill it out,
+ * and only THEN discover they can't save, which is a worse experience than
+ * today's inline-field failure, not a better one. A non-owner's wizard save
+ * goes through the exact same write path as everything else in this app
+ * (`POST /api/reports` -> `replace_reports`) and is rejected the exact same
+ * way: RLS violation -> `mapPgError('forbidden')` -> curated "You don't have
+ * permission to do that." -> `useWizard`'s `catch` renders it in the
+ * wizard's own error banner, and the wizard stays mounted with the draft
+ * intact (nothing is lost, the user can copy their edits out or just leave).
+ * Delete stays gated (`canDelete`) because it is destructive and
+ * irreversible in a way editing is not -- a rejected edit leaves the
+ * published report exactly as it was; a rejected delete attempt has no such
+ * "nothing happened" guarantee to lean on if the gate were ever wrong.
+ *
  * Owns its own (small) Share-dialog AND delete-dialog UI state directly --
  * this route is simple enough (one param, one hook) that it doesn't need a
  * separate route-level orchestrator like DashboardPage/WizardPage.
  */
 export function ReportScreen({ report, kind, onUpdateFields, periodError, mutationError, onDelete, canDelete, deleteHint }: ReportScreenProps) {
+  const router = useRouter();
   const dSafe = report ?? emptyReportFallback(kind);
   const { onSched, total } = onSchedule(dSafe);
   const backHref = kind === 'daily' ? '/daily' : '/reports';
@@ -186,6 +212,22 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
     if (!dSafe.id) return;
     const url = `${presentBase}/${dSafe.id}/present${print ? '?print=1' : ''}`;
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  /**
+   * WP5: same-tab navigation into the wizard's resume flow -- mirrors
+   * `DashboardPage.tsx`'s `onResumeDraft={(id) => router.push(...)}` (the
+   * pre-existing convention for entering the wizard on an existing report),
+   * NOT a new-tab `window.open` like `openPresentation` above (editing is a
+   * primary, not a spawned-off, action). Guarded the same way
+   * `openPresentation` is: a no-op while `dSafe` is still the null-guard
+   * fallback (`report === null`, `dSafe.id === ''`), so a stray click in
+   * that split-second window before `report` loads can't navigate to
+   * `${presentBase}//edit`.
+   */
+  const openEdit = () => {
+    if (!dSafe.id) return;
+    router.push(`${presentBase}/${dSafe.id}/edit`);
   };
 
   /**
@@ -314,6 +356,9 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
             </Button>
             <Button variant="outline" size="sm" onClick={() => openPresentation(true)}>
               Download PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={openEdit}>
+              Edit Report
             </Button>
             <Button
               variant="outline"
