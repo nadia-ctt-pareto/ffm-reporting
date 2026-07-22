@@ -1,0 +1,170 @@
+/* Permanent explainer -- the two honest caveats (week-not-day granularity,
+   client+task-text identity) stay visible at all times, not tucked behind a
+   tooltip or a one-time dismissible banner (CLAUDE.md: this is what makes
+   the view trustworthy rather than a black box). */
+.explainer {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-body);
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 14px 18px;
+  margin: 0 0 24px;
+}
+
+.tileGroup {
+  margin-bottom: 20px;
+}
+
+.tileGroupHeading {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+  margin-bottom: 10px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+/* Deliberately a real <button>, not a styled StatCard: these tiles are
+   INTERACTIVE filters (CLAUDE.md), so they need native keyboard/focus
+   behavior, not a decorative card wearing a click handler. */
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-left-width: 4px;
+  padding: 14px 16px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.tile:hover {
+  background: var(--surface-panel-muted);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--text-heading);
+  outline-offset: 2px;
+}
+
+.tileSelected {
+  border-color: var(--text-heading);
+  border-left-color: var(--text-heading);
+  background: var(--surface-panel-muted);
+}
+
+.tileLabel {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading-accent);
+}
+
+.tileValue {
+  font-family: var(--font-heading);
+  font-weight: 300;
+  font-size: 26px;
+  color: var(--text-heading);
+}
+
+/* Tone accents -- semantic tokens only, no new colours (CLAUDE.md's binding
+   constraints); see TaskScheduleView.tsx's `toneClass` doc comment for why
+   each bucket gets the accent it does. */
+.toneDanger {
+  border-left-color: var(--action-danger);
+}
+
+.toneDanger .tileValue {
+  color: var(--action-danger);
+}
+
+.tonePositive {
+  border-left-color: var(--positive);
+}
+
+.tonePositive .tileValue {
+  color: var(--positive);
+}
+
+.toneWarning {
+  border-left-color: var(--warning);
+}
+
+.toneWarning .tileValue {
+  color: var(--warning);
+}
+
+.toneMuted {
+  border-left-color: var(--border-subtle);
+}
+
+.tileSelected.toneDanger,
+.tileSelected.tonePositive,
+.tileSelected.toneWarning,
+.tileSelected.toneMuted {
+  border-left-color: var(--text-heading);
+}
+
+.panel {
+  margin-top: 28px;
+}
+
+.emptyState {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+}
+
+.evidenceText {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.rowAction {
+  display: inline-block;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--text-heading);
+  padding: 7px 16px;
+  cursor: pointer;
+  color: var(--text-heading);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.rowAction:hover {
+  background: var(--text-heading);
+  color: var(--surface-page);
+}
+
+/* Mobile P7 precedent (TaskList.module.css): bigger touch target for this
+   non-Button action element. */
+@media screen and (max-width: 767px) {
+  .rowAction {
+    padding: var(--row-action-pad-mobile);
+  }
+}

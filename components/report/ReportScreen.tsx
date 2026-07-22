@@ -379,9 +379,15 @@ export function ReportScreen({ report, kind, onUpdateFields, periodError, mutati
         <p className={styles.narrative}>{dSafe.summaryNarrative}</p>
 
         <div className={styles.statsGrid}>
-          <StatCard label="Tasks On Schedule" value={`${onSched} / ${total}`} />
+          {/* Schedule view follow-up: same destination as DashboardScreen's
+              equivalent pair -- see that component's doc comment. Shared
+              verbatim across weekly and daily report screens (this
+              component is `kind`-aware, see the file header comment), even
+              though `/tasks` stays weekly-only -- a daily report's card
+              still links into the same Schedule tab other tasks live in. */}
+          <StatCard label="Tasks On Schedule" value={`${onSched} / ${total}`} href="/tasks?view=schedule" />
           <StatCard label="Client Calls" value={String(dSafe.touchpoints.calls || 0)} />
-          <StatCard label="Open Blockers" value={String(openBlockers(dSafe))} />
+          <StatCard label="Open Blockers" value={String(openBlockers(dSafe))} href="/tasks?view=schedule&filter=overdue-blocked" />
         </div>
 
         <div className={styles.sectionKicker}>{headings.tasks}</div>

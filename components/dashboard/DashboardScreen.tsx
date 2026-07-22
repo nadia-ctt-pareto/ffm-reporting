@@ -214,8 +214,21 @@ export function DashboardScreen({
       <div className={styles.content}>
         <div className={styles.statsGrid}>
           <StatCard label="Total Reports" value={String(reports.length)} />
-          <StatCard label="Avg. Tasks On Schedule" value={`${avgPct}%`} />
-          <StatCard label="Open Blockers (Latest)" value={latest ? String(openBlockers(latest)) : '0'} />
+          {/* Schedule view follow-up: both of these link into `/tasks`'s new
+              Schedule tab (`lib/task-schedule.ts`), which classifies EVERY
+              logical task's on-time/late/blocked history -- a much more
+              actionable destination than this card's own single rolled-up
+              number. "Open Blockers (Latest)" links pre-filtered to the
+              `overdue-blocked` bucket specifically (the subset of blockers
+              that are ALSO overdue), not merely `Blocked` -- see
+              `lib/task-schedule.ts`'s bucket table for why those aren't the
+              same thing. */}
+          <StatCard label="Avg. Tasks On Schedule" value={`${avgPct}%`} href="/tasks?view=schedule" />
+          <StatCard
+            label="Open Blockers (Latest)"
+            value={latest ? String(openBlockers(latest)) : '0'}
+            href="/tasks?view=schedule&filter=overdue-blocked"
+          />
           <StatCard label="Active Clients" value={String(projects?.length ?? 0)} />
         </div>
 

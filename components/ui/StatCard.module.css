@@ -25,3 +25,21 @@
   font-size: 30px;
   color: var(--text-heading);
 }
+
+/* Schedule view follow-up: opt-in `href` affordance -- see StatCard.tsx's
+   doc comment. `.card`'s own rules (background/border/padding/flex) are
+   unconditionally shared by both the plain <div> and this <a>; these three
+   rules only ever apply on top of that when `href` is set. */
+.cardLink {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cardLink:hover {
+  border-color: var(--text-heading);
+}
+
+.cardLink:focus-visible {
+  outline: 2px solid var(--text-heading);
+  outline-offset: 2px;
+}

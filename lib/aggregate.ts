@@ -23,7 +23,18 @@ import { uid } from './format';
 import { reportPeriodEnd } from './report-utils';
 import type { AnyReport, DailyReport, Draft, Priority, Risk, Task } from './types';
 
-function taskKey(t: Pick<Task, 'client' | 'task'>): string {
+/**
+ * The dedupe/identity key for "the same logical task" across reports:
+ * exact (client, task-text) match, no fuzzy matching. Exported (not just a
+ * private helper) so `lib/task-schedule.ts` (Schedule view) can chain a
+ * task's occurrences across weekly reports using the IDENTICAL predicate
+ * this aggregator already uses for carry-forward/import dedupe -- two
+ * independently-invented "same task" notions would silently drift the
+ * moment either changed. A task text edit intentionally starts a NEW chain
+ * under both consumers, for the same reason (see this file's own header
+ * comment on dedup semantics).
+ */
+export function taskKey(t: Pick<Task, 'client' | 'task'>): string {
   return `${t.client}::${t.task}`;
 }
 

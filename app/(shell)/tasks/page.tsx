@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { LoadErrorState } from '@/components/app/LoadErrorState';
 import { TaskViewScreen } from '@/components/tasks/TaskViewScreen';
 import { useReports } from '@/lib/hooks/useReports';
@@ -29,8 +30,19 @@ import { useReports } from '@/lib/hooks/useReports';
  * doc comments. `mutationError` is still threaded through so the Kanban
  * drag's snap-back still reads as a visible error instead of "the app
  * broke".
+ *
+ * Schedule tab follow-up: `TaskViewScreen` now reads `useSearchParams()`
+ * itself (`?view=`/`?filter=` deep-linking into the new Schedule tab -- see
+ * that component's own doc comment), so `next build` requires a `<Suspense>`
+ * boundary somewhere above it or static prerendering of this route fails --
+ * the exact same requirement `app/(shell)/settings/page.tsx` already
+ * satisfies for `SettingsScreen`'s `?tab=`. `TasksPageContent` is split out
+ * so the boundary wraps the `useReports()` call too (simpler than threading
+ * a second inner boundary around just `<TaskViewScreen>`), which is fine --
+ * `useReports()` doesn't read `useSearchParams()` itself, so nothing about
+ * its own behavior changes.
  */
-export default function TasksPage() {
+function TasksPageContent() {
   const { reports, loadError, updateReportFields, mutationError } = useReports();
 
   // Post-review hardening round 2 (SHOULD-FIX H): a failed initial load
@@ -42,4 +54,12 @@ export default function TasksPage() {
   }
 
   return <TaskViewScreen reports={reports} mutationError={mutationError} onUpdateReportFields={updateReportFields} />;
+}
+
+export default function TasksPage() {
+  return (
+    <Suspense>
+      <TasksPageContent />
+    </Suspense>
+  );
 }
