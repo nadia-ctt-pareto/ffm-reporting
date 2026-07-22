@@ -31,6 +31,77 @@
   margin-bottom: 14px;
 }
 
+/* Needs Attention: the section kicker plus its "View Task Schedule" link,
+   on one row. Nesting `.sectionKicker` here zeroes its own margin-bottom --
+   `.sectionHeaderRow`'s own margin-bottom takes over that spacing job so it
+   isn't doubled. */
+.sectionHeaderRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sectionHeaderRow .sectionKicker {
+  margin-bottom: 0;
+}
+
+.sectionLink {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.sectionLink:hover {
+  color: var(--link);
+}
+
+/* Needs Attention: deadline cell -- the formatted date plus an inline
+   OVERDUE marker (rendered only when the task's own deadline has already
+   passed `nowDate()`, see lib/needs-attention.ts). */
+.deadlineCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* `--action-danger`, not a new colour token (CLAUDE.md's binding
+   constraints) -- the same token Button's `danger` variant and the
+   Schedule view's overdue tiles (TaskScheduleView.module.css) already use
+   for "this needs attention". */
+.overdueMarker {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--action-danger);
+}
+
+/* Needs Attention: the "+N more" link shown only when the list is capped
+   (ATTENTION_LIMIT, HomeScreen.tsx). */
+.moreLink {
+  display: inline-block;
+  margin-top: 14px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.moreLink:hover {
+  color: var(--link);
+}
+
 .rowAction {
   display: inline-block;
   font-family: var(--font-heading);

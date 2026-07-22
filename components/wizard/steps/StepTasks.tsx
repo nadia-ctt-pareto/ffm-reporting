@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ImportPanel } from '@/components/wizard/ImportPanel';
 import type { ImportCandidateProps } from '@/components/wizard/ImportPanel';
+import type { CarryForwardNoteState } from '@/components/wizard/useWizard';
 import { TASK_STATUS_OPTIONS } from '@/lib/constants';
 import { draftPeriodLabel } from '@/lib/report-utils';
 import type { Draft, Task } from '@/lib/types';
@@ -28,6 +29,24 @@ export interface StepTasksProps {
   importTaskCandidates: ImportCandidateProps[];
   importTaskDisabled: boolean;
   importSelectedTasks: () => void;
+  /** Auto carry-forward on a NEW report: `null` when nothing was auto-imported (or after Dismiss/Undo) -- see useWizard.ts. */
+  carryForwardNote: CarryForwardNoteState | null;
+  onDismissCarryForward: () => void;
+  onUndoCarryForward: () => void;
+}
+
+/**
+ * Auto carry-forward on a NEW report: builds the note's copy, e.g. "Carried
+ * forward 4 unfinished tasks from Jul 22 — 3 In Progress, 1 Blocked." Only
+ * non-zero status counts are listed (a carry that pulled in only Blocked
+ * tasks, say, never reads "... — 0 In Progress, 1 Blocked").
+ */
+function carryForwardMessage(note: CarryForwardNoteState): string {
+  const total = note.blockedCount + note.inProgressCount;
+  const parts: string[] = [];
+  if (note.inProgressCount > 0) parts.push(`${note.inProgressCount} In Progress`);
+  if (note.blockedCount > 0) parts.push(`${note.blockedCount} Blocked`);
+  return `Carried forward ${total} unfinished task${total === 1 ? '' : 's'} from ${note.sourceLabel} — ${parts.join(', ')}.`;
 }
 
 interface TaskRowProps {
@@ -131,11 +150,28 @@ export function StepTasks({
   importTaskCandidates,
   importTaskDisabled,
   importSelectedTasks,
+  carryForwardNote,
+  onDismissCarryForward,
+  onUndoCarryForward,
 }: StepTasksProps) {
   const period = draftPeriodLabel(draft);
   return (
     <div>
       <div className={styles.title}>Task Status</div>
+
+      {carryForwardNote ? (
+        <div className={styles.carryForwardNote}>
+          <p className={styles.carryForwardCopy}>{carryForwardMessage(carryForwardNote)}</p>
+          <div className={styles.carryForwardActions}>
+            <Button variant="outline" size="sm" onClick={onUndoCarryForward}>
+              Undo
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onDismissCarryForward}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <ImportPanel
         kicker="Import Pending Tasks From a Prior Report"

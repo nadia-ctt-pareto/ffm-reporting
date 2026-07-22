@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { nowDate, uid } from '@/lib/format';
-import { aggregateDailiesIntoDraft } from '@/lib/aggregate';
+import { aggregateDailiesIntoDraft, carryForwardUnfinishedTasks } from '@/lib/aggregate';
+import type { CarryForwardResult } from '@/lib/aggregate';
 import { projectIdForClientName } from '@/lib/projects';
 import {
   blankDailyDraft,
@@ -21,6 +22,24 @@ export interface ImportCandidate {
   label: string;
   checked: boolean;
   onToggle: () => void;
+}
+
+/**
+ * Auto carry-forward on a NEW report: the dismissible note shown at the top
+ * of the Task Status step once, right after mount, when unfinished tasks
+ * were pulled in from the most recent prior SAME-KIND report (see
+ * `carryForwardUnfinishedTasks`, lib/aggregate.ts). `taskIds` is what makes
+ * Undo precise -- it lists ONLY the ids `initialCarryForward` itself minted
+ * (see useWizard's own state below), so Undo can never remove a task the
+ * user added manually afterward, even one with the identical (client, task)
+ * text as a carried one -- ids, not content, are what Undo matches on.
+ */
+export interface CarryForwardNoteState {
+  /** The prior report's period label (e.g. "Week of Jul 13–17, 2026" or "Jul 17, 2026") -- see reportPeriodLabel. */
+  sourceLabel: string;
+  blockedCount: number;
+  inProgressCount: number;
+  taskIds: string[];
 }
 
 interface ImportSelState {
@@ -125,6 +144,13 @@ export interface UseWizardResult {
 
   priorReportOptions: { value: string; label: string }[];
 
+  /** Auto carry-forward on a NEW report: `null` whenever nothing was auto-imported (resumed draft/published report, no prior same-kind report, or the prior report had zero unfinished tasks) OR after Dismiss/Undo. Rendered by StepTasks. */
+  carryForwardNote: CarryForwardNoteState | null;
+  /** Hides the note without touching any carried task. */
+  dismissCarryForward: () => void;
+  /** Removes exactly the auto-carried tasks (matched by id, see CarryForwardNoteState.taskIds) and hides the note. Never re-imports afterward -- see this file's carry-forward state doc comment. */
+  undoCarryForward: () => void;
+
   importTaskSource: string;
   onImportTaskSourceChange: (value: string) => void;
   importTaskCandidates: ImportCandidate[];
@@ -176,12 +202,89 @@ type DraftListKey = 'tasks' | 'risks' | 'priorities';
  * (steps 2/4/5) working unchanged for both kinds. `options.dailies` is a
  * separate, always-ALL-dailies list used only by the weekly wizard's
  * "Import This Week's Daily Reports" action.
+ *
+ * Auto carry-forward on a NEW report: distinct from the MANUAL, always-
+ * available Import panels above -- this hook also auto-imports unfinished
+ * (Blocked/In Progress) tasks from the most recent same-kind prior report
+ * exactly once, at mount, but ONLY when `initialReport === null` (a
+ * genuinely new report; never a resumed draft or a resumed published
+ * report). See `initialCarryForward`/`carryForwardNote`/`undoCarryForward`
+ * below and `lib/aggregate.ts`'s `carryForwardUnfinishedTasks`.
  */
 export function useWizard(reports: AnyReport[], initialReport: AnyReport | null, options: UseWizardOptions): UseWizardResult {
+  /**
+   * Auto carry-forward on a NEW report: computed ONCE, via a lazy `useState`
+   * initializer -- the exact same "compute once at mount, never again"
+   * technique `wasPublished` below already uses -- so this is guaranteed to
+   * run exactly once per wizard mount regardless of re-renders, with no
+   * separate effect/ref bookkeeping needed. `initialReport === null` is the
+   * ONLY signal this checks for "is this a genuinely NEW report": resuming
+   * an existing draft OR a published report both pass a non-null
+   * `initialReport`, so neither ever triggers this (per the plan: "resuming
+   * an existing draft or editing a published report must NEVER auto-import").
+   *
+   * The source is "the most recent prior report of the SAME kind by
+   * reportPeriodEnd" -- the identical formula `priorReports`/`defaultSourceId`
+   * further down compute, just inlined here: that `const` isn't declared
+   * yet at this point in the function body, and its own `r.id !== draft.id`
+   * filter is a no-op for a brand-new draft anyway (`draft.id` is always
+   * `null` here, and no real report ever has a `null` id), so this produces
+   * the exact same source report `priorReports[0]` would.
+   */
+  const [initialCarryForward] = useState<CarryForwardResult | null>(() => {
+    if (initialReport !== null) return null;
+    const source = [...reports].sort((a, b) => reportPeriodEnd(b).localeCompare(reportPeriodEnd(a)))[0];
+    if (!source) return null;
+    // Dedupe against an empty task list: a brand-new draft has no tasks yet
+    // at this point (blankDraft()/blankDailyDraft() both start empty) --
+    // but `carryForwardUnfinishedTasks` still takes `existingTasks` as a
+    // real parameter rather than special-casing "always empty" here, so its
+    // dedupe contract is exercised identically for every caller.
+    return carryForwardUnfinishedTasks(source, []);
+  });
+
   const [draft, setDraft] = useState<Draft>(() => {
     if (initialReport) return reportToDraft(initialReport);
-    return options.kind === 'daily' ? blankDailyDraft() : blankDraft();
+    const blank = options.kind === 'daily' ? blankDailyDraft() : blankDraft();
+    if (!initialCarryForward || initialCarryForward.tasks.length === 0) return blank;
+    return { ...blank, tasks: [...blank.tasks, ...initialCarryForward.tasks] };
   });
+
+  // The dismissible note StepTasks renders -- `null` whenever nothing was
+  // auto-imported (no prior same-kind report, or the prior report had zero
+  // unfinished tasks) OR after Dismiss/Undo (see those functions below).
+  const [carryForwardNote, setCarryForwardNote] = useState<CarryForwardNoteState | null>(() =>
+    initialCarryForward && initialCarryForward.tasks.length > 0
+      ? {
+          sourceLabel: reportPeriodLabel(initialCarryForward.source),
+          blockedCount: initialCarryForward.blockedCount,
+          inProgressCount: initialCarryForward.inProgressCount,
+          taskIds: initialCarryForward.tasks.map((t) => t.id),
+        }
+      : null
+  );
+
+  /** Hides the note without touching any carried task -- the user has seen it and moved on. */
+  function dismissCarryForward() {
+    setCarryForwardNote(null);
+  }
+
+  /**
+   * Removes exactly the tasks `initialCarryForward` added (matched by id,
+   * captured in `carryForwardNote.taskIds` at mount) and hides the note.
+   * Never touches a task the user added manually since, even one sharing
+   * the same (client, task) text as a carried one -- ids, not content, are
+   * what this matches on. Does not re-run the import afterward: nothing in
+   * this hook re-invokes `carryForwardUnfinishedTasks` past mount, so Undo
+   * is a one-way action for the life of this wizard mount, exactly as the
+   * plan requires ("after Undo, do not silently re-import").
+   */
+  function undoCarryForward() {
+    if (!carryForwardNote) return;
+    const ids = new Set(carryForwardNote.taskIds);
+    setDraft((d) => ({ ...d, tasks: d.tasks.filter((t) => !ids.has(t.id)) }));
+    setCarryForwardNote(null);
+  }
   // Phase 8d (editing a published report): captured once, from `initialReport` (the value this hook was
   // mounted with), NOT from the mutable `draft` state -- see the
   // `wasPublished` doc comment on UseWizardResult for why re-deriving it
@@ -612,6 +715,10 @@ export function useWizard(reports: AnyReport[], initialReport: AnyReport | null,
     publish,
 
     priorReportOptions,
+
+    carryForwardNote,
+    dismissCarryForward,
+    undoCarryForward,
 
     importTaskSource: importTaskSourceId,
     onImportTaskSourceChange,

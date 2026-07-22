@@ -197,6 +197,31 @@
   max-width: 560px;
 }
 
+/* Auto carry-forward on a NEW report: same visual treatment as
+   .dailyImportPanel/.dailyImportCopy above -- a dismissible note announcing
+   what got auto-imported from the most recent prior same-kind report, with
+   Undo/Dismiss actions. Rendered at the top of the Task Status step, above
+   the manual ImportPanel. */
+.carryForwardNote {
+  background: var(--surface-panel-muted);
+  border: 1px solid var(--border-subtle);
+  padding: 20px 22px;
+  margin-bottom: 28px;
+  color: var(--text-body);
+}
+
+.carryForwardCopy {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-body);
+  margin: 0 0 14px;
+}
+
+.carryForwardActions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Mobile P4: stack every multi-field row to one column. .priorityRow is
    deliberately excluded -- it's just an Input + a Remove button (1fr auto),
    which already fits at 375px without stacking.

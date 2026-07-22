@@ -95,6 +95,9 @@ export function WizardScreen({
             importTaskCandidates={wizard.importTaskCandidates}
             importTaskDisabled={wizard.importTaskDisabled}
             importSelectedTasks={wizard.importSelectedTasks}
+            carryForwardNote={wizard.carryForwardNote}
+            onDismissCarryForward={wizard.dismissCarryForward}
+            onUndoCarryForward={wizard.undoCarryForward}
           />
         );
       case 3:

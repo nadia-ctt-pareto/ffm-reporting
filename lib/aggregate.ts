@@ -229,3 +229,60 @@ export function aggregateReportsIntoDraft(sources: AnyReport[], draft: Draft): A
 export function aggregateDailiesIntoDraft(dailies: DailyReport[], draft: Draft): Draft {
   return aggregateReportsIntoDraft(dailies, draft).draft;
 }
+
+/**
+ * Auto carry-forward on a NEW report (`useWizard.ts`): the prior same-kind
+ * report's `source` and however many freshly-id'd `Task`s got carried into
+ * a brand-new draft. `blockedCount`/`inProgressCount` are pre-split so the
+ * wizard's dismissible note can read them straight off without re-deriving
+ * them from `tasks`.
+ */
+export interface CarryForwardResult {
+  /** The prior same-kind report the tasks came from -- used for the note's "from <period>" copy. */
+  source: AnyReport;
+  /** Freshly-id'd `Task`s, ready to append to a draft's `tasks` array. */
+  tasks: Task[];
+  blockedCount: number;
+  inProgressCount: number;
+}
+
+/**
+ * `Blocked`/`In Progress` tasks from `source` -- NEVER `Complete`, an
+ * unfinished task carried forward is the whole point -- deduped against
+ * `existingTasks` via the EXACT (client, task) predicate `useWizard.ts`'s
+ * manual Import panels and `aggregateReportsIntoDraft` above already use (no
+ * fuzzy matching, no re-derived notion of "already there"). Each carried
+ * task gets a FRESH id (never reuses `source`'s task id -- this is a new,
+ * independent task record on the new draft, not a shared reference) and
+ * `completedAt` is dropped outright: these are unfinished BY DEFINITION, so
+ * a carried task can never coherently have a completion date (even if
+ * `source`'s copy somehow had a stale one). `client`/`status`/`deadline`/
+ * `projectId` carry verbatim.
+ *
+ * Pure: never mutates `source` or `existingTasks`, touches no storage.
+ * Deliberately NOT used by the manual Import panels (`importSelectedTasks`
+ * in useWizard.ts) -- those need live candidate/checkbox selection state
+ * this function has no notion of; this is purely the AUTOMATIC, whole-batch
+ * "carry everything unfinished" path used once, at wizard mount, for a
+ * genuinely new report only (see useWizard.ts's own doc comment on this).
+ */
+export function carryForwardUnfinishedTasks(source: AnyReport, existingTasks: Task[]): CarryForwardResult {
+  const candidates = source.tasks.filter(
+    (t) => t.status !== 'Complete' && !existingTasks.some((et) => et.client === t.client && et.task === t.task)
+  );
+  const tasks: Task[] = candidates.map((t) => ({
+    id: uid('t'),
+    client: t.client,
+    projectId: t.projectId,
+    task: t.task,
+    status: t.status,
+    deadline: t.deadline,
+    // completedAt deliberately omitted -- see this function's doc comment.
+  }));
+  return {
+    source,
+    tasks,
+    blockedCount: tasks.filter((t) => t.status === 'Blocked').length,
+    inProgressCount: tasks.filter((t) => t.status === 'In Progress').length,
+  };
+}
